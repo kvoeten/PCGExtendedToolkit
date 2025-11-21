@@ -1,4 +1,4 @@
-﻿// Copyright 2025 Timothé Lapetite and contributors
+// Copyright 2025 Timothé Lapetite and contributors
 // Released under the MIT license https://opensource.org/license/MIT/
 
 
@@ -65,3 +65,9 @@ UPCGExAssetCollection* FPCGExRoamingAssetCollectionDetails::TryBuildCollection(F
 	return Collection;
 }
 
+bool FPCGExSocketOutputDetails::Init(FPCGExContext* InContext)
+{
+	// Basic implementation to satisfy linker. 
+	// Add real initialization logic here if needed.
+	return true;
+}

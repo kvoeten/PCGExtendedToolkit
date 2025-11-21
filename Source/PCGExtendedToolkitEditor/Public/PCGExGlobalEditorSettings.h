@@ -1,10 +1,11 @@
-﻿// Copyright 2025 Timothé Lapetite and contributors
+// Copyright 2025 Timothé Lapetite and contributors
 // Released under the MIT license https://opensource.org/license/MIT/
 
 #pragma once
 
 #include "CoreMinimal.h"
 #include "PCGExCommon.h"
+#include "Layout/Visibility.h"
 #include "Engine/EngineTypes.h"
 #include "Engine/DeveloperSettings.h"
 

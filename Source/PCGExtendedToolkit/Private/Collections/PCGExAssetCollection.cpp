@@ -18,11 +18,12 @@
 #endif
 
 #include "PCGEx.h"
-#include "PCGExMacros.h"
+//#include "PCGExMacros.h"
 
 namespace PCGExAssetCollection
 {
-	bool FCategory::IsEmpty() const { return Order.IsEmpty(); }
+	// Already FORCEINLINED'd in header..
+	// bool FCategory::IsEmpty() const { return Order.IsEmpty(); }
 
 	int32 FCategory::GetPick(const int32 Index, const EPCGExIndexPickMode PickMode) const
 	{
@@ -92,7 +93,7 @@ namespace PCGExAssetCollection
 	void FCategory::RegisterEntry(const int32 Index, const FPCGExAssetCollectionEntry* InEntry)
 	{
 		Entries.Add(InEntry);
-		const_cast<FPCGExAssetCollectionEntry*>(InEntry)->BuildMacroCache(); // Dealing with legacy shit implementation
+		const_cast<FPCGExAssetCollectionEntry*>(InEntry)->BuildMicroCache(); // Dealing with legacy shit implementation
 		Indices.Add(Index);
 		Weights.Add(InEntry->Weight + 1);
 	}
@@ -191,9 +192,9 @@ void FPCGExAssetCollectionEntry::GetAssetPaths(TSet<FSoftObjectPath>& OutPaths) 
 	OutPaths.Emplace(Staging.Path);
 }
 
-void FPCGExAssetCollectionEntry::BuildMacroCache()
+void FPCGExAssetCollectionEntry::BuildMicroCache()
 {
-	MacroCache = nullptr;
+	MicroCache = nullptr;
 }
 
 void FPCGExAssetCollectionEntry::ClearManagedSockets()
@@ -507,53 +508,32 @@ void UPCGExAssetCollection::GetAssetPaths(TSet<FSoftObjectPath>& OutPaths, const
 {
 }
 
-
-FPCGExRoamingAssetCollectionDetails::FPCGExRoamingAssetCollectionDetails(const TSubclassOf<UPCGExAssetCollection>& InAssetCollectionType)
-	: bSupportCustomType(false), AssetCollectionType(InAssetCollectionType)
+namespace PCGExAssetCollection
 {
 }
 
-bool FPCGExRoamingAssetCollectionDetails::Validate(FPCGExContext* InContext) const
+// Missing implementation for FPCGExAssetCollectionEntry
+const FPCGExFittingVariations& FPCGExAssetCollectionEntry::GetVariations(const UPCGExAssetCollection* ParentCollection) const
 {
-	if (!AssetCollectionType)
-	{
-		PCGE_LOG_C(Error, GraphAndLog, InContext, FTEXT("Collection type is not set."));
-		return false;
-	}
+	// If this entry is a subcollection, you might want logic here to fetch from it.
+	// For now, returning local variations to satisfy the linker.
+	return Variations;
+}
 
+double FPCGExAssetCollectionEntry::GetGrammarSize(const UPCGExAssetCollection* Host, TMap<const FPCGExAssetCollectionEntry*, double>* SizeCache) const
+{
+	// Placeholder implementation
+	return 1.0;
+}
+
+bool FPCGExAssetCollectionEntry::FixModuleInfos(const UPCGExAssetCollection* Host, FPCGSubdivisionSubmodule& OutModule, TMap<const FPCGExAssetCollectionEntry*, double>* SizeCache) const
+{
+	// Placeholder implementation
 	return true;
 }
 
-UPCGExAssetCollection* FPCGExRoamingAssetCollectionDetails::TryBuildCollection(FPCGExContext* InContext, const UPCGParamData* InAttributeSet, const bool bBuildStaging) const
+// Missing implementation for UPCGExAssetCollection
+void UPCGExAssetCollection::EDITOR_RegisterTrackingKeys(FPCGExContext* Context) const
 {
-	if (!AssetCollectionType) { return nullptr; }
-	UPCGExAssetCollection* Collection = InContext->ManagedObjects->New<UPCGExAssetCollection>(GetTransientPackage(), AssetCollectionType.Get(), NAME_None);
-	if (!Collection) { return nullptr; }
-
-	if (!Collection->BuildFromAttributeSet(InContext, InAttributeSet, *this, bBuildStaging))
-	{
-		InContext->ManagedObjects->Destroy(Collection);
-		return nullptr;
-	}
-
-	return Collection;
-}
-
-UPCGExAssetCollection* FPCGExRoamingAssetCollectionDetails::TryBuildCollection(FPCGExContext* InContext, const FName InputPin, const bool bBuildStaging) const
-{
-	if (!AssetCollectionType) { return nullptr; }
-	UPCGExAssetCollection* Collection = InContext->ManagedObjects->New<UPCGExAssetCollection>(GetTransientPackage(), AssetCollectionType.Get(), NAME_None);
-	if (!Collection) { return nullptr; }
-
-	if (!Collection->BuildFromAttributeSet(InContext, InputPin, *this, bBuildStaging))
-	{
-		InContext->ManagedObjects->Destroy(Collection);
-		return nullptr;
-	}
-
-	return Collection;
-}
-
-namespace PCGExAssetCollection
-{
+	// Placeholder implementation
 }

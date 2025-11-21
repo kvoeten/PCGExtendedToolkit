@@ -1,4 +1,4 @@
-﻿// Copyright (c) Nebukam
+// Copyright (c) Nebukam
 
 
 #include "Details/PCGExDetailsCustomization.h"
@@ -22,6 +22,9 @@
 #include "Details/InputSettings/PCGExInputShorthandsCustomization.h"
 #include "Details/Tuple/PCGExTupleBodyCustomization.h"
 
+#include "Styling/SlateStyle.h" 
+#include "Brushes/SlateImageBrush.h"
+#include "Styling/SlateStyleRegistry.h"
 
 namespace PCGExDetailsCustomization
 {

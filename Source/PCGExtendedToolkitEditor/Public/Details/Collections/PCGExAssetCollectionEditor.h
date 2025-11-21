@@ -1,9 +1,11 @@
-﻿// Copyright 2025 Timothé Lapetite and contributors
+// Copyright 2025 Timothé Lapetite and contributors
 // Released under the MIT license https://opensource.org/license/MIT/
 
 #pragma once
 
 #include "Toolkits/AssetEditorToolkit.h"
+#include "Framework/Docking/TabManager.h"
+#include "Widgets/Docking/SDockTab.h"
 
 class UPCGExAssetCollection;
 
@@ -15,7 +17,7 @@ namespace PCGExAssetCollectionEditor
 	{
 		TabInfos() = default;
 
-		TabInfos(const FName InId, const TSharedPtr<SWidget>& InView, const FName InLabel = NAME_None, const ETabRole InRole = MajorTab)
+		TabInfos(const FName InId, const TSharedPtr<SWidget>& InView, const FName InLabel = NAME_None, const ETabRole InRole = ETabRole::MajorTab)
 			: Id(InId), View(InView), Label(InLabel.IsNone() ? InId : InLabel), Role(InRole)
 		{
 		}
@@ -25,7 +27,7 @@ namespace PCGExAssetCollectionEditor
 		TSharedPtr<SWidget> View = nullptr;
 		TSharedPtr<SWidget> Footer = nullptr;
 		FName Label = NAME_None;
-		ETabRole Role = MajorTab;
+		ETabRole Role = ETabRole::MajorTab;
 		FString Icon = TEXT("");
 	};
 

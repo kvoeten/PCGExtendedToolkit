@@ -47,7 +47,7 @@ struct FPCGExTagValueFilterConfig
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta=(PCG_Overridable, DisplayName="Operand B (Numeric)", EditCondition="ValueType == EPCGExComparisonDataType::Numeric", EditConditionHides, HideEditConditionToggle))
 	double NumericOperandB = 0;
 
-	/** Rounding mode for relative measures */
+	/** Near-equality tolerance */
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta=(PCG_Overridable, EditCondition="ValueType == EPCGExComparisonDataType::Numeric && (NumericComparison == EPCGExComparison::NearlyEqual || NumericComparison == EPCGExComparison::NearlyNotEqual)", EditConditionHides))
 	double Tolerance = DBL_COMPARE_TOLERANCE;
 
@@ -111,11 +111,14 @@ class UPCGExTagValueFilterProviderSettings : public UPCGExFilterProviderSettings
 {
 	GENERATED_BODY()
 
+protected:
+	PCGEX_FACTORY_TYPE_ID(FPCGExDataTypeInfoFilterCollection)
+
 public:
 	//~Begin UPCGSettings
 #if WITH_EDITOR
 	PCGEX_NODE_INFOS_CUSTOM_SUBTITLE(
-		TagValueFilterFactory, "C-Filter : Tag Value", "Test the value of one or multiple tags",
+		TagValueFilterFactory, "Data Filter : Tag Value", "Test the value of one or multiple tags",
 		PCGEX_FACTORY_NAME_PRIORITY)
 #endif
 	//~End UPCGSettings

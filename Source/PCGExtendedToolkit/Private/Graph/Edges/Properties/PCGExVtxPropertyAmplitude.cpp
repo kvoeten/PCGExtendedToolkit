@@ -3,7 +3,10 @@
 
 #include "Graph/Edges/Properties/PCGExVtxPropertyAmplitude.h"
 
+#include "PCGExMath.h"
 #include "PCGPin.h"
+#include "Data/Blending/PCGExBlendMinMax.h"
+#include "Details/PCGExDetailsSettings.h"
 #include "Graph/PCGExCluster.h"
 
 
@@ -12,6 +15,11 @@
 
 #define LOCTEXT_NAMESPACE "PCGExVtxPropertyAmplitude"
 #define PCGEX_NAMESPACE PCGExVtxPropertyAmplitude
+
+FPCGExAmplitudeConfig::FPCGExAmplitudeConfig()
+{
+	UpConstant = GetDefault<UPCGExGlobalSettings>()->WorldUp;
+}
 
 bool FPCGExAmplitudeConfig::Validate(FPCGExContext* InContext) const
 {
@@ -91,7 +99,7 @@ bool FPCGExVtxPropertyAmplitude::PrepareForCluster(FPCGExContext* InContext, TSh
 	return bIsValidOperation;
 }
 
-void FPCGExVtxPropertyAmplitude::ProcessNode(PCGExCluster::FNode& Node, const TArray<PCGExCluster::FAdjacencyData>& Adjacency)
+void FPCGExVtxPropertyAmplitude::ProcessNode(PCGExCluster::FNode& Node, const TArray<PCGExCluster::FAdjacencyData>& Adjacency, const PCGExGeo::FBestFitPlane& BFP)
 {
 	const int32 NumAdjacency = Adjacency.Num();
 

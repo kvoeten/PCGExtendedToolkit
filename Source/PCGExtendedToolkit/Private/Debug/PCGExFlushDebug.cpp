@@ -5,6 +5,8 @@
 
 #include "PCGGraph.h"
 #include "PCGPin.h"
+#include "PCGGraph.h"
+#include "DrawDebugHelpers.h"
 
 #define LOCTEXT_NAMESPACE "PCGExGraphSettings"
 #define PCGEX_NAMESPACE Debug
@@ -14,14 +16,14 @@
 TArray<FPCGPinProperties> UPCGExDebugSettings::InputPinProperties() const
 {
 	TArray<FPCGPinProperties> PinProperties;
-	PCGEX_PIN_ANY(PCGEx::SourcePointsLabel, "In.", Required, {})
+	PCGEX_PIN_ANY(PCGPinConstants::DefaultInputLabel, "In.", Required)
 	return PinProperties;
 }
 
 TArray<FPCGPinProperties> UPCGExDebugSettings::OutputPinProperties() const
 {
 	TArray<FPCGPinProperties> PinProperties;
-	PCGEX_PIN_ANY(PCGEx::SourcePointsLabel, "Out.", Required, {})
+	PCGEX_PIN_ANY(PCGPinConstants::DefaultInputLabel, "Out.", Required)
 	return PinProperties;
 }
 

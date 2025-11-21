@@ -3,6 +3,7 @@
 
 #include "Transform/Tensors/PCGExTensorSplineFactoryProvider.h"
 
+#include "Data/PCGSplineData.h"
 #include "Paths/PCGExPaths.h"
 #include "Paths/PCGExSplineToPath.h"
 
@@ -48,7 +49,7 @@ PCGExFactories::EPreparationResult UPCGExTensorSplineFactoryData::InitInternalDa
 
 		if (ManagedSplines.IsEmpty())
 		{
-			if (!bQuietMissingInputError) { PCGE_LOG_C(Error, GraphAndLog, InContext, FTEXT("No splines (no input matches criteria or empty dataset)")); }
+			PCGEX_LOG_MISSING_INPUT(InContext, FTEXT("No splines (no input matches criteria or empty dataset)"))
 			return PCGExFactories::EPreparationResult::Fail;
 		}
 	}
@@ -72,7 +73,7 @@ PCGExFactories::EPreparationResult UPCGExTensorSplineFactoryData::InitInternalDa
 
 		if (Splines.IsEmpty())
 		{
-			if (!bQuietMissingInputError) { PCGE_LOG_C(Error, GraphAndLog, InContext, FTEXT("No splines (no input matches criteria or empty dataset)")); }
+			PCGEX_LOG_MISSING_INPUT(InContext, FTEXT("No splines (no input matches criteria or empty dataset)"))
 			return PCGExFactories::EPreparationResult::Fail;
 		}
 	}
@@ -92,11 +93,11 @@ TArray<FPCGPinProperties> UPCGExTensorSplineFactoryProviderSettings::InputPinPro
 	TArray<FPCGPinProperties> PinProperties = Super::InputPinProperties();
 	if (GetBuildFromPoints())
 	{
-		PCGEX_PIN_POINTS(FName("Paths"), "Path data", Required, {})
+		PCGEX_PIN_POINTS(FName("Paths"), "Path data", Required)
 	}
 	else
 	{
-		PCGEX_PIN_POLYLINES(FName("Splines"), "Spline data", Required, {})
+		PCGEX_PIN_POLYLINES(FName("Splines"), "Spline data", Required)
 	}
 	return PinProperties;
 }

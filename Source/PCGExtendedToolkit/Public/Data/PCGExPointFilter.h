@@ -5,10 +5,16 @@
 
 #include "CoreMinimal.h"
 #include "UObject/Object.h"
-#include "PCGExData.h"
 #include "PCGExFactoryProvider.h"
 
 #include "PCGExPointFilter.generated.h"
+
+namespace PCGExData
+{
+	class FPointIO;
+	struct FProxyPoint;
+	class FPointIOCollection;
+}
 
 namespace PCGExGraph
 {
@@ -25,8 +31,8 @@ class UPCGExFilterProviderSettings;
 UENUM()
 enum class EPCGExFilterFallback : uint8
 {
-	Pass = 0 UMETA(DisplayName = "Pass", ToolTip="This item will be considered to successfully pass the filter"),
-	Fail = 1 UMETA(DisplayName = "Fail", ToolTip="This item will be considered to failing to pass the filter"),
+	Pass = 0 UMETA(DisplayName = "Pass", ToolTip="This item will be considered to successfully pass the filter", ActionIcon="MissingData_Pass"),
+	Fail = 1 UMETA(DisplayName = "Fail", ToolTip="This item will be considered to failing to pass the filter", ActionIcon="MissingData_Fail"),
 };
 
 UENUM()
@@ -36,12 +42,12 @@ enum class EPCGExFilterResult : uint8
 	Fail = 1 UMETA(DisplayName = "Fail", ToolTip="Fails the filters"),
 };
 
-UENUM()
+UENUM(BlueprintType)
 enum class EPCGExFilterNoDataFallback : uint8
 {
-	Error = 0 UMETA(DisplayName = "Throw Error", ToolTip="This filter will throw an error if there is no data."),
-	Pass  = 1 UMETA(DisplayName = "Pass", ToolTip="This filter will pass if there is no data"),
-	Fail  = 2 UMETA(DisplayName = "Fail", ToolTip="This filter will fail if there is no data"),
+	Error = 0 UMETA(DisplayName = "Throw Error", ToolTip="This filter will throw an error if there is no data.", ActionIcon="MissingData_Error"),
+	Pass  = 1 UMETA(DisplayName = "Pass", ToolTip="This filter will pass if there is no data", ActionIcon="MissingData_Pass"),
+	Fail  = 2 UMETA(DisplayName = "Fail", ToolTip="This filter will fail if there is no data", ActionIcon="MissingData_Fail"),
 };
 
 namespace PCGExGraph
@@ -67,6 +73,20 @@ namespace PCGExFilters
 	};
 }
 
+USTRUCT(meta=(PCG_DataTypeDisplayName="PCGEx | Filter"))
+struct FPCGExDataTypeInfoFilter : public FPCGExFactoryDataTypeInfo
+{
+	GENERATED_BODY()
+	PCG_DECLARE_TYPE_INFO(PCGEXTENDEDTOOLKIT_API)
+};
+
+USTRUCT(meta=(PCG_DataTypeDisplayName="PCGEx | Filter (Point)"))
+struct FPCGExDataTypeInfoFilterPoint : public FPCGExDataTypeInfoFilter
+{
+	GENERATED_BODY()
+	PCG_DECLARE_TYPE_INFO(PCGEXTENDEDTOOLKIT_API)
+};
+
 /**
  * 
  */
@@ -78,7 +98,9 @@ class PCGEXTENDEDTOOLKIT_API UPCGExFilterFactoryData : public UPCGExFactoryData
 	friend UPCGExFilterProviderSettings;
 
 public:
-	virtual PCGExFactories::EType GetFactoryType() const override { return PCGExFactories::EType::FilterPoint; }
+	PCG_ASSIGN_TYPE_INFO(FPCGExDataTypeInfoFilter)
+
+	virtual PCGExFactories::EType GetFactoryType() const override { return PCGExFactories::EType::Filter; }
 
 	virtual bool DomainCheck();
 	virtual bool GetOnlyUseDataDomain() const { return bOnlyUseDataDomain; }
@@ -91,17 +113,35 @@ public:
 	virtual TSharedPtr<PCGExPointFilter::IFilter> CreateFilter() const;
 
 	int32 Priority = 0;
-	EPCGExFilterNoDataFallback MissingDataHandling = EPCGExFilterNoDataFallback::Fail;
+	EPCGExFilterNoDataFallback InitializationFailurePolicy = EPCGExFilterNoDataFallback::Error;
+	EPCGExFilterNoDataFallback MissingDataPolicy = EPCGExFilterNoDataFallback::Fail;
 
 protected:
 	bool bOnlyUseDataDomain = false;
 };
 
+/**
+ * 
+ */
+UCLASS(Abstract, BlueprintType, ClassGroup = (Procedural), Category="PCGEx|Data")
+class PCGEXTENDEDTOOLKIT_API UPCGExPointFilterFactoryData : public UPCGExFilterFactoryData
+{
+	GENERATED_BODY()
+
+	friend UPCGExFilterProviderSettings;
+
+public:
+	PCG_ASSIGN_TYPE_INFO(FPCGExDataTypeInfoFilterPoint)
+
+	virtual PCGExFactories::EType GetFactoryType() const override { return PCGExFactories::EType::FilterPoint; }
+};
+
+
 namespace PCGExPointFilter
 {
 	const FName OutputFilterLabel = FName("Filter");
 	const FName OutputColFilterLabel = FName("C-Filter");
-	const FName OutputFilterLabelNode = FName("Node Filter");
+	const FName OutputFilterLabelNode = FName("Vtx Filter");
 	const FName OutputFilterLabelEdge = FName("Edge Filter");
 	const FName SourceFiltersLabel = FName("Filters");
 
@@ -122,11 +162,12 @@ namespace PCGExPointFilter
 	class PCGEXTENDEDTOOLKIT_API IFilter : public TSharedFromThis<IFilter>
 	{
 	public:
-		explicit IFilter(const TObjectPtr<const UPCGExFilterFactoryData>& InFactory):
+		explicit IFilter(const TObjectPtr<const UPCGExPointFilterFactoryData>& InFactory):
 			Factory(InFactory)
 		{
 		}
 
+		bool bWillBeUsedWithCollections = false;
 		bool bUseDataDomainSelectorsOnly = false;
 		bool bCollectionTestResult = true;
 		bool bUseEdgeAsPrimary = false; // This shouldn't be there but...
@@ -135,7 +176,7 @@ namespace PCGExPointFilter
 		TSharedPtr<PCGExData::FFacade> PointDataFacade;
 
 		bool bCacheResults = true;
-		TObjectPtr<const UPCGExFilterFactoryData> Factory;
+		TObjectPtr<const UPCGExPointFilterFactoryData> Factory;
 		TArray<int8> Results;
 
 		int32 FilterIndex = 0;
@@ -162,7 +203,7 @@ namespace PCGExPointFilter
 	class PCGEXTENDEDTOOLKIT_API ISimpleFilter : public IFilter
 	{
 	public:
-		explicit ISimpleFilter(const TObjectPtr<const UPCGExFilterFactoryData>& InFactory):
+		explicit ISimpleFilter(const TObjectPtr<const UPCGExPointFilterFactoryData>& InFactory):
 			IFilter(InFactory)
 		{
 		}
@@ -177,7 +218,7 @@ namespace PCGExPointFilter
 	class PCGEXTENDEDTOOLKIT_API ICollectionFilter : public IFilter
 	{
 	public:
-		explicit ICollectionFilter(const TObjectPtr<const UPCGExFilterFactoryData>& InFactory):
+		explicit ICollectionFilter(const TObjectPtr<const UPCGExPointFilterFactoryData>& InFactory):
 			IFilter(InFactory)
 		{
 		}
@@ -199,6 +240,7 @@ namespace PCGExPointFilter
 		explicit FManager(const TSharedRef<PCGExData::FFacade>& InPointDataFacade);
 
 		bool bUseEdgeAsPrimary = false; // This shouldn't be there...
+		bool bWillBeUsedWithCollections = false;
 
 		bool bCacheResultsPerFilter = false;
 		bool bCacheResults = false;
@@ -208,7 +250,7 @@ namespace PCGExPointFilter
 
 		TSharedRef<PCGExData::FFacade> PointDataFacade;
 
-		bool Init(FPCGExContext* InContext, const TArray<TObjectPtr<const UPCGExFilterFactoryData>>& InFactories);
+		bool Init(FPCGExContext* InContext, const TArray<TObjectPtr<const UPCGExPointFilterFactoryData>>& InFactories);
 
 		virtual bool Test(const int32 Index);
 		virtual bool Test(const PCGExData::FProxyPoint& Point);
@@ -241,15 +283,15 @@ namespace PCGExPointFilter
 		virtual void InitCache();
 	};
 
-	static void RegisterBuffersDependencies(FPCGExContext* InContext, const TArray<TObjectPtr<const UPCGExFilterFactoryData>>& InFactories, PCGExData::FFacadePreloader& FacadePreloader)
+	static void RegisterBuffersDependencies(FPCGExContext* InContext, const TArray<TObjectPtr<const UPCGExPointFilterFactoryData>>& InFactories, PCGExData::FFacadePreloader& FacadePreloader)
 	{
-		for (const UPCGExFilterFactoryData* Factory : InFactories)
+		for (const UPCGExPointFilterFactoryData* Factory : InFactories)
 		{
 			Factory->RegisterBuffersDependencies(InContext, FacadePreloader);
 		}
 	}
 
-	static void PruneForDirectEvaluation(FPCGExContext* InContext, TArray<TObjectPtr<const UPCGExFilterFactoryData>>& InFactories)
+	static void PruneForDirectEvaluation(FPCGExContext* InContext, TArray<TObjectPtr<const UPCGExPointFilterFactoryData>>& InFactories)
 	{
 		if (InFactories.IsEmpty()) { return; }
 
@@ -276,15 +318,24 @@ namespace PCGExPointFilter
 	}
 }
 
+USTRUCT(meta=(PCG_DataTypeDisplayName="PCGEx | Filter (Data)"))
+struct FPCGExDataTypeInfoFilterCollection : public FPCGExDataTypeInfoFilter
+{
+	GENERATED_BODY()
+	PCG_DECLARE_TYPE_INFO(PCGEXTENDEDTOOLKIT_API)
+};
+
 /**
  * 
  */
 UCLASS(Abstract, BlueprintType, ClassGroup = (Procedural), Category="PCGEx|Data")
-class PCGEXTENDEDTOOLKIT_API UPCGExFilterCollectionFactoryData : public UPCGExFilterFactoryData
+class PCGEXTENDEDTOOLKIT_API UPCGExFilterCollectionFactoryData : public UPCGExPointFilterFactoryData
 {
 	GENERATED_BODY()
 
 public:
+	PCG_ASSIGN_TYPE_INFO(FPCGExDataTypeInfoFilterCollection)
+
 	virtual PCGExFactories::EType GetFactoryType() const override { return PCGExFactories::EType::FilterCollection; }
 	virtual bool DomainCheck() override;
 	virtual bool SupportsCollectionEvaluation() const override;

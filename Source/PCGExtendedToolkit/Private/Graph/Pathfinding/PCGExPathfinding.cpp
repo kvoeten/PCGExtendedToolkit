@@ -3,8 +3,12 @@
 
 #include "Graph/Pathfinding/PCGExPathfinding.h"
 
+#include "Data/PCGExData.h"
+#include "Data/PCGExPointIO.h"
 #include "Graph/PCGExCluster.h"
+#include "Graph/Pathfinding/GoalPickers/PCGExGoalPicker.h"
 #include "Graph/Pathfinding/Heuristics/PCGExHeuristics.h"
+#include "Graph/Pathfinding/Search/PCGExScoredQueue.h"
 #include "Graph/Pathfinding/Search/PCGExSearchOperation.h"
 
 namespace PCGExPathfinding
@@ -25,6 +29,34 @@ namespace PCGExPathfinding
 		return true;
 	}
 
+	void FSearchAllocations::Init(const PCGExCluster::FCluster* InCluster)
+	{
+		NumNodes = InCluster->Nodes->Num();
+
+		Visited.Init(false, NumNodes);
+		TravelStack = PCGEx::NewHashLookup<PCGEx::FHashLookupArray>(PCGEx::NH64(-1, -1), NumNodes);
+		ScoredQueue = MakeShared<PCGExSearch::FScoredQueue>(NumNodes);
+	}
+
+	void FSearchAllocations::Reset()
+	{
+		if (GScore.Num() == Visited.Num())
+		{
+			for (int i = 0; i < NumNodes; i++)
+			{
+				Visited[i] = false;
+				GScore[i] = -1;
+			}
+		}
+		else
+		{
+			for (int i = 0; i < NumNodes; i++) { Visited[i] = false; }
+		}
+
+		TravelStack->Reset();
+		ScoredQueue->Reset();
+	}
+
 	EQueryPickResolution FPathQuery::ResolvePicks(const FPCGExNodeSelectionDetails& SeedSelectionDetails, const FPCGExNodeSelectionDetails& GoalSelectionDetails)
 	{
 		PickResolution = EQueryPickResolution::None;
@@ -41,7 +73,7 @@ namespace PCGExPathfinding
 				                 EQueryPickResolution::UnresolvedGoal;
 		}
 
-		if (Seed.Node == Goal.Node && (PickResolution != EQueryPickResolution::UnresolvedSeed || PickResolution != EQueryPickResolution::UnresolvedGoal))
+		if (Seed.Node == Goal.Node && PickResolution == EQueryPickResolution::None)
 		{
 			PickResolution = EQueryPickResolution::SameSeedAndGoal;
 		}
@@ -76,6 +108,7 @@ namespace PCGExPathfinding
 
 	void FPathQuery::FindPath(
 		const TSharedPtr<FPCGExSearchOperation>& SearchOperation,
+		const TSharedPtr<FSearchAllocations>& Allocations,
 		const TSharedPtr<PCGExHeuristics::FHeuristicsHandler>& HeuristicsHandler,
 		const TSharedPtr<PCGExHeuristics::FLocalFeedbackHandler>& LocalFeedback)
 	{
@@ -87,7 +120,7 @@ namespace PCGExPathfinding
 
 		PCGEX_SHARED_THIS_DECL
 
-		if (SearchOperation->ResolveQuery(ThisPtr, HeuristicsHandler, LocalFeedback))
+		if (SearchOperation->ResolveQuery(ThisPtr, Allocations, HeuristicsHandler, LocalFeedback))
 		{
 			SetResolution(HasValidPathPoints() ? EPathfindingResolution::Success : EPathfindingResolution::Fail);
 		}
@@ -189,6 +222,7 @@ namespace PCGExPathfinding
 	void FPlotQuery::FindPaths(
 		const TSharedPtr<PCGExMT::FTaskManager>& AsyncManager,
 		const TSharedPtr<FPCGExSearchOperation>& SearchOperation,
+		const TSharedPtr<FSearchAllocations>& Allocations,
 		const TSharedPtr<PCGExHeuristics::FHeuristicsHandler>& HeuristicsHandler)
 	{
 		PCGEX_ASYNC_GROUP_CHKD_VOID(AsyncManager, PlotTasks)
@@ -204,13 +238,18 @@ namespace PCGExPathfinding
 			};
 
 		PlotTasks->OnSubLoopStartCallback =
-			[PCGEX_ASYNC_THIS_CAPTURE, SearchOperation, HeuristicsHandler](const PCGExMT::FScope& Scope)
+			[PCGEX_ASYNC_THIS_CAPTURE, SearchOperation, Allocations, HeuristicsHandler](const PCGExMT::FScope& Scope)
 			{
 				PCGEX_ASYNC_THIS
-				This->SubQueries[Scope.Start]->FindPath(SearchOperation, HeuristicsHandler, This->LocalFeedbackHandler);
+				TSharedPtr<FSearchAllocations> LocalAllocations = Allocations;
+				if (!Allocations) { LocalAllocations = SearchOperation->NewAllocations(); }
+				PCGEX_SCOPE_LOOP(Index)
+				{
+					This->SubQueries[Index]->FindPath(SearchOperation, LocalAllocations, HeuristicsHandler, This->LocalFeedbackHandler);
+				}
 			};
 
-		PlotTasks->StartSubLoops(SubQueries.Num(), 1, HeuristicsHandler->HasAnyFeedback());
+		PlotTasks->StartSubLoops(SubQueries.Num(), 12, HeuristicsHandler->HasAnyFeedback() || (Allocations != nullptr));
 	}
 
 	void FPlotQuery::Cleanup()

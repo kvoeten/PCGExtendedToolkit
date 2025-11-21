@@ -4,11 +4,10 @@
 #pragma once
 
 #include "CoreMinimal.h"
-
+#include "PCGExMathMean.h"
 #include "PCGExPathfinding.h"
-#include "PCGExPointsProcessor.h"
-#include "Data/PCGExDataForward.h"
 
+#include "Data/PCGExDataForward.h"
 
 #include "Graph/PCGExEdgesProcessor.h"
 #include "Paths/PCGExPaths.h"
@@ -42,7 +41,7 @@ enum class EPCGExGrowthUpdateMode : uint8
 	AddEachIteration = 2 UMETA(DisplayName = "Add Each Iteration", ToolTip="Add to the remaning number of iterations after each iteration."),
 };
 
-namespace PCGExGrowPaths
+namespace PCGExPathfindingGrowPaths
 {
 	class FProcessor;
 
@@ -106,7 +105,7 @@ public:
 	//~Begin UPCGSettings
 #if WITH_EDITOR
 	PCGEX_NODE_INFOS(PathfindingGrowPaths, "Pathfinding : Grow Paths", "Grow paths from seeds.");
-	virtual FLinearColor GetNodeTitleColor() const override { return GetDefault<UPCGExGlobalSettings>()->NodeColorPathfinding; }
+	virtual FLinearColor GetNodeTitleColor() const override { return GetDefault<UPCGExGlobalSettings>()->ColorPathfinding; }
 #endif
 
 protected:
@@ -144,7 +143,8 @@ public:
 	int32 NumIterationsConstant = 3;
 
 
-	/** How to update the number of iteration for each seed.  Note: No matter what is selected, will never exceed the Max iteration. */
+	/** How to update the number of iteration for each seed.
+	 * Note: No matter what is selected, will never exceed the Max iteration. */
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta = (PCG_Overridable, EditCondition="NumIterations != EPCGExGrowthValueSource::Constant && NumIterations == EPCGExGrowthValueSource::VtxAttribute", EditConditionHides))
 	EPCGExGrowthUpdateMode NumIterationsUpdateMode = EPCGExGrowthUpdateMode::Once;
 
@@ -177,7 +177,8 @@ public:
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta = (PCG_Overridable, EditCondition="GrowthDirection == EPCGExGrowthValueSource::Constant", EditConditionHides))
 	FVector GrowthDirectionConstant = FVector::UpVector;
 
-	/** How to update the number of iteration for each seed.  Note: No matter what is selected, will never exceed the Max iteration. */
+	/** How to update the number of iteration for each seed.
+	 * Note: No matter what is selected, will never exceed the Max iteration. */
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings)
 	EPCGExGrowthUpdateMode GrowthDirectionUpdateMode = EPCGExGrowthUpdateMode::Once;
 
@@ -254,6 +255,9 @@ struct FPCGExPathfindingGrowPathsContext final : FPCGExEdgesProcessorContext
 
 	FPCGExAttributeToTagDetails SeedAttributesToPathTags;
 	TSharedPtr<PCGExData::FDataForwardHandler> SeedForwardHandler;
+
+protected:
+	PCGEX_ELEMENT_BATCH_EDGE_DECL
 };
 
 class FPCGExPathfindingGrowPathsElement final : public FPCGExEdgesProcessorElement
@@ -265,7 +269,7 @@ protected:
 	virtual bool ExecuteInternal(FPCGContext* Context) const override;
 };
 
-namespace PCGExGrowPaths
+namespace PCGExPathfindingGrowPaths
 {
 	class FProcessor final : public PCGExClusterMT::TProcessor<FPCGExPathfindingGrowPathsContext, UPCGExPathfindingGrowPathsSettings>
 	{

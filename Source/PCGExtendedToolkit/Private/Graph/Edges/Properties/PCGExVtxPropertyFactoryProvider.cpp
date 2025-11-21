@@ -3,11 +3,14 @@
 
 #include "Graph/Edges/Properties/PCGExVtxPropertyFactoryProvider.h"
 #include "PCGPin.h"
+#include "Data/PCGExData.h"
 #include "Graph/PCGExCluster.h"
 
 
 #define LOCTEXT_NAMESPACE "PCGExWriteVtxProperties"
 #define PCGEX_NAMESPACE PCGExWriteVtxProperties
+
+PCG_DEFINE_TYPE_INFO(FPCGExDataTypeInfoVtxProperty, UPCGExVtxPropertyFactoryData)
 
 bool FPCGExSimpleEdgeOutputSettings::Validate(const FPCGContext* InContext) const
 {
@@ -72,6 +75,11 @@ void FPCGExEdgeOutputWithIndexSettings::Set(const int32 EntryIndex, const PCGExC
 	if (NCountWriter) { NCountWriter->SetValue(EntryIndex, NeighborCount); }
 }
 
+bool FPCGExVtxPropertyOperation::WantsBFP() const
+{
+	return false;
+}
+
 bool FPCGExVtxPropertyOperation::PrepareForCluster(FPCGExContext* InContext, TSharedPtr<PCGExCluster::FCluster> InCluster, const TSharedPtr<PCGExData::FFacade>& InVtxDataFacade, const TSharedPtr<PCGExData::FFacade>& InEdgeDataFacade)
 {
 	PrimaryDataFacade = InVtxDataFacade;
@@ -83,7 +91,7 @@ bool FPCGExVtxPropertyOperation::PrepareForCluster(FPCGExContext* InContext, TSh
 
 bool FPCGExVtxPropertyOperation::IsOperationValid() { return bIsValidOperation; }
 
-void FPCGExVtxPropertyOperation::ProcessNode(PCGExCluster::FNode& Node, const TArray<PCGExCluster::FAdjacencyData>& Adjacency)
+void FPCGExVtxPropertyOperation::ProcessNode(PCGExCluster::FNode& Node, const TArray<PCGExCluster::FAdjacencyData>& Adjacency, const PCGExGeo::FBestFitPlane& BFP)
 {
 }
 
@@ -100,8 +108,8 @@ TSharedPtr<FPCGExVtxPropertyOperation> UPCGExVtxPropertyFactoryData::CreateOpera
 TArray<FPCGPinProperties> UPCGExVtxPropertyProviderSettings::InputPinProperties() const
 {
 	TArray<FPCGPinProperties> PinProperties = Super::InputPinProperties();
-	//PCGEX_PIN_FACTORIES(PCGEx::SourcePointFilters, "Filters used to check which node will be processed by the sampler or not.", Advanced, {})
-	//PCGEX_PIN_FACTORIES(PCGEx::SourceUseValueIfFilters, "Filters used to check if a node can be used as a value source or not.", Advanced, {})
+	//PCGEX_PIN_FACTORIES(PCGEx::SourcePointFilters, "Filters used to check which node will be processed by the sampler or not.", Advanced)
+	//PCGEX_PIN_FACTORIES(PCGEx::SourceUseValueIfFilters, "Filters used to check if a node can be used as a value source or not.", Advanced)
 	return PinProperties;
 }
 

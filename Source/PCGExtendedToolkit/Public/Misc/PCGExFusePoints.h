@@ -7,7 +7,7 @@
 #include "PCGExGlobalSettings.h"
 
 #include "PCGExPointsProcessor.h"
-#include "PCGExDetailsIntersection.h"
+#include "Details/PCGExDetailsIntersection.h"
 #include "Data/PCGExDataFilter.h"
 #include "Data/Blending/PCGExUnionBlender.h"
 #include "Data/Blending/PCGExDataBlending.h"
@@ -16,6 +16,13 @@
 #include "Graph/PCGExIntersections.h"
 
 #include "PCGExFusePoints.generated.h"
+
+UENUM()
+enum class EPCGExFusedPointOutput : uint8
+{
+	Blend = 0 UMETA(DisplayName = "Blend", ToolTip="Blend all points within a radius"),
+	MostCentral = 1 UMETA(DisplayName = "Keep Most Central", ToolTip="Keep the existing point that's most central to the sample group"),
+};
 
 namespace PCGExFuse
 {
@@ -44,7 +51,7 @@ public:
 	//~Begin UPCGSettings
 #if WITH_EDITOR
 	PCGEX_NODE_INFOS(FusePoints, "Fuse Points", "Fuse points based on distance.");
-	virtual FLinearColor GetNodeTitleColor() const override { return GetDefault<UPCGExGlobalSettings>()->NodeColorMiscRemove; }
+	virtual FLinearColor GetNodeTitleColor() const override { return GetDefault<UPCGExGlobalSettings>()->ColorMiscRemove; }
 #endif
 
 protected:
@@ -52,6 +59,10 @@ protected:
 	//~End UPCGSettings
 
 public:
+	/** Mode */
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta=(PCG_NotOverridable))
+	EPCGExFusedPointOutput Mode = EPCGExFusedPointOutput::Blend;
+	
 	/** Fuse Settings */
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta=(PCG_Overridable, DisplayName="Point/Point Settings"))
 	FPCGExPointPointIntersectionDetails PointPointIntersectionDetails = FPCGExPointPointIntersectionDetails(false);
@@ -61,11 +72,11 @@ public:
 	bool bPreserveOrder = true;
 
 	/** Defines how fused point properties and attributes are merged together. */
-	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings)
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta=(EditCondition="Mode==EPCGExFusedPointOutput::Blend", EditConditionHides))
 	FPCGExBlendingDetails BlendingDetails = FPCGExBlendingDetails(EPCGExDataBlendingType::Average, EPCGExDataBlendingType::None);
 
 	/** Meta filter settings. */
-	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta = (PCG_Overridable, DisplayName="Carry Over Settings"))
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta = (PCG_Overridable, DisplayName="Carry Over Settings", EditCondition="Mode==EPCGExFusedPointOutput::Blend", EditConditionHides))
 	FPCGExCarryOverDetails CarryOverDetails;
 
 private:
@@ -77,6 +88,9 @@ struct FPCGExFusePointsContext final : FPCGExPointsProcessorContext
 	friend class FPCGExFusePointsElement;
 	TSharedPtr<PCGExDetails::FDistances> Distances;
 	FPCGExCarryOverDetails CarryOverDetails;
+
+protected:
+	PCGEX_ELEMENT_BATCH_POINT_DECL
 };
 
 class FPCGExFusePointsElement final : public FPCGExPointsProcessorElement
@@ -102,7 +116,7 @@ namespace PCGExFusePoints
 		explicit FProcessor(const TSharedRef<PCGExData::FFacade>& InPointDataFacade)
 			: TProcessor(InPointDataFacade)
 		{
-			bDaisyChainProcessPoints = true;
+			bForceSingleThreadedProcessPoints = true;
 		}
 
 		virtual ~FProcessor() override;

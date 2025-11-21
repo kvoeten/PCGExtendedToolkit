@@ -3,19 +3,31 @@
 
 #pragma once
 
+#include <functional>
 #include "CoreMinimal.h"
+#include "Metadata/PCGMetadataCommon.h"
+#include "PCGExMath.h"
 
 #include "Metadata/PCGAttributePropertySelector.h"
-#include "Collections/PCGExComponentDescriptors.h"
-#include "Components/SplineMeshComponent.h"
 #include "PCGExOctree.h"
+#include "Components/SplineMeshComponent.h"
+#include "Details/PCGExSettingsMacros.h"
 #include "Geometry/PCGExGeo.h"
 #include "Graph/PCGExEdge.h"
 
 #include "PCGExPaths.generated.h"
 
-struct FPCGExMeshCollectionEntry;
+class UPCGPolygon2DData;
 struct FPCGSplineStruct;
+
+namespace ESplineMeshAxis
+{
+	enum Type : int;
+}
+
+struct FPCGExStaticMeshComponentDescriptor;
+struct FPCGExMeshCollectionEntry;
+class UPCGSplineData;
 
 namespace PCGExData
 {
@@ -204,6 +216,10 @@ struct PCGEXTENDEDTOOLKIT_API FPCGExPathIntersectionDetails
 	double MaxAngle = 90;
 	double MaxDot = 1;
 
+	/** Strictness of the intersection detection. Different modes allow for some edge cases to be considered intersection. */
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta=(PCG_NotOverridable, Bitmask, BitmaskEnum="/Script/PCGExtendedToolkit.EPCGExIntersectionStrictness"))
+	uint8 Strictness = static_cast<uint8>(EPCGExIntersectionStrictness::Strict);
+
 	bool bWantsDotCheck = false;
 
 	void Init();
@@ -224,17 +240,34 @@ namespace PCGExPaths
 	const FName SourceShiftFilters = TEXT("Shift Conditions");
 
 	const FPCGAttributeIdentifier ClosedLoopIdentifier = FPCGAttributeIdentifier(FName("IsClosed"), PCGMetadataDomainID::Data);
+	const FPCGAttributeIdentifier HoleIdentifier = FPCGAttributeIdentifier(FName("IsHole"), PCGMetadataDomainID::Data);
 
 	PCGEXTENDEDTOOLKIT_API
 	void GetAxisForEntry(const FPCGExStaticMeshComponentDescriptor& InDescriptor, ESplineMeshAxis::Type& OutAxis, int32& OutC1, int32& OutC2, const EPCGExSplineMeshAxis Default = EPCGExSplineMeshAxis::X);
 
 	PCGEXTENDEDTOOLKIT_API
 	void SetClosedLoop(UPCGData* InData, const bool bIsClosedLoop);
-	static void SetClosedLoop(const TSharedPtr<PCGExData::FPointIO>& InData, const bool bIsClosedLoop) { SetClosedLoop(InData->GetOut(), bIsClosedLoop); }
+
+	PCGEXTENDEDTOOLKIT_API
+	void SetClosedLoop(const TSharedPtr<PCGExData::FPointIO>& InData, const bool bIsClosedLoop);
 
 	PCGEXTENDEDTOOLKIT_API
 	bool GetClosedLoop(const UPCGData* InData);
-	static bool GetClosedLoop(const TSharedPtr<PCGExData::FPointIO>& InData) { return GetClosedLoop(InData->GetIn()); }
+
+	PCGEXTENDEDTOOLKIT_API
+	bool GetClosedLoop(const TSharedPtr<PCGExData::FPointIO>& InData);
+
+	PCGEXTENDEDTOOLKIT_API
+	void SetIsHole(UPCGData* InData, const bool bIsHole);
+
+	PCGEXTENDEDTOOLKIT_API
+	void SetIsHole(const TSharedPtr<PCGExData::FPointIO>& InData, const bool bIsHole);
+
+	PCGEXTENDEDTOOLKIT_API
+	bool GetIsHole(const UPCGData* InData);
+
+	PCGEXTENDEDTOOLKIT_API
+	bool GetIsHole(const TSharedPtr<PCGExData::FPointIO>& InData);
 
 	PCGEXTENDEDTOOLKIT_API
 	void FetchPrevNext(const TSharedPtr<PCGExData::FFacade>& InFacade, const TArray<PCGExMT::FScope>& Loops);
@@ -275,7 +308,7 @@ namespace PCGExPaths
 		ESplineMeshAxis::Type SplineMeshAxis = ESplineMeshAxis::Type::X;
 
 		const FPCGExMeshCollectionEntry* MeshEntry = nullptr;
-		int32 MaterialPick = -1;
+		int16 MaterialPick = -1;
 		FSplineMeshParams Params;
 
 		void ComputeUpVectorFromTangents();
@@ -297,7 +330,6 @@ namespace PCGExPaths
 		FPathEdge(const int32 InStart, const int32 InEnd, const TConstPCGValueRange<FTransform>& Positions, const double Expansion = 0);
 
 		void Update(const TConstPCGValueRange<FTransform>& Positions, const double Expansion = 0);
-
 
 		bool ShareIndices(const FPathEdge& Other) const;
 		bool Connects(const FPathEdge& Other) const;
@@ -340,7 +372,8 @@ namespace PCGExPaths
 		explicit TPathEdgeExtra(const int32 InNumSegments, bool InClosedLoop)
 			: IPathEdgeExtra(InNumSegments, InClosedLoop)
 		{
-			PCGEx::InitArray(Data, InNumSegments);
+			if constexpr (std::is_trivially_copyable_v<T>) { Data.SetNumUninitialized(InNumSegments); }
+			else { Data.SetNum(InNumSegments); }
 		}
 
 		FORCEINLINE T& operator[](const int32 At) { return Data[At]; }
@@ -360,6 +393,10 @@ namespace PCGExPaths
 		TConstPCGValueRange<FTransform> Positions;
 		TUniquePtr<FPathEdgeOctree> EdgeOctree;
 		TArray<TSharedPtr<IPathEdgeExtra>> Extras;
+
+		TArray<FVector2D> ProjectedPoints;
+		FPCGExGeo2DProjectionDetails Projection;
+		FBox2D ProjectedBounds = FBox2D();
 
 	public:
 		explicit FPath(const bool IsClosed = false);
@@ -382,6 +419,7 @@ namespace PCGExPaths
 		double TotalLength = 0;
 
 		PCGExMT::FScope GetEdgeScope(const int32 InLoopIndex = -1) const;
+		const TConstPCGValueRange<FTransform>& GetPositions() const { return Positions; }
 
 		int32 LoopPointIndex(const int32 Index) const;
 		int32 SafePointIndex(const int32 Index) const;
@@ -392,6 +430,7 @@ namespace PCGExPaths
 
 		virtual FVector DirToNextPoint(const int32 Index) const;
 		FVector DirToPrevPoint(const int32 Index) const { return DirToNextPoint(SafePointIndex(Index - 1)) * -1; }
+		FVector DirToNeighbor(const int32 Index, const int32 Offset) const;
 
 		virtual int32 NextPointIndex(const int32 Index) const { return SafePointIndex(Index + 1); }
 		virtual int32 PrevPointIndex(const int32 Index) const { return SafePointIndex(Index - 1); }
@@ -408,13 +447,11 @@ namespace PCGExPaths
 		virtual bool IsEdgeValid(const int32 Index) const { return IsEdgeValid(Edges[Index]); }
 
 		PCGExMath::FClosestPosition FindClosestIntersection(
-			const FPCGExPathIntersectionDetails& InDetails, const PCGExMath::FSegment& Segment,
-			const PCGExMath::EIntersectionTestMode Mode = PCGExMath::EIntersectionTestMode::Strict) const;
+			const FPCGExPathIntersectionDetails& InDetails, const PCGExMath::FSegment& Segment) const;
 
 		PCGExMath::FClosestPosition FindClosestIntersection(
 			const FPCGExPathIntersectionDetails& InDetails, const PCGExMath::FSegment& Segment,
-			PCGExMath::FClosestPosition& OutClosestPosition,
-			const PCGExMath::EIntersectionTestMode Mode = PCGExMath::EIntersectionTestMode::Strict) const;
+			PCGExMath::FClosestPosition& OutClosestPosition) const;
 
 		void BuildEdgeOctree();
 		void BuildPartialEdgeOctree(const TArray<int8>& Filter);
@@ -464,19 +501,12 @@ namespace PCGExPaths
 		virtual void ExtraComputingDone();
 		virtual void ComputeAllEdgeExtra();
 
-		virtual bool IsInsideProjection(const FVector& WorldPosition) const
-		PCGEX_NOT_IMPLEMENTED_RET(
-				IsInsideProjection(const FTransform& WorldPosition)
-				,
-				false
-			)
-
 		virtual FTransform GetClosestTransform(const FVector& WorldPosition, int32& OutEdgeIndex, float& OutLerp, const bool bUseScale = false) const
 		PCGEX_NOT_IMPLEMENTED_RET(GetClosestTransform(const FVector& WorldPosition, int32& OutEdgeIndex, float& OutLerp), FTransform::Identity);
 
 		virtual FTransform GetClosestTransform(const FVector& WorldPosition, float& OutAlpha, const bool bUseScale = false) const
 		PCGEX_NOT_IMPLEMENTED_RET(GetClosestTransformAndKey(const FVector& WorldPosition, float& OutAlpha), FTransform::Identity);
-		
+
 		virtual FTransform GetClosestTransform(const FVector& WorldPosition, bool& bIsInside, const bool bUseScale) const
 		PCGEX_NOT_IMPLEMENTED_RET(GetClosestTransform(const FVector& WorldPosition, bool& bIsInside), FTransform::Identity);
 
@@ -494,6 +524,15 @@ namespace PCGExPaths
 
 		virtual int32 GetClosestEdge(const double InTime, float& OutLerp) const
 		PCGEX_NOT_IMPLEMENTED_RET(GetClosestEdge(const double InTime, float& OutLerp), - 1);
+
+		void BuildProjection();
+		void BuildProjection(const FPCGExGeo2DProjectionDetails& InProjectionDetails);
+		void OffsetProjection(const double Offset);
+
+		const TArray<FVector2D>& GetProjectedPoints() const { return ProjectedPoints; }
+
+		virtual bool IsInsideProjection(const FVector& WorldPosition) const;
+		virtual bool Contains(const TConstPCGValueRange<FTransform>& InPositions, const double Tolerance = 0) const;
 
 	protected:
 		void BuildPath(const double Expansion);
@@ -641,27 +680,21 @@ namespace PCGExPaths
 	PCGExMath::FClosestPosition FindClosestIntersection(
 		const TArray<TSharedPtr<FPath>>& Paths,
 		const FPCGExPathIntersectionDetails& InDetails,
-		const PCGExMath::FSegment& InSegment, int32& OutPathIndex,
-		const PCGExMath::EIntersectionTestMode Mode = PCGExMath::EIntersectionTestMode::Strict);
+		const PCGExMath::FSegment& InSegment, int32& OutPathIndex);
 
 	PCGEXTENDEDTOOLKIT_API
 	PCGExMath::FClosestPosition FindClosestIntersection(
 		const TArray<TSharedPtr<FPath>>& Paths,
 		const FPCGExPathIntersectionDetails& InDetails,
 		const PCGExMath::FSegment& InSegment, int32& OutPathIndex,
-		PCGExMath::FClosestPosition& OutClosestPosition,
-		const PCGExMath::EIntersectionTestMode Mode = PCGExMath::EIntersectionTestMode::Strict);
+		PCGExMath::FClosestPosition& OutClosestPosition);
 
 	class FPolyPath : public FPath
 	{
 		TSharedPtr<FPCGSplineStruct> LocalSpline;
 		TArray<FTransform> LocalTransforms;
-		TConstPCGValueRange<FTransform> LocalTransformsValueRange;
 
 		const FPCGSplineStruct* Spline = nullptr;
-		TArray<FVector2D> ProjectedPoints;
-		FPCGExGeo2DProjectionDetails Projection;
-		FBox PolyBox = FBox(ForceInit);
 
 	public:
 		FPolyPath(
@@ -682,16 +715,19 @@ namespace PCGExPaths
 			const double Expansion = 0, const double ExpansionZ = -1,
 			const EPCGExWindingMutation WindingMutation = EPCGExWindingMutation::Unchanged);
 
+		FPolyPath(
+			const UPCGPolygon2DData* PolygonData,
+			const FPCGExGeo2DProjectionDetails& InProjection,
+			const double Expansion = 0, const double ExpansionZ = -1,
+			const EPCGExWindingMutation WindingMutation = EPCGExWindingMutation::Unchanged);
+
 		FORCEINLINE const FPCGSplineStruct* GetSpline() const { return Spline; }
 
 	protected:
 		void InitFromTransforms(
-			const TConstPCGValueRange<FTransform>& InTransforms,
-			const double ExpansionZ = -1, const EPCGExWindingMutation WindingMutation = EPCGExWindingMutation::Unchanged);
+			const EPCGExWindingMutation WindingMutation = EPCGExWindingMutation::Unchanged);
 
 	public:
-		virtual bool IsInsideProjection(const FVector& WorldPosition) const override;
-
 		virtual FTransform GetClosestTransform(const FVector& WorldPosition, int32& OutEdgeIndex, float& OutLerp, const bool bUseScale = false) const override;
 		virtual FTransform GetClosestTransform(const FVector& WorldPosition, float& OutAlpha, const bool bUseScale = false) const override;
 		virtual FTransform GetClosestTransform(const FVector& WorldPosition, bool& bIsInside, const bool bUseScale = false) const override;
@@ -707,11 +743,8 @@ namespace PCGExPaths
 	struct PCGEXTENDEDTOOLKIT_API FCrossing
 	{
 		FCrossing() = default;
+		FCrossing(const uint64 InHash, const FVector& InLocation, const double InAlpha, const bool InIsPoint, const FVector& InDir);
 
-		FCrossing(const uint64 InHash, const FVector& InLocation, const double InAlpha, const bool InIsPoint, const FVector& InDir)
-			: Hash(InHash), Location(InLocation), Alpha(InAlpha), bIsPoint(InIsPoint), Dir(InDir)
-		{
-		}
 
 		uint64 Hash;      // Point Index | IO Index
 		FVector Location; // Position in between edges
@@ -744,6 +777,29 @@ namespace PCGExPaths
 		void SortByAlpha();
 		void SortByHash();
 	};
+
+	struct PCGEXTENDEDTOOLKIT_API FInclusionInfos
+	{
+		FInclusionInfos() = default;
+		int32 Depth = 0;    // Inclusion "depth"
+		int32 Children = 0; // Number of paths included in this one
+		bool bOdd = false;
+	};
+
+	class PCGEXTENDEDTOOLKIT_API FPathInclusionHelper : public TSharedFromThis<FPathInclusionHelper>
+	{
+	protected:
+		TSet<int32> PathsSet;
+		TArray<TSharedPtr<FPath>> Paths;
+		TMap<int32, FInclusionInfos> IdxMap;
+
+	public:
+		FPathInclusionHelper() = default;
+
+		void AddPath(const TSharedPtr<FPath>& InPath, const double Tolerance = 0);
+		void AddPaths(const TArrayView<TSharedPtr<FPath>> InPaths, const double Tolerance = 0);
+		bool Find(const int32 Idx, FInclusionInfos& OutInfos) const;
+	};
 }
 
 
@@ -770,7 +826,7 @@ struct PCGEXTENDEDTOOLKIT_API FPCGExSplineMeshMutationDetails
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta = (PCG_Overridable, DisplayName=" ├─ Amount", EditCondition="bPushStart && StartPushInput == EPCGExInputValueType::Constant", EditConditionHides))
 	double StartPushConstant = 0.1;
 
-	PCGEX_SETTING_VALUE_GET(StartPush, double, StartPushInput, StartPushInputAttribute, StartPushConstant)
+	PCGEX_SETTING_VALUE_DECL(StartPush, double);
 
 	/** If enabled, value will relative to the size of the segment */
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta = (PCG_Overridable, DisplayName=" └─ Relative", EditCondition="bPushStart", EditConditionHides))
@@ -792,7 +848,7 @@ struct PCGEXTENDEDTOOLKIT_API FPCGExSplineMeshMutationDetails
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta = (PCG_Overridable, DisplayName=" ├─ Amount", EditCondition="bPushEnd && EndPushInput == EPCGExInputValueType::Constant", EditConditionHides))
 	double EndPushConstant = 0.1;
 
-	PCGEX_SETTING_VALUE_GET(EndPush, double, EndPushInput, EndPushInputAttribute, EndPushConstant)
+	PCGEX_SETTING_VALUE_DECL(EndPush, double);
 
 	/** If enabled, value will relative to the size of the segment */
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta = (PCG_Overridable, DisplayName=" └─ Relative", EditCondition="bPushEnd", EditConditionHides))

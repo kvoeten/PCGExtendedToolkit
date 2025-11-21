@@ -4,8 +4,12 @@
 #include "Graph/Probes/PCGExProbeClosest.h"
 
 
+#include "PCGExH.h"
+#include "PCGExHelpers.h"
+#include "Details/PCGExDetailsSettings.h"
 #include "Graph/Probes/PCGExProbing.h"
 
+PCGEX_SETTING_VALUE_IMPL(FPCGExProbeConfigClosest, MaxConnections, int32, MaxConnectionsInput, MaxConnectionsAttribute, MaxConnectionsConstant)
 PCGEX_CREATE_PROBE_FACTORY(Closest, {}, {})
 
 bool FPCGExProbeClosest::PrepareForPoints(FPCGExContext* InContext, const TSharedPtr<PCGExData::FPointIO>& InPointIO)
@@ -20,7 +24,7 @@ bool FPCGExProbeClosest::PrepareForPoints(FPCGExContext* InContext, const TShare
 	return true;
 }
 
-void FPCGExProbeClosest::ProcessCandidates(const int32 Index, const FTransform& WorkingTransform, TArray<PCGExProbing::FCandidate>& Candidates, TSet<FInt32Vector>* Coincidence, const FVector& ST, TSet<uint64>* OutEdges)
+void FPCGExProbeClosest::ProcessCandidates(const int32 Index, const FTransform& WorkingTransform, TArray<PCGExProbing::FCandidate>& Candidates, TSet<uint64>* Coincidence, const FVector& ST, TSet<uint64>* OutEdges)
 {
 	bool bIsAlreadyConnected;
 	const int32 MaxIterations = FMath::Min(MaxConnections->Read(Index), Candidates.Num());
@@ -28,7 +32,7 @@ void FPCGExProbeClosest::ProcessCandidates(const int32 Index, const FTransform& 
 
 	if (MaxIterations <= 0) { return; }
 
-	TSet<FInt32Vector> LocalCoincidence;
+	TSet<uint64> LocalCoincidence;
 	int32 Additions = 0;
 
 	for (PCGExProbing::FCandidate& C : Candidates)
@@ -43,7 +47,7 @@ void FPCGExProbeClosest::ProcessCandidates(const int32 Index, const FTransform& 
 
 		if (Config.bPreventCoincidence)
 		{
-			LocalCoincidence.Add(PCGEx::I323(C.Direction, CWCoincidenceTolerance), &bIsAlreadyConnected);
+			LocalCoincidence.Add(PCGEx::GH3(C.Direction, CWCoincidenceTolerance), &bIsAlreadyConnected);
 			if (bIsAlreadyConnected) { continue; }
 		}
 
@@ -54,7 +58,7 @@ void FPCGExProbeClosest::ProcessCandidates(const int32 Index, const FTransform& 
 	}
 }
 
-void FPCGExProbeClosest::ProcessNode(const int32 Index, const FTransform& WorkingTransform, TSet<FInt32Vector>* Coincidence, const FVector& ST, TSet<uint64>* OutEdges, const TArray<int8>& AcceptConnections)
+void FPCGExProbeClosest::ProcessNode(const int32 Index, const FTransform& WorkingTransform, TSet<uint64>* Coincidence, const FVector& ST, TSet<uint64>* OutEdges, const TArray<int8>& AcceptConnections)
 {
 	FPCGExProbeOperation::ProcessNode(Index, WorkingTransform, nullptr, FVector::ZeroVector, OutEdges, AcceptConnections);
 }

@@ -4,6 +4,7 @@
 #include "Transform/PCGExTensorsTransform.h"
 
 #include "Data/PCGExData.h"
+#include "Data/PCGExPointIO.h"
 
 
 #define LOCTEXT_NAMESPACE "PCGExTensorsTransformElement"
@@ -12,12 +13,16 @@
 TArray<FPCGPinProperties> UPCGExTensorsTransformSettings::InputPinProperties() const
 {
 	TArray<FPCGPinProperties> PinProperties = Super::InputPinProperties();
-	PCGEX_PIN_FACTORIES(PCGExTensor::SourceTensorsLabel, "Tensors", Required, {})
-	PCGEX_PIN_FACTORIES(PCGExPointFilter::SourceStopConditionLabel, "Transformed points will be tested against those filters, and transform will stop at first fail. Only a small subset of PCGEx are supported.", Normal, {})
+	PCGEX_PIN_FACTORIES(PCGExTensor::SourceTensorsLabel, "Tensors", Required, FPCGExDataTypeInfoTensor::AsId())
+	PCGEX_PIN_FILTERS(PCGExPointFilter::SourceStopConditionLabel, "Transformed points will be tested against those filters, and transform will stop at first fail. Only a small subset of PCGEx are supported.", Normal)
 	return PinProperties;
 }
 
 PCGEX_INITIALIZE_ELEMENT(TensorsTransform)
+
+PCGExData::EIOInit UPCGExTensorsTransformSettings::GetMainDataInitializationPolicy() const { return PCGExData::EIOInit::Duplicate; }
+
+PCGEX_ELEMENT_BATCH_POINT_IMPL(TensorsTransform)
 
 bool FPCGExTensorsTransformElement::Boot(FPCGExContext* InContext) const
 {
@@ -25,16 +30,25 @@ bool FPCGExTensorsTransformElement::Boot(FPCGExContext* InContext) const
 
 	PCGEX_CONTEXT_AND_SETTINGS(TensorsTransform)
 
-	if (!PCGExFactories::GetInputFactories(InContext, PCGExTensor::SourceTensorsLabel, Context->TensorFactories, {PCGExFactories::EType::Tensor}, true)) { return false; }
+	if (!PCGExFactories::GetInputFactories(
+		InContext, PCGExTensor::SourceTensorsLabel, Context->TensorFactories,
+		{PCGExFactories::EType::Tensor}))
+	{
+		return false;
+	}
+
 	if (Context->TensorFactories.IsEmpty())
 	{
-		PCGE_LOG_C(Error, GraphAndLog, InContext, FTEXT("Missing tensors."));
+		PCGEX_LOG_MISSING_INPUT(InContext, FTEXT("Missing tensors."))
 		return false;
 	}
 
 	PCGEX_FOREACH_FIELD_TRTENSOR(PCGEX_OUTPUT_VALIDATE_NAME)
 
-	GetInputFactories(Context, PCGExPointFilter::SourceStopConditionLabel, Context->StopFilterFactories, PCGExFactories::PointFilters, false);
+	GetInputFactories(
+		Context, PCGExPointFilter::SourceStopConditionLabel, Context->StopFilterFactories,
+		PCGExFactories::PointFilters, false);
+
 	PCGExPointFilter::PruneForDirectEvaluation(Context, Context->StopFilterFactories);
 
 	return true;
@@ -48,9 +62,9 @@ bool FPCGExTensorsTransformElement::ExecuteInternal(FPCGContext* InContext) cons
 	PCGEX_EXECUTION_CHECK
 	PCGEX_ON_INITIAL_EXECUTION
 	{
-		if (!Context->StartBatchProcessingPoints<PCGExPointsMT::TBatch<PCGExTensorsTransform::FProcessor>>(
+		if (!Context->StartBatchProcessingPoints(
 			[&](const TSharedPtr<PCGExData::FPointIO>& Entry) { return true; },
-			[&](const TSharedPtr<PCGExPointsMT::TBatch<PCGExTensorsTransform::FProcessor>>& NewBatch)
+			[&](const TSharedPtr<PCGExPointsMT::IBatch>& NewBatch)
 			{
 				//NewBatch->bRequiresWriteStep = true;
 			}))

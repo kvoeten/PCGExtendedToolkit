@@ -65,6 +65,8 @@ protected:
 	virtual FPCGElementPtr CreateElement() const override;
 	//~End UPCGSettings
 
+	virtual PCGExData::EIOInit GetMainDataInitializationPolicy() const override;
+
 public:
 	/** Rolling range control */
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta = (PCG_NotOverridable))
@@ -152,13 +154,16 @@ struct FPCGExAttributeRollingContext final : FPCGExPathProcessorContext
 {
 	friend class FPCGExAttributeRollingElement;
 
-	TArray<TObjectPtr<const UPCGExFilterFactoryData>> PinFilterFactories;
-	TArray<TObjectPtr<const UPCGExFilterFactoryData>> StartFilterFactories;
-	TArray<TObjectPtr<const UPCGExFilterFactoryData>> StopFilterFactories;
+	TArray<TObjectPtr<const UPCGExPointFilterFactoryData>> PinFilterFactories;
+	TArray<TObjectPtr<const UPCGExPointFilterFactoryData>> StartFilterFactories;
+	TArray<TObjectPtr<const UPCGExPointFilterFactoryData>> StopFilterFactories;
 
 	TArray<TObjectPtr<const UPCGExBlendOpFactory>> BlendingFactories;
 
 	PCGEX_FOREACH_FIELD_ATTRIBUTE_ROLL(PCGEX_OUTPUT_DECL_TOGGLE)
+
+protected:
+	PCGEX_ELEMENT_BATCH_POINT_DECL
 };
 
 class FPCGExAttributeRollingElement final : public FPCGExPathProcessorElement

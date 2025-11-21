@@ -24,7 +24,7 @@ public:
 	//~Begin UPCGSettings
 #if WITH_EDITOR
 	PCGEX_NODE_INFOS(BuildDelaunayGraph, "Cluster : Delaunay 3D", "Create a 3D delaunay tetrahedralization for each input dataset.");
-	virtual FLinearColor GetNodeTitleColor() const override { return GetDefault<UPCGExGlobalSettings>()->NodeColorClusterGen; }
+	virtual FLinearColor GetNodeTitleColor() const override { return GetDefault<UPCGExGlobalSettings>()->ColorClusterGenerator; }
 #endif
 	virtual TArray<FPCGPinProperties> OutputPinProperties() const override;
 
@@ -82,6 +82,9 @@ struct FPCGExBuildDelaunayGraphContext final : FPCGExPointsProcessorContext
 	friend class FPCGExBuildDelaunayGraphElement;
 
 	TSharedPtr<PCGExData::FPointIOCollection> MainSites;
+
+protected:
+	PCGEX_ELEMENT_BATCH_POINT_DECL
 };
 
 class FPCGExBuildDelaunayGraphElement final : public FPCGExPointsProcessorElement
@@ -93,7 +96,7 @@ protected:
 	virtual bool ExecuteInternal(FPCGContext* InContext) const override;
 };
 
-namespace PCGExBuildDelaunay
+namespace PCGExBuildDelaunayGraph
 {
 	class FProcessor final : public PCGExPointsMT::TProcessor<FPCGExBuildDelaunayGraphContext, UPCGExBuildDelaunayGraphSettings>
 	{

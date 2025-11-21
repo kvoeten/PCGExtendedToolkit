@@ -5,10 +5,8 @@
 
 #include "PCGEx.h"
 #include "PCGExOctree.h"
-#include "Data/PCGExData.h"
 #include "Data/PCGExDataPreloader.h"
 #include "Data/PCGExUnionData.h"
-#include "Data/Matching/PCGExMatchRuleFactoryProvider.h"
 #include "PhysicalMaterials/PhysicalMaterial.h"
 
 #include "PCGExSampling.generated.h"
@@ -27,12 +25,32 @@ if(Context->bWrite##_NAME && !PCGEx::IsWritableAttributeName(Settings->_NAME##At
 #define PCGEX_OUTPUT_INIT(_NAME, _TYPE, _DEFAULT_VALUE) if(Context->bWrite##_NAME){ _NAME##Writer = OutputFacade->GetWritable<_TYPE>(Settings->_NAME##AttributeName, _DEFAULT_VALUE, true, PCGExData::EBufferInit::Inherit); }
 #define PCGEX_OUTPUT_VALUE(_NAME, _INDEX, _VALUE) if(_NAME##Writer){_NAME##Writer->SetValue(_INDEX, _VALUE); }
 
+struct FPCGExDistanceDetails;
+
+namespace PCGExDetails
+{
+	class FDistances;
+}
+
+namespace PCGExData
+{
+	class FMultiFacadePreloader;
+}
+
 struct FPCGExMatchingDetails;
 
 namespace PCGExMatching
 {
+	class FMatchingScope;
 	class FDataMatcher;
 }
+
+UENUM()
+enum class EPCGExRangeType : uint8
+{
+	FullRange      = 0 UMETA(DisplayName = "Full Range", ToolTip="Normalize in the [0..1] range using [0..Max Value] range."),
+	EffectiveRange = 1 UMETA(DisplayName = "Effective Range", ToolTip="Remap the input [Min..Max] range to [0..1]."),
+};
 
 UENUM()
 enum class EPCGExSurfaceSource : uint8
@@ -86,10 +104,10 @@ UENUM(meta=(Bitflags, UseEnumValuesAsMaskValuesInEditor="true", DisplayName="[PC
 enum class EPCGExApplySampledComponentFlags : uint8
 {
 	None = 0,
-	X    = 1 << 0 UMETA(DisplayName = "X", ToolTip="Apply X Component"),
-	Y    = 1 << 1 UMETA(DisplayName = "Y", ToolTip="Apply Y Component"),
-	Z    = 1 << 2 UMETA(DisplayName = "Z", ToolTip="Apply Z Component"),
-	All  = X | Y | Z UMETA(DisplayName = "All", ToolTip="Apply all Component"),
+	X    = 1 << 0 UMETA(DisplayName = "X", ToolTip="Apply X Component", ActionIcon="X"),
+	Y    = 1 << 1 UMETA(DisplayName = "Y", ToolTip="Apply Y Component", ActionIcon="Y"),
+	Z    = 1 << 2 UMETA(DisplayName = "Z", ToolTip="Apply Z Component", ActionIcon="Z"),
+	All  = X | Y | Z UMETA(Hidden, DisplayName = "All", ToolTip="Apply all Component"),
 };
 
 ENUM_CLASS_FLAGS(EPCGExApplySampledComponentFlags)
@@ -100,10 +118,7 @@ struct PCGEXTENDEDTOOLKIT_API FPCGExApplySamplingDetails
 {
 	GENERATED_BODY()
 
-	FPCGExApplySamplingDetails()
-	{
-	}
-
+	FPCGExApplySamplingDetails() = default;
 
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta=(PCG_Overridable))
 	bool bApplyTransform = false;
@@ -178,11 +193,16 @@ namespace PCGExSampling
 		virtual int32 ComputeWeights(
 			const TArray<const UPCGBasePointData*>& Sources,
 			const TSharedPtr<PCGEx::FIndexLookup>& IdxLookup,
-			const PCGExData::FConstPoint& Target,
+			const PCGExData::FPoint& Target,
 			const TSharedPtr<PCGExDetails::FDistances>& InDistanceDetails,
 			TArray<PCGExData::FWeightedPoint>& OutWeightedPoints) const override;
 
-		void AddWeighted_Unsafe(const PCGExData::FElement& Element, const double InWeight);
+		FORCEINLINE void AddWeighted_Unsafe(const PCGExData::FElement& Element, const double InWeight)
+		{
+			Add_Unsafe(Element.Index, Element.IO);
+			Weights.Add(Element, InWeight);
+		}
+
 		void AddWeighted(const PCGExData::FElement& Element, const double InWeight);
 
 		double GetWeightAverage() const;
@@ -252,11 +272,11 @@ namespace PCGExSampling
 		void FindClosestTarget(const PCGExData::FConstPoint& Probe, PCGExData::FConstPoint& OutResult, double& OutDistSquared, const TSet<const UPCGData*>* Exclude = nullptr) const;
 		void FindClosestTarget(const FVector& Probe, PCGExData::FConstPoint& OutResult, double& OutDistSquared, const TSet<const UPCGData*>* Exclude = nullptr) const;
 
-		FORCEINLINE PCGExData::FConstPoint GetPoint(const int32 IO, const int32 Index) const { return TargetFacades[IO]->GetInPoint(Index); }
-		FORCEINLINE PCGExData::FConstPoint GetPoint(const PCGExData::FPoint& Point) const { return TargetFacades[Point.IO]->GetInPoint(Point.Index); }
+		PCGExData::FConstPoint GetPoint(const int32 IO, const int32 Index) const;
+		PCGExData::FConstPoint GetPoint(const PCGExData::FPoint& Point) const;
 
 		double GetDistSquared(const PCGExData::FConstPoint& SourcePoint, const PCGExData::FConstPoint& TargetPoint) const;
-		FORCEINLINE FVector GetSourceCenter(const PCGExData::FConstPoint& OriginPoint, const FVector& OriginLocation, const FVector& ToCenter) const { return Distances->GetSourceCenter(OriginPoint, OriginLocation, ToCenter); }
+		FVector GetSourceCenter(const PCGExData::FConstPoint& OriginPoint, const FVector& OriginLocation, const FVector& ToCenter) const;
 
 		void StartLoading(const TSharedPtr<PCGExMT::FTaskManager>& AsyncManager, const TSharedPtr<PCGExMT::FAsyncMultiHandle>& InParentHandle = nullptr) const;
 	};

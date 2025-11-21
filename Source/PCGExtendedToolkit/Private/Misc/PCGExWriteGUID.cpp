@@ -4,11 +4,16 @@
 #include "Misc/PCGExWriteGUID.h"
 
 
+#include "Data/PCGExData.h"
+#include "Data/PCGExPointIO.h"
+#include "Details/PCGExDetailsSettings.h"
 #include "Helpers/PCGHelpers.h"
 #include "Misc/Guid.h"
 
 #define LOCTEXT_NAMESPACE "PCGExWriteGUIDElement"
 #define PCGEX_NAMESPACE WriteGUID
+
+PCGEX_SETTING_VALUE_IMPL(FPCGExGUIDDetails, UniqueKey, int32, UniqueKeyInput, UniqueKeyAttribute, UniqueKeyConstant)
 
 bool FPCGExGUIDDetails::Init(FPCGExContext* InContext, TSharedRef<PCGExData::FFacade>& InFacade)
 {
@@ -86,6 +91,10 @@ void FPCGExGUIDDetails::GetGUID(const int32 Index, const PCGExData::FConstPoint&
 
 PCGEX_INITIALIZE_ELEMENT(WriteGUID)
 
+PCGExData::EIOInit UPCGExWriteGUIDSettings::GetMainDataInitializationPolicy() const { return PCGExData::EIOInit::Duplicate; }
+
+PCGEX_ELEMENT_BATCH_POINT_IMPL(WriteGUID)
+
 bool FPCGExWriteGUIDElement::Boot(FPCGExContext* InContext) const
 {
 	if (!FPCGExPointsProcessorElement::Boot(InContext)) { return false; }
@@ -105,9 +114,9 @@ bool FPCGExWriteGUIDElement::ExecuteInternal(FPCGContext* InContext) const
 	PCGEX_EXECUTION_CHECK
 	PCGEX_ON_INITIAL_EXECUTION
 	{
-		if (!Context->StartBatchProcessingPoints<PCGExPointsMT::TBatch<PCGExWriteGUID::FProcessor>>(
+		if (!Context->StartBatchProcessingPoints(
 			[&](const TSharedPtr<PCGExData::FPointIO>& Entry) { return true; },
-			[&](const TSharedPtr<PCGExPointsMT::TBatch<PCGExWriteGUID::FProcessor>>& NewBatch)
+			[&](const TSharedPtr<PCGExPointsMT::IBatch>& NewBatch)
 			{
 			}))
 		{

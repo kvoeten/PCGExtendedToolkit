@@ -4,7 +4,6 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "PCGExPathfinding.h"
 #include "PCGExPathfindingNavmesh.h"
 #include "PCGExPointsProcessor.h"
 #include "AI/Navigation/NavigationTypes.h"
@@ -33,7 +32,7 @@ public:
 	//~Begin UPCGSettings
 #if WITH_EDITOR
 	PCGEX_NODE_INFOS(PCGExPathfindingPlotNavmesh, "Pathfinding : Plot Navmesh", "Extract a single paths from navmesh, going through each seed points in order.");
-	virtual FLinearColor GetNodeTitleColor() const override { return GetDefault<UPCGExGlobalSettings>()->NodeColorPathfinding; }
+	virtual FLinearColor GetNodeTitleColor() const override { return GetDefault<UPCGExGlobalSettings>()->ColorPathfinding; }
 #endif
 	virtual TArray<FPCGPinProperties> InputPinProperties() const override;
 	virtual TArray<FPCGPinProperties> OutputPinProperties() const override;
@@ -45,13 +44,13 @@ protected:
 public:
 	//~Begin UObject interface
 #if WITH_EDITOR
-
+	virtual void PostInitProperties() override;
 	virtual void PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent) override;
 #endif
 	//~End UObject interface
 
 	//~Begin UPCGExPointsProcessorSettings
-	virtual FName GetMainInputPin() const override { return PCGExGraph::SourcePlotsLabel; }
+	virtual FName GetMainInputPin() const override;
 	virtual FName GetMainOutputPin() const override { return PCGExPaths::OutputPathsLabel; }
 	//~End UPCGExPointsProcessorSettings
 

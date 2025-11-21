@@ -5,9 +5,12 @@
 
 #include "PCGExPointsProcessor.h"
 #include "Graph/PCGExGraph.h"
-#include "Graph/Pathfinding/GoalPickers/PCGExGoalPickerRandom.h"
 #include "Graph/Pathfinding/Heuristics/PCGExHeuristicDistance.h"
 #include "Algo/Reverse.h"
+#include "Data/PCGExData.h"
+#include "Data/PCGExDataTag.h"
+#include "Data/PCGExPointIO.h"
+#include "Graph/Pathfinding/Heuristics/PCGExHeuristics.h"
 
 
 #define LOCTEXT_NAMESPACE "PCGExPathfindingGrowPathsElement"
@@ -24,7 +27,7 @@ void UPCGExPathfindingGrowPathsSettings::PostEditChangeProperty(FPropertyChanged
 }
 #endif
 
-namespace PCGExGrowPaths
+namespace PCGExPathfindingGrowPaths
 {
 	FGrowth::FGrowth(const TSharedPtr<FProcessor>& InProcessor,
 	                 const int32 InMaxIterations,
@@ -190,19 +193,20 @@ namespace PCGExGrowPaths
 TArray<FPCGPinProperties> UPCGExPathfindingGrowPathsSettings::InputPinProperties() const
 {
 	TArray<FPCGPinProperties> PinProperties = Super::InputPinProperties();
-	PCGEX_PIN_POINT(PCGExGraph::SourceSeedsLabel, "Seed points to start growth from.", Required, {})
-	PCGEX_PIN_FACTORIES(PCGExGraph::SourceHeuristicsLabel, "Heuristics.", Normal, {})
+	PCGEX_PIN_POINT(PCGExGraph::SourceSeedsLabel, "Seed points to start growth from.", Required)
+	PCGEX_PIN_FACTORIES(PCGExGraph::SourceHeuristicsLabel, "Heuristics.", Normal, FPCGExDataTypeInfoHeuristics::AsId())
 	return PinProperties;
 }
 
 TArray<FPCGPinProperties> UPCGExPathfindingGrowPathsSettings::OutputPinProperties() const
 {
 	TArray<FPCGPinProperties> PinProperties;
-	PCGEX_PIN_POINTS(PCGExPaths::OutputPathsLabel, "Paths output.", Required, {})
+	PCGEX_PIN_POINTS(PCGExPaths::OutputPathsLabel, "Paths output.", Required)
 	return PinProperties;
 }
 
 PCGEX_INITIALIZE_ELEMENT(PathfindingGrowPaths)
+PCGEX_ELEMENT_BATCH_EDGE_IMPL(PathfindingGrowPaths)
 
 bool FPCGExPathfindingGrowPathsElement::Boot(FPCGExContext* InContext) const
 {
@@ -251,9 +255,9 @@ bool FPCGExPathfindingGrowPathsElement::ExecuteInternal(FPCGContext* InContext) 
 	PCGEX_EXECUTION_CHECK
 	PCGEX_ON_INITIAL_EXECUTION
 	{
-		if (!Context->StartProcessingClusters<PCGExClusterMT::TBatch<PCGExGrowPaths::FProcessor>>(
+		if (!Context->StartProcessingClusters(
 			[](const TSharedPtr<PCGExData::FPointIOTaggedEntries>& Entries) { return true; },
-			[&](const TSharedPtr<PCGExClusterMT::TBatch<PCGExGrowPaths::FProcessor>>& NewBatch)
+			[&](const TSharedPtr<PCGExClusterMT::IBatch>& NewBatch)
 			{
 				NewBatch->SetWantsHeuristics(true);
 			}))
@@ -270,11 +274,11 @@ bool FPCGExPathfindingGrowPathsElement::ExecuteInternal(FPCGContext* InContext) 
 }
 
 
-namespace PCGExGrowPaths
+namespace PCGExPathfindingGrowPaths
 {
 	bool FProcessor::Process(const TSharedPtr<PCGExMT::FTaskManager>& InAsyncManager)
 	{
-		TRACE_CPUPROFILER_EVENT_SCOPE(PCGExGrowPaths::Process);
+		TRACE_CPUPROFILER_EVENT_SCOPE(PCGExPathfindingGrowPaths::Process);
 
 		if (!IProcessor::Process(InAsyncManager)) { return false; }
 
@@ -403,9 +407,7 @@ namespace PCGExGrowPaths
 			}
 		}
 
-		if (IsTrivial()) { Grow(); }
-		else { PCGEX_LAUNCH(FGrowTask, ThisPtr) }
-
+		PCGEX_LAUNCH(FGrowTask, ThisPtr)
 		return true;
 	}
 

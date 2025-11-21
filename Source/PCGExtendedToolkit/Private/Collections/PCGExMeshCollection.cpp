@@ -32,7 +32,7 @@ void FPCGExMaterialOverrideSingleEntry::UpdateDisplayName()
 
 namespace PCGExMeshCollection
 {
-	void FMacroCache::ProcessMaterialOverrides(const TArray<FPCGExMaterialOverrideSingleEntry>& Overrides, const int32 InSlotIndex)
+	void FMicroCache::ProcessMaterialOverrides(const TArray<FPCGExMaterialOverrideSingleEntry>& Overrides, const int32 InSlotIndex)
 	{
 		const int32 NumEntries = Overrides.Num();
 
@@ -54,7 +54,7 @@ namespace PCGExMeshCollection
 		}
 	}
 
-	void FMacroCache::ProcessMaterialOverrides(const TArray<FPCGExMaterialOverrideCollection>& Overrides)
+	void FMicroCache::ProcessMaterialOverrides(const TArray<FPCGExMaterialOverrideCollection>& Overrides)
 	{
 		const int32 NumEntries = Overrides.Num();
 
@@ -80,7 +80,7 @@ namespace PCGExMeshCollection
 		}
 	}
 
-	int32 FMacroCache::GetPick(const int32 Index, const EPCGExIndexPickMode PickMode) const
+	int32 FMicroCache::GetPick(const int32 Index, const EPCGExIndexPickMode PickMode) const
 	{
 		switch (PickMode)
 		{
@@ -96,32 +96,32 @@ namespace PCGExMeshCollection
 		}
 	}
 
-	int32 FMacroCache::GetPickAscending(const int32 Index) const
+	int32 FMicroCache::GetPickAscending(const int32 Index) const
 	{
 		return Order.IsValidIndex(Index) ? Index : -1;
 	}
 
-	int32 FMacroCache::GetPickDescending(const int32 Index) const
+	int32 FMicroCache::GetPickDescending(const int32 Index) const
 	{
 		return Order.IsValidIndex(Index) ? (Order.Num() - 1) - Index : -1;
 	}
 
-	int32 FMacroCache::GetPickWeightAscending(const int32 Index) const
+	int32 FMicroCache::GetPickWeightAscending(const int32 Index) const
 	{
 		return Order.IsValidIndex(Index) ? Order[Index] : -1;
 	}
 
-	int32 FMacroCache::GetPickWeightDescending(const int32 Index) const
+	int32 FMicroCache::GetPickWeightDescending(const int32 Index) const
 	{
 		return Order.IsValidIndex(Index) ? Order[(Order.Num() - 1) - Index] : -1;
 	}
 
-	int32 FMacroCache::GetPickRandom(const int32 Seed) const
+	int32 FMicroCache::GetPickRandom(const int32 Seed) const
 	{
 		return Order[FRandomStream(Seed).RandRange(0, Order.Num() - 1)];
 	}
 
-	int32 FMacroCache::GetPickRandomWeighted(const int32 Seed) const
+	int32 FMicroCache::GetPickRandomWeighted(const int32 Seed) const
 	{
 		if (Order.IsEmpty()) { return -1; }
 
@@ -262,6 +262,8 @@ bool FPCGExMeshCollectionEntry::Validate(const UPCGExAssetCollection* ParentColl
 	return Super::Validate(ParentCollection);
 }
 
+
+
 #if WITH_EDITOR
 void FPCGExMeshCollectionEntry::EDITOR_Sanitize()
 {
@@ -280,9 +282,9 @@ void FPCGExMeshCollectionEntry::EDITOR_Sanitize()
 }
 #endif
 
-void FPCGExMeshCollectionEntry::BuildMacroCache()
+void FPCGExMeshCollectionEntry::BuildMicroCache()
 {
-	const TSharedPtr<PCGExMeshCollection::FMacroCache> NewCache = MakeShared<PCGExMeshCollection::FMacroCache>();
+	const TSharedPtr<PCGExMeshCollection::FMicroCache> NewCache = MakeShared<PCGExMeshCollection::FMicroCache>();
 
 	switch (MaterialVariants)
 	{
@@ -297,7 +299,7 @@ void FPCGExMeshCollectionEntry::BuildMacroCache()
 		break;
 	}
 
-	MacroCache = NewCache;
+	MicroCache = NewCache;
 }
 
 void FPCGExMeshCollectionEntry::UpdateStaging(const UPCGExAssetCollection* OwningCollection, const int32 InInternalIndex, const bool bRecursive)
@@ -362,13 +364,28 @@ void FPCGExMeshCollectionEntry::SetAssetPath(const FSoftObjectPath& InPath)
 	ISMDescriptor.StaticMesh = StaticMesh;
 }
 
-void FPCGExMeshCollectionEntry::InitPCGSoftISMDescriptor(FPCGSoftISMComponentDescriptor& TargetDescriptor) const
+void FPCGExMeshCollectionEntry::InitPCGSoftISMDescriptor(const UPCGExMeshCollection* ParentCollection, FPCGSoftISMComponentDescriptor& TargetDescriptor) const
 {
-	PCGExHelpers::CopyStructProperties(
-		&ISMDescriptor,
-		&TargetDescriptor,
-		FSoftISMComponentDescriptor::StaticStruct(),
-		FPCGSoftISMComponentDescriptor::StaticStruct());
+	if (ParentCollection &&
+		(DescriptorSource == EPCGExEntryVariationMode::Global || ParentCollection->GlobalDescriptorMode == EPCGExGlobalVariationRule::Overrule))
+	{
+		PCGExHelpers::CopyStructProperties(
+			&ParentCollection->GlobalISMDescriptor,
+			&TargetDescriptor,
+			FSoftISMComponentDescriptor::StaticStruct(),
+			FPCGSoftISMComponentDescriptor::StaticStruct());
+
+		TargetDescriptor.StaticMesh = StaticMesh;
+		TargetDescriptor.ComponentTags.Append(ParentCollection->CollectionTags.Array());
+	}
+	else
+	{
+		PCGExHelpers::CopyStructProperties(
+			&ISMDescriptor,
+			&TargetDescriptor,
+			FSoftISMComponentDescriptor::StaticStruct(),
+			FPCGSoftISMComponentDescriptor::StaticStruct());
+	}
 
 	TargetDescriptor.ComponentTags.Append(Tags.Array());
 }
@@ -429,4 +446,20 @@ void UPCGExMeshCollection::EDITOR_DisableCollisions()
 	MarkPackageDirty();
 }
 
+void UPCGExMeshCollection::EDITOR_SetDescriptorSourceAll(EPCGExEntryVariationMode DescriptorSource)
+{
+	Modify(true);
+
+	for (FPCGExMeshCollectionEntry& Entry : Entries) { Entry.DescriptorSource = DescriptorSource; }
+
+	FPropertyChangedEvent EmptyEvent(nullptr);
+	PostEditChangeProperty(EmptyEvent);
+	MarkPackageDirty();
+}
 #endif
+
+void UPCGExMeshCollection::EDITOR_RegisterTrackingKeys(FPCGExContext* Context) const
+{
+	Super::EDITOR_RegisterTrackingKeys(Context);
+	for (const FPCGExMeshCollectionEntry& Entry : Entries) { if (Entry.bIsSubCollection && Entry.SubCollection) { Entry.SubCollection->EDITOR_RegisterTrackingKeys(Context); } }
+}

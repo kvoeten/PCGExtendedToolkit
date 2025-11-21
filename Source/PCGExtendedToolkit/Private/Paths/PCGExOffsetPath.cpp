@@ -3,12 +3,20 @@
 
 #include "Paths/PCGExOffsetPath.h"
 
+#include "Data/PCGExPointIO.h"
+#include "Details/PCGExDetailsSettings.h"
 #include "Paths/PCGExPathCrossings.h"
 
 #define LOCTEXT_NAMESPACE "PCGExOffsetPathElement"
 #define PCGEX_NAMESPACE OffsetPath
 
+PCGEX_SETTING_VALUE_IMPL(UPCGExOffsetPathSettings, Offset, double, OffsetInput, OffsetAttribute, OffsetConstant)
+
 PCGEX_INITIALIZE_ELEMENT(OffsetPath)
+
+PCGExData::EIOInit UPCGExOffsetPathSettings::GetMainDataInitializationPolicy() const { return PCGExData::EIOInit::Duplicate; }
+
+PCGEX_ELEMENT_BATCH_POINT_IMPL(OffsetPath)
 
 bool FPCGExOffsetPathElement::Boot(FPCGExContext* InContext) const
 {
@@ -28,18 +36,20 @@ bool FPCGExOffsetPathElement::ExecuteInternal(FPCGContext* InContext) const
 	TRACE_CPUPROFILER_EVENT_SCOPE(FPCGExOffsetPathElement::Execute);
 
 	PCGEX_CONTEXT_AND_SETTINGS(OffsetPath)
+
 	PCGEX_EXECUTION_CHECK
+
 	PCGEX_ON_INITIAL_EXECUTION
 	{
 		PCGEX_ON_INVALILD_INPUTS(FTEXT("Some inputs have less than 2 points and won't be affected."))
 
-		if (!Context->StartBatchProcessingPoints<PCGExPointsMT::TBatch<PCGExOffsetPath::FProcessor>>(
+		if (!Context->StartBatchProcessingPoints(
 			[&](const TSharedPtr<PCGExData::FPointIO>& Entry)
 			{
 				PCGEX_SKIP_INVALID_PATH_ENTRY
 				return true;
 			},
-			[&](const TSharedPtr<PCGExPointsMT::TBatch<PCGExOffsetPath::FProcessor>>& NewBatch)
+			[&](const TSharedPtr<PCGExPointsMT::IBatch>& NewBatch)
 			{
 				//NewBatch->SetPointsFilterData(&Context->FilterFactories);
 			}))
@@ -50,7 +60,7 @@ bool FPCGExOffsetPathElement::ExecuteInternal(FPCGContext* InContext) const
 
 	PCGEX_POINTS_BATCH_PROCESSING(PCGExCommon::State_Done)
 
-	Context->MainPoints->StageOutputs();
+	PCGEX_OUTPUT_VALID_PATHS(MainPoints)
 
 	return Context->TryComplete();
 }

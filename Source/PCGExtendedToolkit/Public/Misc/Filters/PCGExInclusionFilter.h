@@ -46,6 +46,10 @@ struct FPCGExInclusionFilterConfig
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta=(PCG_Overridable))
 	bool bSplineScalesTolerance = false;
 
+	/** If non-zero, will apply an offset (inset) to the data used for inclusion testing. */
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta=(PCG_Overridable))
+	double InclusionOffset = 0;
+
 	/** */
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta=(PCG_Overridable, InlineEditConditionToggle))
 	bool bUseMinInclusionCount = false;
@@ -62,10 +66,13 @@ struct FPCGExInclusionFilterConfig
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta=(PCG_Overridable, EditCondition="bUseMaxInclusionCount"))
 	int32 MaxInclusionCount = 10;
 
-
 	/** If enabled, invert the result of the test */
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta=(PCG_Overridable))
 	bool bInvert = false;
+
+	/** */
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta=(PCG_NotOverridable), AdvancedDisplay)
+	double ExpandZAxis = -1;
 
 	/** Lets you enforce a path winding for testing */
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta=(PCG_NotOverridable), AdvancedDisplay)
@@ -78,6 +85,10 @@ struct FPCGExInclusionFilterConfig
 	/** If enabled, when used with a collection filter, will use collection bounds as a proxy point instead of per-point testing */
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta=(PCG_Overridable))
 	bool bCheckAgainstDataBounds = false;
+
+	/** If enabled, a collection will never be tested against itself */
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta=(PCG_Overridable))
+	bool bIgnoreSelf = true;
 };
 
 /**
@@ -142,9 +153,12 @@ public:
 	//~Begin UPCGSettings
 #if WITH_EDITOR
 	PCGEX_NODE_INFOS_CUSTOM_SUBTITLE(
-		InclusionFilterFactory, "Filter : Inclusion", "Creates a filter definition that checks points inclusion against path-like data (paths, splines, polygons).",
+		InclusionFilterFactory, "Filter : Inclusion (Path/Splines)", "Creates a filter definition that checks points inclusion against path-like data (paths, splines, polygons).",
 		PCGEX_FACTORY_NAME_PRIORITY)
+	virtual TArray<FPCGPreConfiguredSettingsInfo> GetPreconfiguredInfo() const override;
 #endif
+
+	virtual void ApplyPreconfiguredSettings(const FPCGPreConfiguredSettingsInfo& PreconfigureInfo) override;
 
 protected:
 	virtual TArray<FPCGPinProperties> InputPinProperties() const override;
@@ -159,6 +173,6 @@ public:
 
 #if WITH_EDITOR
 	virtual FString GetDisplayName() const override;
-	virtual bool ShowMissingDataHandling_Internal() const override { return true; }
+	virtual bool ShowMissingDataPolicy_Internal() const override { return true; }
 #endif
 };

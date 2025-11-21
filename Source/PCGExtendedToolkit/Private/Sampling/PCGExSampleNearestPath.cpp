@@ -3,9 +3,24 @@
 
 #include "Sampling/PCGExSampleNearestPath.h"
 
+#include "Data/PCGExDataTag.h"
+#include "Data/PCGExPointIO.h"
+#include "Data/Blending/PCGExBlendModes.h"
+#include "Data/Blending/PCGExBlendOpsManager.h"
+#include "Data/Blending/PCGExDataBlending.h"
+#include "Data/Blending/PCGExUnionOpsManager.h"
+#include "Data/Matching/PCGExMatchRuleFactoryProvider.h"
+#include "Details/PCGExDetailsSettings.h"
+#include "Paths/PCGExPaths.h"
+
 
 #define LOCTEXT_NAMESPACE "PCGExSampleNearestPathElement"
 #define PCGEX_NAMESPACE SampleNearestPath
+
+PCGEX_SETTING_VALUE_IMPL(UPCGExSampleNearestPathSettings, RangeMin, double, RangeMinInput, RangeMinAttribute, RangeMin)
+PCGEX_SETTING_VALUE_IMPL(UPCGExSampleNearestPathSettings, RangeMax, double, RangeMaxInput, RangeMaxAttribute, RangeMax)
+PCGEX_SETTING_VALUE_IMPL_BOOL(UPCGExSampleNearestPathSettings, SampleAlpha, double, bSampleSpecificAlpha, SampleAlphaAttribute, SampleAlphaConstant)
+PCGEX_SETTING_VALUE_IMPL_BOOL(UPCGExSampleNearestPathSettings, LookAtUp, FVector, LookAtUpSelection != EPCGExSampleSource::Constant, LookAtUpSource, LookAtUpConstant)
 
 UPCGExSampleNearestPathSettings::UPCGExSampleNearestPathSettings(
 	const FObjectInitializer& ObjectInitializer)
@@ -19,7 +34,7 @@ TArray<FPCGPinProperties> UPCGExSampleNearestPathSettings::InputPinProperties() 
 {
 	TArray<FPCGPinProperties> PinProperties = Super::InputPinProperties();
 
-	PCGEX_PIN_POINTS(PCGExPaths::SourcePathsLabel, "The paths to sample.", Required, {})
+	PCGEX_PIN_POINTS(PCGExPaths::SourcePathsLabel, "The paths to sample.", Required)
 	PCGExMatching::DeclareMatchingRulesInputs(DataMatching, PinProperties);
 	PCGExDataBlending::DeclareBlendOpsInputs(PinProperties, EPCGPinStatus::Normal);
 	PCGExSorting::DeclareSortingRulesInputs(PinProperties, SampleMethod == EPCGExSampleMethod::BestCandidate ? EPCGPinStatus::Required : EPCGPinStatus::Advanced);
@@ -40,15 +55,11 @@ bool UPCGExSampleNearestPathSettings::IsPinUsedByNodeExecution(const UPCGPin* In
 	return Super::IsPinUsedByNodeExecution(InPin);
 }
 
-void FPCGExSampleNearestPathContext::RegisterAssetDependencies()
-{
-	PCGEX_SETTINGS_LOCAL(SampleNearestPath)
-
-	FPCGExPointsProcessorContext::RegisterAssetDependencies();
-	AddAssetDependency(Settings->WeightOverDistance.ToSoftObjectPath());
-}
-
 PCGEX_INITIALIZE_ELEMENT(SampleNearestPath)
+
+PCGExData::EIOInit UPCGExSampleNearestPathSettings::GetMainDataInitializationPolicy() const { return PCGExData::EIOInit::Duplicate; }
+
+PCGEX_ELEMENT_BATCH_POINT_IMPL(SampleNearestPath)
 
 bool FPCGExSampleNearestPathElement::Boot(FPCGExContext* InContext) const
 {
@@ -70,6 +81,8 @@ bool FPCGExSampleNearestPathElement::Boot(FPCGExContext* InContext) const
 		Context, PCGExPaths::SourcePathsLabel,
 		[&](const TSharedPtr<PCGExData::FPointIO>& IO, const int32 Idx)-> FBox
 		{
+			if (IO->GetNum() < 2) { return FBox(NoInit); }
+
 			const bool bClosedLoop = PCGExPaths::GetClosedLoop(IO->GetIn());
 
 			switch (Settings->SampleInputs)
@@ -87,6 +100,9 @@ bool FPCGExSampleNearestPathElement::Boot(FPCGExContext* InContext) const
 
 			// TODO : We could support per-point project here but ugh
 			TSharedPtr<PCGExPaths::FPolyPath> Path = MakeShared<PCGExPaths::FPolyPath>(IO, Settings->ProjectionDetails, 1, Settings->HeightInclusion);
+			Path->OffsetProjection(Settings->InclusionOffset);
+
+			if (!Path->Bounds.IsValid) { return FBox(NoInit); }
 
 			Path->IOIndex = IO->IOIndex;
 			Path->Idx = Idx;
@@ -120,25 +136,19 @@ bool FPCGExSampleNearestPathElement::Boot(FPCGExContext* InContext) const
 			});
 	}
 
-	return true;
-}
-
-void FPCGExSampleNearestPathElement::PostLoadAssetsDependencies(FPCGExContext* InContext) const
-{
-	PCGEX_CONTEXT_AND_SETTINGS(SampleNearestPath)
-
-	FPCGExPointsProcessorElement::PostLoadAssetsDependencies(InContext);
-
 	Context->RuntimeWeightCurve = Settings->LocalWeightOverDistance;
 
-	if (!Settings->bUseLocalCurve)
+	if (!Settings->bUseLocalCurve && Settings->WeightOverDistance.IsValid())
 	{
 		Context->RuntimeWeightCurve.EditorCurveData.AddKey(0, 0);
 		Context->RuntimeWeightCurve.EditorCurveData.AddKey(1, 1);
+		PCGExHelpers::LoadBlocking_AnyThread(Settings->WeightOverDistance);
 		Context->RuntimeWeightCurve.ExternalCurve = Settings->WeightOverDistance.Get();
 	}
 
 	Context->WeightCurve = Context->RuntimeWeightCurve.GetRichCurveConst();
+
+	return true;
 }
 
 bool FPCGExSampleNearestPathElement::ExecuteInternal(FPCGContext* InContext) const
@@ -188,9 +198,9 @@ bool FPCGExSampleNearestPathElement::ExecuteInternal(FPCGContext* InContext) con
 				return;
 			}
 
-			if (!Context->StartBatchProcessingPoints<PCGExPointsMT::TBatch<PCGExSampleNearestPath::FProcessor>>(
+			if (!Context->StartBatchProcessingPoints(
 				[&](const TSharedPtr<PCGExData::FPointIO>& Entry) { return true; },
-				[&](const TSharedPtr<PCGExPointsMT::TBatch<PCGExSampleNearestPath::FProcessor>>& NewBatch)
+				[&](const TSharedPtr<PCGExPointsMT::IBatch>& NewBatch)
 				{
 					if (Settings->bPruneFailedSamples) { NewBatch->bRequiresWriteStep = true; }
 				}))
@@ -209,12 +219,6 @@ bool FPCGExSampleNearestPathElement::ExecuteInternal(FPCGContext* InContext) con
 
 	return Context->TryComplete();
 }
-
-bool FPCGExSampleNearestPathElement::CanExecuteOnlyOnMainThread(FPCGContext* Context) const
-{
-	return Context ? Context->CurrentPhase == EPCGExecutionPhase::PrepareData : false;
-}
-
 
 namespace PCGExSampleNearestPath
 {
@@ -484,6 +488,8 @@ namespace PCGExSampleNearestPath
 					QueryBounds,
 					[&](const PCGExOctree::FItem& Target)
 					{
+						if (!Context->Paths.IsValidIndex(Target.Index)) { return; } // TODO : Look into why there's a discrepency between paths & targets
+
 						const TSharedPtr<PCGExPaths::FPolyPath> Path = Context->Paths[Target.Index];
 						float Lerp = 0;
 						const int32 EdgeIndex = Path->GetClosestEdge(Origin, Lerp);
@@ -498,6 +504,8 @@ namespace PCGExSampleNearestPath
 					QueryBounds,
 					[&](const PCGExOctree::FItem& Target)
 					{
+						if (!Context->Paths.IsValidIndex(Target.Index)) { return; } // TODO : Look into why there's a discrepency between paths & targets
+
 						const TSharedPtr<PCGExPaths::FPolyPath>& Path = Context->Paths[Target.Index];
 						double Time = 0;
 

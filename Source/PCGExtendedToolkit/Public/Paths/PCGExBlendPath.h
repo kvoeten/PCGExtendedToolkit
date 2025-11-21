@@ -5,15 +5,17 @@
 
 #include "CoreMinimal.h"
 #include "PCGExPathProcessor.h"
-
-#include "PCGExPointsProcessor.h"
-#include "PCGExDetails.h"
 #include "PCGExPaths.h"
-#include "Data/Blending/PCGExBlendOpsManager.h"
 #include "Data/Blending/PCGExDataBlending.h"
 
-
 #include "PCGExBlendPath.generated.h"
+
+class UPCGExBlendOpFactory;
+
+namespace PCGExDataBlending
+{
+	class FBlendOpsManager;
+}
 
 class UPCGExSubPointsBlendInstancedFactory;
 
@@ -45,6 +47,8 @@ protected:
 	virtual FPCGElementPtr CreateElement() const override;
 	//~End UPCGSettings
 
+	virtual PCGExData::EIOInit GetMainDataInitializationPolicy() const override;
+
 public:
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta=(PCG_Overridable))
 	EPCGExBlendOver BlendOver = EPCGExBlendOver::Distance;
@@ -60,7 +64,7 @@ public:
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta=(PCG_Overridable, DisplayName="Lerp", ClampMin=0, EditCondition="BlendOver == EPCGExBlendOver::Fixed && LerpInput == EPCGExInputValueType::Constant", EditConditionHides))
 	double LerpConstant = 0.5;
 
-	PCGEX_SETTING_VALUE_GET(Lerp, double, LerpInput, LerpAttribute, LerpConstant)
+	PCGEX_SETTING_VALUE_DECL(Lerp, double)
 
 	/** Blending settings used to smooth attributes.*/
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta = (PCG_Overridable))
@@ -79,6 +83,9 @@ struct FPCGExBlendPathContext final : FPCGExPathProcessorContext
 {
 	friend class FPCGExBlendPathElement;
 	TArray<TObjectPtr<const UPCGExBlendOpFactory>> BlendingFactories;
+
+protected:
+	PCGEX_ELEMENT_BATCH_POINT_DECL
 };
 
 class FPCGExBlendPathElement final : public FPCGExPathProcessorElement

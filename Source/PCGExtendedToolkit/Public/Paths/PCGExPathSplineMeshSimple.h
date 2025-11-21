@@ -6,15 +6,20 @@
 #include "CoreMinimal.h"
 #include "PCGExPathProcessor.h"
 #include "PCGExPaths.h"
-#include "PCGExPointsProcessor.h"
-#include "Collections/PCGExAssetLoader.h"
-#include "Collections/PCGExMeshCollection.h"
+#include "Collections/PCGExAssetCollection.h"
+#include "Collections/PCGExComponentDescriptors.h"
 #include "Data/PCGExPointFilter.h"
-
 #include "Tangents/PCGExTangentsInstancedFactory.h"
 
-
 #include "PCGExPathSplineMeshSimple.generated.h"
+
+struct FPCGObjectPropertyOverrideDescription;
+
+namespace PCGEx
+{
+	template <typename T>
+	class TAssetLoader;
+}
 
 /**
  * 
@@ -40,6 +45,8 @@ protected:
 	virtual FPCGElementPtr CreateElement() const override;
 	//~End UPCGSettings
 
+	virtual PCGExData::EIOInit GetMainDataInitializationPolicy() const override;
+
 public:
 	PCGEX_NODE_POINT_FILTER(PCGExPointFilter::SourcePointFiltersLabel, "Filters", PCGExFactories::PointFilters, false)
 
@@ -54,6 +61,17 @@ public:
 	/** Constant static mesh .*/
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta=(PCG_Overridable, DisplayName=" └─ Asset", EditCondition="AssetType == EPCGExInputValueType::Constant", EditConditionHides))
 	TSoftObjectPtr<UStaticMesh> StaticMesh;
+
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta = (PCG_Overridable, InlineEditConditionToggle))
+	bool bReadMaterialFromAttribute = false;
+
+	/** The name of the attribute to write material path to.*/
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta=(PCG_Overridable, EditCondition="bReadMaterialFromAttribute"))
+	FName MaterialAttributeName = "MaterialPath";
+
+	/** The index of the slot to set the material to, if found.*/
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta=(PCG_Overridable, DisplayName=" └─ Slot", EditCondition="bReadMaterialFromAttribute", EditConditionHides, HideEditConditionToggle))
+	int32 MaterialSlotConstant = 0;
 
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = "Settings|Target Actor", meta = (PCG_Overridable))
 	TSoftObjectPtr<AActor> TargetActor;
@@ -95,7 +113,7 @@ public:
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = "Settings|Mutations|Offsets", meta=(PCG_Overridable, DisplayName="Start Offset", EditCondition="StartOffsetInput == EPCGExInputValueType::Constant", EditConditionHides))
 	FVector2D StartOffset = FVector2D::ZeroVector;
 
-	PCGEX_SETTING_VALUE_GET(StartOffset, FVector2D, StartOffsetInput, StartOffsetAttribute, StartOffset)
+	PCGEX_SETTING_VALUE_DECL(StartOffset, FVector2D)
 
 	/** Type of End Offset */
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = "Settings|Mutations|Offsets", meta=(PCG_NotOverridable))
@@ -109,7 +127,7 @@ public:
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = "Settings|Mutations|Offsets", meta=(PCG_Overridable, DisplayName="End Offset", EditCondition="EndOffsetInput == EPCGExInputValueType::Constant", EditConditionHides))
 	FVector2D EndOffset = FVector2D::ZeroVector;
 
-	PCGEX_SETTING_VALUE_GET(EndOffset, FVector2D, EndOffsetInput, EndOffsetAttribute, EndOffset)
+	PCGEX_SETTING_VALUE_DECL(EndOffset, FVector2D)
 
 	/** Push details */
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = "Settings|Mutations", meta=(PCG_Overridable, DisplayName="Expansion"))
@@ -142,8 +160,11 @@ public:
 	UPROPERTY(EditAnywhere, Category = Settings)
 	FPCGExStaticMeshComponentDescriptor StaticMeshDescriptor;
 
-	/** Specify a list of functions to be called on the target actor after spline mesh creation. Functions need to be parameter-less and with "CallInEditor" flag enabled. */
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings)
+	TArray<FPCGObjectPropertyOverrideDescription> PropertyOverrideDescriptions;
+
+	/** Specify a list of functions to be called on the target actor after spline mesh creation. Functions need to be parameter-less and with "CallInEditor" flag enabled. */
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, AdvancedDisplay)
 	TArray<FName> PostProcessFunctionNames;
 
 protected:
@@ -155,12 +176,15 @@ struct FPCGExPathSplineMeshSimpleContext final : FPCGExPathProcessorContext
 	friend class FPCGExPathSplineMeshSimpleElement;
 
 	TSharedPtr<PCGEx::TAssetLoader<UStaticMesh>> StaticMeshLoader;
+	TSharedPtr<PCGEx::TAssetLoader<UMaterialInterface>> MaterialLoader;
 
 	TObjectPtr<UStaticMesh> StaticMesh;
 
 	FPCGExTangentsDetails Tangents;
 
 protected:
+	PCGEX_ELEMENT_BATCH_POINT_DECL
+
 	virtual void AddExtraStructReferencedObjects(FReferenceCollector& Collector) override;
 };
 
@@ -175,7 +199,6 @@ protected:
 
 	virtual bool Boot(FPCGExContext* InContext) const override;
 	virtual bool ExecuteInternal(FPCGContext* Context) const override;
-	virtual bool CanExecuteOnlyOnMainThread(FPCGContext* Context) const override { return true; }
 };
 
 namespace PCGExPathSplineMeshSimple
@@ -185,11 +208,12 @@ namespace PCGExPathSplineMeshSimple
 	protected:
 		bool bClosedLoop = false;
 		bool bUseTags = false;
+		bool bIsPreviewMode = false;
+		int8 bHasValidSegments = false;
 
 		FPCGExSplineMeshMutationDetails MutationDetails;
 
 		int32 LastIndex = 0;
-
 		TSharedPtr<PCGExTangents::FTangentsHandler> TangentsHandler;
 
 		TSharedPtr<PCGExData::TBuffer<FVector>> UpGetter;
@@ -197,10 +221,16 @@ namespace PCGExPathSplineMeshSimple
 		TSharedPtr<PCGExDetails::TSettingValue<FVector2D>> EndOffset;
 
 		TSharedPtr<PCGExData::TBuffer<FSoftObjectPath>> AssetPathReader;
+		TSharedPtr<PCGExData::TBuffer<FSoftObjectPath>> MaterialPathReader;
 
+		TSharedPtr<PCGExMT::FScopeLoopOnMainThread> MainThreadLoop;
 		TArray<PCGExPaths::FSplineMeshSegment> Segments;
 		TArray<TObjectPtr<UStaticMesh>> Meshes;
-		//TArray<USplineMeshComponent*> SplineMeshComponents;
+		TArray<TObjectPtr<UMaterialInterface>> Materials;
+
+		TArray<FName> DataTags;
+		AActor* TargetActor = nullptr;
+		EObjectFlags ObjectFlags = RF_NoFlags;
 
 	public:
 		explicit FProcessor(const TSharedRef<PCGExData::FFacade>& InPointDataFacade):
@@ -212,8 +242,9 @@ namespace PCGExPathSplineMeshSimple
 		virtual void PrepareLoopScopesForPoints(const TArray<PCGExMT::FScope>& Loops) override;
 		virtual void ProcessPoints(const PCGExMT::FScope& Scope) override;
 
-		virtual void CompleteWork() override;
+		virtual void OnPointsProcessingComplete() override;
+		void ProcessSegment(const int32 Index);
 
-		virtual void Output() override;
+		virtual void CompleteWork() override;
 	};
 }

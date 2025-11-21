@@ -13,6 +13,11 @@
 
 #include "PCGExReversePointOrder.generated.h"
 
+namespace PCGExData
+{
+	class IBuffer;
+}
+
 UENUM()
 enum class EPCGExPointReverseMethod : uint8
 {
@@ -64,13 +69,15 @@ public:
 #if WITH_EDITOR
 	PCGEX_NODE_INFOS(ReversePointOrder, "Reverse Point Order", "Simply reverse the order of points. Very useful with paths.");
 	virtual EPCGSettingsType GetType() const override { return EPCGSettingsType::Generic; }
-	virtual FLinearColor GetNodeTitleColor() const override { return GetDefault<UPCGExGlobalSettings>()->WantsColor(GetDefault<UPCGExGlobalSettings>()->NodeColorMiscWrite); }
+	virtual FLinearColor GetNodeTitleColor() const override { return GetDefault<UPCGExGlobalSettings>()->WantsColor(GetDefault<UPCGExGlobalSettings>()->ColorMiscWrite); }
 #endif
 
 protected:
 	virtual TArray<FPCGPinProperties> InputPinProperties() const override;
 	virtual FPCGElementPtr CreateElement() const override;
 	//~End UPCGSettings
+
+	virtual PCGExData::EIOInit GetMainDataInitializationPolicy() const override;
 
 public:
 	/**  */
@@ -113,6 +120,9 @@ public:
 struct FPCGExReversePointOrderContext final : FPCGExPointsProcessorContext
 {
 	friend class FPCGExReversePointOrderElement;
+
+protected:
+	PCGEX_ELEMENT_BATCH_POINT_DECL
 };
 
 class FPCGExReversePointOrderElement final : public FPCGExPointsProcessorElement

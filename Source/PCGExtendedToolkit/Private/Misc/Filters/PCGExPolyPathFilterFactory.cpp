@@ -3,6 +3,9 @@
 
 #include "Misc/Filters/PCGExPolyPathFilterFactory.h"
 
+#include "Data/PCGExDataTag.h"
+#include "Data/PCGExPointIO.h"
+#include "Data/PCGPolygon2DData.h"
 #include "Data/PCGSplineData.h"
 
 
@@ -29,12 +32,16 @@ PCGExFactories::EPreparationResult UPCGExPolyPathFilterFactory::Prepare(FPCGExCo
 
 	if (TempTargets.IsEmpty())
 	{
-		if (MissingDataHandling == EPCGExFilterNoDataFallback::Error) { if (!bQuietMissingInputError) { PCGE_LOG_C(Error, GraphAndLog, InContext, FTEXT("No targets (no input matches criteria or empty dataset)")); } }
+		if (MissingDataPolicy == EPCGExFilterNoDataFallback::Error) { PCGEX_LOG_MISSING_INPUT(InContext, FTEXT("No targets (no input matches criteria or empty dataset)")) }
 		return PCGExFactories::EPreparationResult::MissingData;
 	}
 
+	TempTaggedData.Init(PCGExData::FTaggedData(), TempTargets.Num());
 	TempPolyPaths.Init(nullptr, TempTargets.Num());
 	PolyPaths.Reserve(TempTargets.Num());
+
+	Datas = MakeShared<TArray<PCGExData::FTaggedData>>();
+	Datas->Reserve(TempTargets.Num());
 
 	TWeakPtr<FPCGContextHandle> CtxHandle = InContext->GetOrCreateHandle();
 
@@ -59,22 +66,37 @@ PCGExFactories::EPreparationResult UPCGExPolyPathFilterFactory::Prepare(FPCGExCo
 				if (!Path || !Path.IsValid()) { continue; }
 
 				const UPCGSpatialData* Data = Cast<UPCGSpatialData>(TempTargets[i].Data);
-				FBox DataBounds = Data->GetBounds().ExpandBy(LocalExpansion * 2);
-				if (bScaleTolerance) { DataBounds = DataBounds.ExpandBy(DataBounds.GetSize().Length() * 10); }
+				FBox DataBounds = Data->GetBounds().ExpandBy((LocalExpansion + 1 + FMath::Max(0, InclusionOffset)) * 2);
+				if (bScaleTolerance) { DataBounds = DataBounds.ExpandBy((DataBounds.GetSize().Length() + 1) * 10); }
+
+				if (LocalExpansionZ < 0)
+				{
+					DataBounds.Max.Z = MAX_dbl * 0.5;
+					DataBounds.Min.Z = MAX_dbl * -0.5;
+				}
+				else
+				{
+					DataBounds.Max.Z += LocalExpansionZ;
+					DataBounds.Min.Z -= LocalExpansionZ;
+				}
+
 				BoundsList.Add(DataBounds);
-				OctreeBounds += Data->GetBounds();
+				OctreeBounds += DataBounds;
 
 				PolyPaths.Add(Path);
+				Datas->Add(TempTaggedData[i]);
 			}
 
 			if (PolyPaths.IsEmpty())
 			{
 				PrepResult = PCGExFactories::EPreparationResult::MissingData;
-				if (!bQuietMissingInputError) { PCGE_LOG_C(Error, GraphAndLog, SharedContext.Get(), FTEXT("No splines (no input matches criteria or empty dataset)")); }
+				PCGEX_LOG_MISSING_INPUT(SharedContext.Get(), FTEXT("No polypaths to work with (no input matches criteria or empty dataset)"))
 				return;
 			}
 
+			TempTaggedData.Empty();
 			TempPolyPaths.Empty();
+			TempTargets.Empty();
 
 			Octree = MakeShared<PCGExOctree::FItemOctree>(OctreeBounds.GetCenter(), OctreeBounds.GetExtent().Length());
 			for (int i = 0; i < BoundsList.Num(); i++) { Octree->AddElement(PCGExOctree::FItem(i, BoundsList[i])); }
@@ -97,22 +119,49 @@ PCGExFactories::EPreparationResult UPCGExPolyPathFilterFactory::Prepare(FPCGExCo
 			TSharedPtr<PCGExPaths::FPolyPath> Path = nullptr;
 
 			double SafeExpansion = FMath::Max(LocalExpansion, 1);
-			
+
 			if (const UPCGBasePointData* PointData = Cast<UPCGBasePointData>(Data))
 			{
+				if (PointData->GetNumPoints() < 2)
+				{
+					PCGE_LOG_C(Warning, GraphAndLog, SharedContext.Get(), FTEXT("Some targets have less than 2 points and will be ignored."));
+					return;
+				}
+
 				const TSharedPtr<PCGExData::FPointIO> PointIO = MakeShared<PCGExData::FPointIO>(CtxHandle, PointData);
 				Path = MakeShared<PCGExPaths::FPolyPath>(PointIO, LocalProjection, SafeExpansion, LocalExpansionZ, WindingMutation);
+				Path->OffsetProjection(InclusionOffset);
 			}
 			else if (const UPCGSplineData* SplineData = Cast<UPCGSplineData>(Data))
 			{
+				if (SplineData->GetNumSegments() < 1)
+				{
+					PCGE_LOG_C(Warning, GraphAndLog, SharedContext.Get(), FTEXT("Some targets splines are invalid (less than one segment)."));
+					return;
+				}
+
 				Path = MakeShared<PCGExPaths::FPolyPath>(SplineData, LocalFidelity, LocalProjection, SafeExpansion, LocalExpansionZ, WindingMutation);
+				Path->OffsetProjection(InclusionOffset);
 			}
-			else
+			else if (const UPCGPolygon2DData* PolygonData = Cast<UPCGPolygon2DData>(Data))
 			{
-				// TODO : Support polygon 2D
+				if (PolygonData->GetNumSegments() < 1)
+				{
+					PCGE_LOG_C(Warning, GraphAndLog, SharedContext.Get(), FTEXT("Some targets splines are invalid (less than one segment)."));
+					return;
+				}
+
+				Path = MakeShared<PCGExPaths::FPolyPath>(PolygonData, LocalProjection, SafeExpansion, LocalExpansionZ, WindingMutation);
+				Path->OffsetProjection(InclusionOffset);
 			}
 
-			if (Path) { TempPolyPaths[Index] = Path; }
+			if (Path)
+			{
+				if (bBuildEdgeOctree) { Path->BuildEdgeOctree(); }
+				TempPolyPaths[Index] = Path;
+				TSharedPtr<PCGExData::FTags> Tags = MakeShared<PCGExData::FTags>(TempTargets[Index].Tags);
+				TempTaggedData[Index] = PCGExData::FTaggedData(Data, Tags, nullptr);
+			}
 		};
 
 	CreatePolyPaths->StartIterations(TempTargets.Num(), 1);
@@ -133,14 +182,27 @@ void UPCGExPolyPathFilterFactory::BeginDestroy()
 	Super::BeginDestroy();
 }
 
+FPCGDataTypeIdentifier PCGExPathInclusion::GetInclusionIdentifier()
+{
+	return FPCGDataTypeIdentifier::Construct(
+		{
+			FPCGDataTypeInfoSpline::AsId(),
+			FPCGDataTypeInfoPolyline::AsId(),
+			FPCGDataTypeInfoPolygon2D::AsId(),
+			FPCGDataTypeInfoPoint::AsId()
+		});
+}
+
 namespace PCGExPathInclusion
 {
 	FHandler::FHandler(const UPCGExPolyPathFilterFactory* InFactory)
 	{
+		Datas = InFactory->Datas;
 		Paths = &InFactory->PolyPaths;
 		Octree = InFactory->Octree;
 		Tolerance = InFactory->LocalExpansion;
 		ToleranceSquared = FMath::Square(InFactory->LocalExpansion);
+		bIgnoreSelf = InFactory->bIgnoreSelf;
 	}
 
 	void FHandler::Init(const EPCGExSplineCheckType InCheckType)
@@ -151,9 +213,18 @@ namespace PCGExPathInclusion
 		{
 		case EPCGExSplineCheckType::IsInside:
 			GoodFlags = Inside;
-			BadFlags = On;
+
+			if (Tolerance <= 0)
+			{
+				bFastCheck = true;
+			}
+			else
+			{
+				bFastCheck = false;
+				BadFlags = On;
+			}
+
 			FlagScope = Any;
-			bFastCheck = Tolerance <= 0;
 			break;
 		case EPCGExSplineCheckType::IsInsideOrOn:
 			GoodFlags = static_cast<EFlags>(Inside | On);
@@ -165,9 +236,18 @@ namespace PCGExPathInclusion
 			break;
 		case EPCGExSplineCheckType::IsOutside:
 			GoodFlags = Outside;
-			BadFlags = On;
+
+			if (Tolerance <= 0)
+			{
+				bFastCheck = true;
+			}
+			else
+			{
+				bFastCheck = false;
+				BadFlags = On;
+			}
+
 			FlagScope = Any;
-			bFastCheck = Tolerance <= 0;
 			break;
 		case EPCGExSplineCheckType::IsOutsideOrOn:
 			GoodFlags = static_cast<EFlags>(Outside | On);
@@ -190,15 +270,13 @@ namespace PCGExPathInclusion
 		}
 	}
 
-	EFlags FHandler::GetInclusionFlags(const FVector& WorldPosition, int32& InclusionCount, const bool bClosestOnly) const
+	EFlags FHandler::GetInclusionFlags(const FVector& WorldPosition, int32& InclusionCount, const bool bClosestOnly, const UPCGData* InParentData) const
 	{
-		EFlags OutFlags = None;
+		uint8 OutFlags = None;
 		bool bIsOn = false;
 
-		// TODO : Optimize later, some checks are expensive and unnecessary depending on settings
-		// Since poly paths have their own internal segment octree we can use that one much more efficiently than the spline
-		// Lack of result mean it's not on
-		// and compute distance against closest edge might require much less internal maths
+		const auto* DataArray = Datas->GetData();
+		const auto* PathArray = Paths->GetData();
 
 		if (bFastCheck)
 		{
@@ -208,17 +286,11 @@ namespace PCGExPathInclusion
 					FBoxCenterAndExtent(WorldPosition, FVector::OneVector), [&](
 					const PCGExOctree::FItem& Item)
 					{
-						if ((*(Paths->GetData() + Item.Index))->IsInsideProjection(WorldPosition))
-						{
-							InclusionCount++;
-							EnumAddFlags(OutFlags, Inside);
-							EnumRemoveFlags(OutFlags, Outside);
-						}
-						else
-						{
-							EnumAddFlags(OutFlags, Outside);
-							EnumRemoveFlags(OutFlags, Inside);
-						}
+						if (bIgnoreSelf && DataArray[Item.Index].Data == InParentData) { return; }
+
+						const bool bInside = PathArray[Item.Index]->IsInsideProjection(WorldPosition);
+						InclusionCount += bInside;
+						OutFlags = bInside ? Inside : Outside;
 					});
 			}
 			else
@@ -227,15 +299,11 @@ namespace PCGExPathInclusion
 					FBoxCenterAndExtent(WorldPosition, FVector::OneVector), [&](
 					const PCGExOctree::FItem& Item)
 					{
-						if ((*(Paths->GetData() + Item.Index))->IsInsideProjection(WorldPosition))
-						{
-							InclusionCount++;
-							EnumAddFlags(OutFlags, Inside);
-						}
-						else
-						{
-							EnumAddFlags(OutFlags, Outside);
-						}
+						if (bIgnoreSelf && DataArray[Item.Index].Data == InParentData) { return; }
+
+						const bool bInside = PathArray[Item.Index]->IsInsideProjection(WorldPosition);
+						InclusionCount += bInside;
+						OutFlags |= bInside ? Inside : Outside;
 					});
 			}
 		}
@@ -253,11 +321,12 @@ namespace PCGExPathInclusion
 					FBoxCenterAndExtent(WorldPosition, FVector::OneVector),
 					[&](const PCGExOctree::FItem& Item)
 					{
-						bool bLocalIsInside = false;
-						const FTransform Closest = (*(Paths->GetData() + Item.Index))->GetClosestTransform(WorldPosition, bLocalIsInside, bScaleTolerance);
-						InclusionCount += bLocalIsInside;
+						if (bIgnoreSelf && DataArray[Item.Index].Data == InParentData) { return; }
 
-						EnumAddFlags(OutFlags, bLocalIsInside ? Inside : Outside);
+						bool bLocalIsInside = false;
+						const FTransform Closest = PathArray[Item.Index]->GetClosestTransform(WorldPosition, bLocalIsInside, bScaleTolerance);
+						InclusionCount += bLocalIsInside;						
+						OutFlags |= bLocalIsInside ? Inside : Outside;
 
 						if (const double Dist = FVector::DistSquared(WorldPosition, Closest.GetLocation()); Dist < BestDist)
 						{
@@ -273,11 +342,12 @@ namespace PCGExPathInclusion
 					FBoxCenterAndExtent(WorldPosition, FVector::OneVector), [&](
 					const PCGExOctree::FItem& Item)
 					{
-						bool bLocalIsInside = false;
-						const FTransform Closest = (*(Paths->GetData() + Item.Index))->GetClosestTransform(WorldPosition, bLocalIsInside, bScaleTolerance);
-						InclusionCount += bLocalIsInside;
+						if (bIgnoreSelf && DataArray[Item.Index].Data == InParentData) { return; } 
 
-						EnumAddFlags(OutFlags, bLocalIsInside ? Inside : Outside);
+						bool bLocalIsInside = false;
+						const FTransform Closest = PathArray[Item.Index]->GetClosestTransform(WorldPosition, bLocalIsInside, bScaleTolerance);
+						InclusionCount += bLocalIsInside;
+						OutFlags |= bLocalIsInside ? Inside : Outside;
 
 						const double Tol = bScaleTolerance ? FMath::Square(Tolerance * (Closest.GetScale3D() * ToleranceScaleFactor).Length()) : ToleranceSquared;
 						if (FVector::DistSquared(WorldPosition, Closest.GetLocation()) < Tol) { bIsOn = true; }
@@ -286,9 +356,28 @@ namespace PCGExPathInclusion
 		}
 
 		if (OutFlags == None) { OutFlags = Outside; }
-		if (bIsOn) { EnumAddFlags(OutFlags, On); }
+		if (bIsOn) { OutFlags |= On; }
 
-		return OutFlags;
+		return static_cast<EFlags>(OutFlags);
+	}
+
+	PCGExMath::FClosestPosition FHandler::FindClosestIntersection(const PCGExMath::FSegment& Segment, const FPCGExPathIntersectionDetails& InDetails, const UPCGData* InParentData) const
+	{
+		PCGExMath::FClosestPosition ClosestIntersection;
+
+		const auto* DataArray = Datas->GetData();
+		const auto* PathArray = Paths->GetData();
+
+		Octree->FindFirstElementWithBoundsTest(
+			Segment.Bounds, [&](
+			const PCGExOctree::FItem& Item)
+			{
+				if (bIgnoreSelf && InParentData != nullptr) { if (InParentData == DataArray[Item.Index].Data) { return true; } }
+				ClosestIntersection = PathArray[Item.Index]->FindClosestIntersection(InDetails, Segment);
+				return !ClosestIntersection.bValid;
+			});
+
+		return ClosestIntersection;
 	}
 }
 

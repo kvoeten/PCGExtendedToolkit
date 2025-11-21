@@ -12,7 +12,7 @@
 TArray<FPCGPinProperties> UPCGExWriteVtxPropertiesSettings::InputPinProperties() const
 {
 	TArray<FPCGPinProperties> PinProperties = Super::InputPinProperties();
-	PCGEX_PIN_FACTORIES(PCGExVtxProperty::SourcePropertyLabel, "Extra attribute handlers.", Normal, {})
+	PCGEX_PIN_FACTORIES(PCGExVtxProperty::SourcePropertyLabel, "Extra attribute handlers.", Normal, FPCGExDataTypeInfoVtxProperty::AsId())
 	return PinProperties;
 }
 
@@ -20,6 +20,13 @@ PCGExData::EIOInit UPCGExWriteVtxPropertiesSettings::GetMainOutputInitMode() con
 PCGExData::EIOInit UPCGExWriteVtxPropertiesSettings::GetEdgeOutputInitMode() const { return PCGExData::EIOInit::Forward; }
 
 PCGEX_INITIALIZE_ELEMENT(WriteVtxProperties)
+
+bool UPCGExWriteVtxPropertiesSettings::WantsOOB() const
+{
+	return bWriteVtxNormal || bMutateVtxToOOB;
+}
+
+PCGEX_ELEMENT_BATCH_EDGE_IMPL_ADV(WriteVtxProperties)
 
 bool FPCGExWriteVtxPropertiesElement::Boot(FPCGExContext* InContext) const
 {
@@ -45,9 +52,9 @@ bool FPCGExWriteVtxPropertiesElement::ExecuteInternal(
 	PCGEX_EXECUTION_CHECK
 	PCGEX_ON_INITIAL_EXECUTION
 	{
-		if (!Context->StartProcessingClusters<PCGExWriteVtxProperties::FBatch>(
+		if (!Context->StartProcessingClusters(
 			[](const TSharedPtr<PCGExData::FPointIOTaggedEntries>& Entries) { return true; },
-			[&](const TSharedPtr<PCGExWriteVtxProperties::FBatch>& NewBatch)
+			[&](const TSharedPtr<PCGExClusterMT::IBatch>& NewBatch)
 			{
 				NewBatch->bRequiresWriteStep = true;
 			}))
@@ -82,7 +89,23 @@ namespace PCGExWriteVtxProperties
 
 			if (!NewOperation->PrepareForCluster(Context, Cluster, VtxDataFacade, EdgeDataFacade)) { return false; }
 			Operations.Add(NewOperation);
+			if (NewOperation->WantsBFP()) { bWantsOOB = true; }
 		}
+
+		switch (Settings->NormalAxis) {
+		case EPCGExMinimalAxis::None:
+		case EPCGExMinimalAxis::X:
+			NormalAxis = EAxis::Type::X;
+			break;
+		case EPCGExMinimalAxis::Y:
+			NormalAxis = EAxis::Type::Y;
+			break;
+		case EPCGExMinimalAxis::Z:
+			NormalAxis = EAxis::Type::Z;
+			break;
+		}
+
+		if (!bWantsOOB) { bWantsOOB = Settings->WantsOOB(); }
 
 		StartParallelLoopForNodes();
 
@@ -92,18 +115,47 @@ namespace PCGExWriteVtxProperties
 	void FProcessor::ProcessNodes(const PCGExMT::FScope& Scope)
 	{
 		TArray<PCGExCluster::FNode>& Nodes = *Cluster->Nodes;
+		TArray<PCGExCluster::FAdjacencyData> Adjacency;
+
+		TConstPCGValueRange<FTransform> InTransforms = VtxDataFacade->GetIn()->GetConstTransformValueRange();
+		TPCGValueRange<FTransform> OutTransforms;
+		TPCGValueRange<FVector> OutBoundsMin;
+		TPCGValueRange<FVector> OutBoundsMax;
+
+		if (Settings->bMutateVtxToOOB)
+		{
+			OutTransforms = VtxDataFacade->GetOut()->GetTransformValueRange(false);
+			OutBoundsMin = VtxDataFacade->GetOut()->GetBoundsMinValueRange(false);
+			OutBoundsMax = VtxDataFacade->GetOut()->GetBoundsMaxValueRange(false);
+		}
 
 		PCGEX_SCOPE_LOOP(Index)
 		{
 			PCGExCluster::FNode& Node = Nodes[Index];
-
 			if (VtxEdgeCountWriter) { VtxEdgeCountWriter->SetValue(Node.PointIndex, Node.Num()); }
 
-			TArray<PCGExCluster::FAdjacencyData> Adjacency;
+			Adjacency.Reset();
 			GetAdjacencyData(Cluster.Get(), Node, Adjacency);
-			if (VtxNormalWriter) { VtxNormalWriter->SetValue(Node.PointIndex, Node.ComputeNormal(Cluster.Get(), Adjacency)); }
 
-			for (const TSharedPtr<FPCGExVtxPropertyOperation>& Op : Operations) { Op->ProcessNode(Node, Adjacency); }
+			const PCGExGeo::FBestFitPlane BestFitPlane =
+				bWantsOOB ? Settings->bIncludeVtxInOOB ?
+								PCGExGeo::FBestFitPlane(Adjacency.Num(), [&](int32 i) { return InTransforms[Adjacency[i].NodePointIndex].GetLocation(); }, Cluster->GetPos(Node)) :
+								PCGExGeo::FBestFitPlane(Adjacency.Num(), [&](int32 i) { return InTransforms[Adjacency[i].NodePointIndex].GetLocation(); }) :
+					PCGExGeo::FBestFitPlane();
+
+			const FTransform BFPT = BestFitPlane.GetTransform();
+			
+			if (VtxNormalWriter) { VtxNormalWriter->SetValue(Node.PointIndex, BFPT.GetUnitAxis(NormalAxis)); }
+			
+			if (Settings->bMutateVtxToOOB)
+			{
+				const int32 PtIndex = Node.PointIndex;
+				OutTransforms[PtIndex] = BFPT;
+				OutBoundsMin[PtIndex] = BestFitPlane.Extents * -1;
+				OutBoundsMax[PtIndex] = BestFitPlane.Extents;
+			}
+
+			for (const TSharedPtr<FPCGExVtxPropertyOperation>& Op : Operations) { Op->ProcessNode(Node, Adjacency, BestFitPlane); }
 		}
 	}
 
@@ -137,12 +189,24 @@ namespace PCGExWriteVtxProperties
 			PCGEX_FOREACH_FIELD_VTXEXTRAS(PCGEX_OUTPUT_INIT)
 		}
 
+		if (Settings->bMutateVtxToOOB)
+		{
+			VtxDataFacade->GetOut()->AllocateProperties(
+				EPCGPointNativeProperties::Transform |
+				EPCGPointNativeProperties::BoundsMax |
+				EPCGPointNativeProperties::BoundsMin);
+		}
+
 		TBatch<FProcessor>::OnProcessingPreparationComplete();
 	}
 
-	bool FBatch::PrepareSingle(const TSharedPtr<FProcessor>& ClusterProcessor)
+	bool FBatch::PrepareSingle(const TSharedPtr<PCGExClusterMT::IProcessor>& InProcessor)
 	{
-#define PCGEX_FWD_VTX(_NAME, _TYPE, _DEFAULT_VALUE) ClusterProcessor->_NAME##Writer = _NAME##Writer;
+		if (!TBatch<FProcessor>::PrepareSingle(InProcessor)) { return false; }
+
+		PCGEX_TYPED_PROCESSOR
+
+#define PCGEX_FWD_VTX(_NAME, _TYPE, _DEFAULT_VALUE) TypedProcessor->_NAME##Writer = _NAME##Writer;
 		PCGEX_FOREACH_FIELD_VTXEXTRAS(PCGEX_FWD_VTX)
 #undef PCGEX_ASSIGN_AXIS_GETTER
 

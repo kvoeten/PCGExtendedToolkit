@@ -4,8 +4,13 @@
 
 #include "Misc/PCGExAttributeRemap.h"
 #include "PCGExHelpers.h"
+#include "PCGExScopedContainers.h"
 #include "AssetStaging/PCGExAssetStaging.h"
+#include "Data/PCGExPointIO.h"
 #include "Data/PCGExProxyData.h"
+#include "Data/PCGExProxyDataHelpers.h"
+#include "Details/PCGExDetailsSettings.h"
+#include "Details/PCGExVersion.h"
 
 
 #define LOCTEXT_NAMESPACE "PCGExAttributeRemap"
@@ -24,23 +29,47 @@ FString UPCGExAttributeRemapSettings::GetDisplayName() const
 
 void UPCGExAttributeRemapSettings::ApplyDeprecation(UPCGNode* InOutNode)
 {
-	if (SourceAttributeName_DEPRECATED != NAME_None)
+	PCGEX_UPDATE_TO_DATA_VERSION(1, 70, 11)
 	{
-		Attributes.Source = SourceAttributeName_DEPRECATED;
-		SourceAttributeName_DEPRECATED = NAME_None;
-	}
-
-	if (TargetAttributeName_DEPRECATED != NAME_None)
-	{
-		Attributes.Target = TargetAttributeName_DEPRECATED;
-		TargetAttributeName_DEPRECATED = NAME_None;
-
-		Attributes.bOutputToDifferentName = (SourceAttributeName_DEPRECATED != TargetAttributeName_DEPRECATED);
+		if (SourceAttributeName_DEPRECATED != NAME_None) { Attributes.Source = SourceAttributeName_DEPRECATED; }
+		if (TargetAttributeName_DEPRECATED != NAME_None)
+		{
+			Attributes.Target = TargetAttributeName_DEPRECATED;
+			Attributes.bOutputToDifferentName = (SourceAttributeName_DEPRECATED != TargetAttributeName_DEPRECATED);
+		}
 	}
 
 	Super::ApplyDeprecation(InOutNode);
 }
 #endif
+
+double FPCGExRemapDetails::GetRemappedValue(const double Value, const double Step) const
+{
+	switch (Snapping)
+	{
+	default:
+	case EPCGExVariationSnapping::None:
+		return PCGExMath::TruncateDbl(
+			RemapCurveObj->Eval(PCGExMath::Remap(Value, InMin, InMax, 0, 1)) * Scale,
+			TruncateOutput) * PostTruncateScale + Offset;
+	case EPCGExVariationSnapping::SnapOffset:
+		{
+			double V = PCGExMath::TruncateDbl(
+				RemapCurveObj->Eval(PCGExMath::Remap(Value, InMin, InMax, 0, 1)) * Scale,
+				TruncateOutput) * PostTruncateScale;
+			PCGExMath::Snap(V, Step);
+			return V + Offset;
+		}
+	case EPCGExVariationSnapping::SnapResult:
+		{
+			double V = PCGExMath::TruncateDbl(
+				RemapCurveObj->Eval(PCGExMath::Remap(Value, InMin, InMax, 0, 1)) * Scale,
+				TruncateOutput) * PostTruncateScale + Offset;
+			PCGExMath::Snap(V, Step);
+			return V;
+		}
+	}
+}
 
 void FPCGExAttributeRemapContext::RegisterAssetDependencies()
 {
@@ -49,6 +78,10 @@ void FPCGExAttributeRemapContext::RegisterAssetDependencies()
 }
 
 PCGEX_INITIALIZE_ELEMENT(AttributeRemap)
+
+PCGExData::EIOInit UPCGExAttributeRemapSettings::GetMainDataInitializationPolicy() const { return PCGExData::EIOInit::Duplicate; }
+
+PCGEX_ELEMENT_BATCH_POINT_IMPL(AttributeRemap)
 
 bool FPCGExAttributeRemapElement::Boot(FPCGExContext* InContext) const
 {
@@ -88,9 +121,9 @@ bool FPCGExAttributeRemapElement::ExecuteInternal(FPCGContext* InContext) const
 	PCGEX_EXECUTION_CHECK
 	PCGEX_ON_INITIAL_EXECUTION
 	{
-		if (!Context->StartBatchProcessingPoints<PCGExPointsMT::TBatch<PCGExAttributeRemap::FProcessor>>(
+		if (!Context->StartBatchProcessingPoints(
 			[&](const TSharedPtr<PCGExData::FPointIO>& Entry) { return true; },
-			[&](const TSharedPtr<PCGExPointsMT::TBatch<PCGExAttributeRemap::FProcessor>>& NewBatch)
+			[&](const TSharedPtr<PCGExPointsMT::IBatch>& NewBatch)
 			{
 			}))
 		{
@@ -235,6 +268,7 @@ namespace PCGExAttributeRemap
 				{
 					Rule.MinCache = MakeShared<PCGExMT::TScopedNumericValue<double>>(Loops, MAX_dbl);
 					Rule.MaxCache = MakeShared<PCGExMT::TScopedNumericValue<double>>(Loops, MIN_dbl_neg);
+					Rule.SnapCache = Rule.RemapDetails.Snap.GetValueSetting();
 				}
 			};
 
@@ -308,7 +342,7 @@ namespace PCGExAttributeRemap
 						double V = InProxy->Get(i);
 						OutProxy->Set(
 							i, Rule.OutputClampDetails.GetClampedValue(
-								Rule.RemapDetails.GetRemappedValue(FMath::Abs(V)) * PCGExMath::SignPlus(V)));
+								Rule.RemapDetails.GetRemappedValue(FMath::Abs(V), Rule.SnapCache->Read(i)) * PCGExMath::SignPlus(V)));
 					}
 				}
 				else
@@ -318,7 +352,7 @@ namespace PCGExAttributeRemap
 						OutProxy->Set(
 							i, Rule.OutputClampDetails.GetClampedValue(
 								Rule.RemapDetails.GetRemappedValue(
-									FMath::Abs(InProxy->Get(i)))));
+									FMath::Abs(InProxy->Get(i)), Rule.SnapCache->Read(i))));
 					}
 				}
 			}
@@ -331,7 +365,7 @@ namespace PCGExAttributeRemap
 						OutProxy->Set(
 							i, Rule.OutputClampDetails.GetClampedValue(
 								Rule.RemapDetails.GetRemappedValue(
-									InProxy->Get(i))));
+									InProxy->Get(i), Rule.SnapCache->Read(i))));
 					}
 				}
 				else
@@ -341,7 +375,7 @@ namespace PCGExAttributeRemap
 						OutProxy->Set(
 							i, Rule.OutputClampDetails.GetClampedValue(
 								Rule.RemapDetails.GetRemappedValue(
-									FMath::Abs(InProxy->Get(i)))));
+									FMath::Abs(InProxy->Get(i)), Rule.SnapCache->Read(i))));
 					}
 				}
 			}

@@ -4,16 +4,12 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "PCGExDetailsData.h"
 #include "PCGExGlobalSettings.h"
 #include "PCGExLayout.h"
-
 #include "PCGExPointsProcessor.h"
 #include "PCGExSorting.h"
-
-
+#include "Details/PCGExSettingsMacros.h"
 #include "Transform/PCGExTransform.h"
-
 
 #include "PCGExBinPacking.generated.h"
 
@@ -43,7 +39,7 @@ public:
 #if WITH_EDITOR
 	PCGEX_NODE_INFOS(BinPacking, "Bin Packing", "[EXPERIMENTAL] An simple bin packing node.");
 	virtual EPCGSettingsType GetType() const override { return EPCGSettingsType::Metadata; }
-	virtual FLinearColor GetNodeTitleColor() const override { return GetDefault<UPCGExGlobalSettings>()->WantsColor(GetDefault<UPCGExGlobalSettings>()->NodeColorTransform); }
+	virtual FLinearColor GetNodeTitleColor() const override { return GetDefault<UPCGExGlobalSettings>()->WantsColor(GetDefault<UPCGExGlobalSettings>()->ColorTransform); }
 #endif
 
 protected:
@@ -51,6 +47,8 @@ protected:
 	virtual TArray<FPCGPinProperties> OutputPinProperties() const override;
 	virtual FPCGElementPtr CreateElement() const override;
 	//~End UPCGSettings
+
+	virtual PCGExData::EIOInit GetMainDataInitializationPolicy() const override;
 
 public:
 	/** Controls the order in which points will be sorted, when using sorting rules. */
@@ -121,7 +119,7 @@ public:
 
 	virtual bool GetSortingRules(FPCGExContext* InContext, TArray<FPCGExSortRuleConfig>& OutRules) const;
 
-	PCGEX_SETTING_VALUE_GET(Padding, FVector, OccupationPaddingInput, OccupationPaddingAttribute, OccupationPadding)
+	PCGEX_SETTING_VALUE_DECL(Padding, FVector)
 };
 
 struct FPCGExBinPackingContext final : FPCGExPointsProcessorContext
@@ -134,6 +132,9 @@ struct FPCGExBinPackingContext final : FPCGExPointsProcessorContext
 	TArray<FPCGExUVW> BinsUVW;
 
 	TSharedPtr<PCGExData::FPointIOCollection> Discarded;
+
+protected:
+	PCGEX_ELEMENT_BATCH_POINT_DECL
 };
 
 class FPCGExBinPackingElement final : public FPCGExPointsProcessorElement
@@ -217,7 +218,7 @@ namespace PCGExBinPacking
 		explicit FProcessor(const TSharedRef<PCGExData::FFacade>& InPointDataFacade):
 			TProcessor(InPointDataFacade)
 		{
-			bDaisyChainProcessPoints = true;
+			bForceSingleThreadedProcessPoints = true;
 		}
 
 		virtual ~FProcessor() override

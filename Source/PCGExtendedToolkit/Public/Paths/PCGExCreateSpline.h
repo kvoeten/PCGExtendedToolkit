@@ -38,7 +38,7 @@ public:
 
 	PCGEX_NODE_INFOS(CreateSpline, "Create Spline", "Create splines from input points.");
 	virtual EPCGSettingsType GetType() const override { return EPCGSettingsType::Spatial; }
-	virtual FLinearColor GetNodeTitleColor() const override { return GetDefault<UPCGExGlobalSettings>()->WantsColor(GetDefault<UPCGExGlobalSettings>()->NodeColorMiscAdd); }
+	virtual FLinearColor GetNodeTitleColor() const override { return GetDefault<UPCGExGlobalSettings>()->WantsColor(GetDefault<UPCGExGlobalSettings>()->ColorMiscAdd); }
 #endif
 
 protected:
@@ -81,14 +81,14 @@ public:
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta = (PCG_Overridable))
 	FPCGExTangentsDetails Tangents;
 
-	UPROPERTY(meta = (PCG_Overridable))
+	UPROPERTY(meta = (PCG_Overridable), AdvancedDisplay)
 	TSoftObjectPtr<AActor> TargetActor;
 
 	/** Specify a list of functions to be called on the target actor after spline mesh creation. Functions need to be parameter-less and with "CallInEditor" flag enabled. */
-	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings)
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, AdvancedDisplay)
 	TArray<FName> PostProcessFunctionNames;
 
-	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings)
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, AdvancedDisplay)
 	FPCGExAttachmentRules AttachmentRules;
 
 	bool GetApplyTangents() const
@@ -101,6 +101,9 @@ struct FPCGExCreateSplineContext final : FPCGExPathProcessorContext
 {
 	friend class FPCGExCreateSplineElement;
 	FPCGExTangentsDetails Tangents;
+
+protected:
+	PCGEX_ELEMENT_BATCH_POINT_DECL
 };
 
 class FPCGExCreateSplineElement final : public FPCGExPathProcessorElement
@@ -113,6 +116,7 @@ protected:
 	virtual bool Boot(FPCGExContext* InContext) const override;
 	virtual bool ExecuteInternal(FPCGContext* Context) const override;
 	virtual bool IsCacheable(const UPCGSettings* InSettings) const override;
+	virtual bool CanExecuteOnlyOnMainThread(FPCGContext* Context) const override;
 };
 
 namespace PCGExCreateSpline
@@ -176,6 +180,6 @@ namespace PCGExCreateSpline
 			InContext->AddNotifyActor(TargetActor);
 		}
 
-		virtual bool PrepareSingle(const TSharedPtr<FProcessor>& PointsProcessor) override;
+		virtual bool PrepareSingle(const TSharedRef<PCGExPointsMT::IProcessor>& InProcessor) override;
 	};
 }

@@ -6,6 +6,8 @@
 #include "Engine/World.h"
 #include "Engine/OverlapResult.h"
 #include "Components/PrimitiveComponent.h"
+#include "Data/PCGExDataTag.h"
+#include "Data/PCGExPointIO.h"
 
 #define LOCTEXT_NAMESPACE "PCGExSampleNearestSurfaceElement"
 #define PCGEX_NAMESPACE SampleNearestSurface
@@ -13,11 +15,15 @@
 TArray<FPCGPinProperties> UPCGExSampleNearestSurfaceSettings::InputPinProperties() const
 {
 	TArray<FPCGPinProperties> PinProperties = Super::InputPinProperties();
-	if (SurfaceSource == EPCGExSurfaceSource::ActorReferences) { PCGEX_PIN_POINT(PCGExSampling::SourceActorReferencesLabel, "Points with actor reference paths.", Required, {}) }
+	if (SurfaceSource == EPCGExSurfaceSource::ActorReferences) { PCGEX_PIN_POINT(PCGExSampling::SourceActorReferencesLabel, "Points with actor reference paths.", Required) }
 	return PinProperties;
 }
 
 PCGEX_INITIALIZE_ELEMENT(SampleNearestSurface)
+
+PCGExData::EIOInit UPCGExSampleNearestSurfaceSettings::GetMainDataInitializationPolicy() const { return PCGExData::EIOInit::Duplicate; }
+
+PCGEX_ELEMENT_BATCH_POINT_IMPL(SampleNearestSurface)
 
 bool FPCGExSampleNearestSurfaceElement::Boot(FPCGExContext* InContext) const
 {
@@ -77,9 +83,9 @@ bool FPCGExSampleNearestSurfaceElement::ExecuteInternal(FPCGContext* InContext) 
 	PCGEX_EXECUTION_CHECK
 	PCGEX_ON_INITIAL_EXECUTION
 	{
-		if (!Context->StartBatchProcessingPoints<PCGExPointsMT::TBatch<PCGExSampleNearestSurface::FProcessor>>(
+		if (!Context->StartBatchProcessingPoints(
 			[&](const TSharedPtr<PCGExData::FPointIO>& Entry) { return true; },
-			[&](const TSharedPtr<PCGExPointsMT::TBatch<PCGExSampleNearestSurface::FProcessor>>& NewBatch)
+			[&](const TSharedPtr<PCGExPointsMT::IBatch>& NewBatch)
 			{
 				if (Settings->bPruneFailedSamples) { NewBatch->bRequiresWriteStep = true; }
 			}))
@@ -271,7 +277,8 @@ namespace PCGExSampleNearestSurface
 					PCGEX_OUTPUT_VALUE(IsInside, Index, bIsInside)
 					PCGEX_OUTPUT_VALUE(Distance, Index, MinDist)
 					PCGEX_OUTPUT_VALUE(Success, Index, true)
-					SamplingMask[Index] = true;
+
+					SamplingMask[Index] = ((!bIsInside || !Settings->bProcessInsideAsFailedSamples) && (bIsInside || !Settings->bProcessOutsideAsFailedSamples));
 
 					if (Context->ApplySampling.WantsApply())
 					{

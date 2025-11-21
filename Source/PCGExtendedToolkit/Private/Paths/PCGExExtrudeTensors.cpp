@@ -3,21 +3,29 @@
 
 #include "Paths/PCGExExtrudeTensors.h"
 
+#include "PCGExScopedContainers.h"
 #include "Data/PCGExData.h"
+#include "Data/PCGExDataTag.h"
+#include "Data/PCGExPointFilter.h"
+#include "Data/PCGExPointIO.h"
 #include "Graph/PCGExGraph.h"
-
+#include "Paths/PCGExPathProcessor.h"
 
 #define LOCTEXT_NAMESPACE "PCGExExtrudeTensorsElement"
 #define PCGEX_NAMESPACE ExtrudeTensors
 
+PCGEX_SETTING_VALUE_IMPL(UPCGExExtrudeTensorsSettings, MaxLength, double, MaxLengthInput, MaxLengthAttribute, MaxLength)
+PCGEX_SETTING_VALUE_IMPL(UPCGExExtrudeTensorsSettings, MaxPointsCount, int32, MaxPointsCountInput, MaxPointsCountAttribute, MaxPointsCount)
+PCGEX_SETTING_VALUE_IMPL_BOOL(UPCGExExtrudeTensorsSettings, Iterations, int32, bUsePerPointMaxIterations, IterationsAttribute, Iterations)
+
 TArray<FPCGPinProperties> UPCGExExtrudeTensorsSettings::InputPinProperties() const
 {
 	TArray<FPCGPinProperties> PinProperties = Super::InputPinProperties();
-	PCGEX_PIN_FACTORIES(PCGExTensor::SourceTensorsLabel, "Tensors", Required, {})
-	PCGEX_PIN_FACTORIES(PCGExPointFilter::SourceStopConditionLabel, "Extruded points will be tested against those filters. If a filter returns true, the extrusion point is considered 'out-of-bounds'.", Normal, {})
+	PCGEX_PIN_FACTORIES(PCGExTensor::SourceTensorsLabel, "Tensors", Required, FPCGExDataTypeInfoTensor::AsId())
+	PCGEX_PIN_FILTERS(PCGExPointFilter::SourceStopConditionLabel, "Extruded points will be tested against those filters. If a filter returns true, the extrusion point is considered 'out-of-bounds'.", Normal)
 
-	if (bDoExternalPathIntersections) { PCGEX_PIN_POINTS(PCGExPaths::SourcePathsLabel, "Paths that will be checked for intersections while extruding.", Normal, {}) }
-	else { PCGEX_PIN_POINTS(PCGExPaths::SourcePathsLabel, "(This is only there to preserve connections, enable it in the settings.)", Advanced, {}) }
+	if (bDoExternalPathIntersections) { PCGEX_PIN_POINTS(PCGExPaths::SourcePathsLabel, "Paths that will be checked for intersections while extruding.", Normal) }
+	else { PCGEX_PIN_POINTS(PCGExPaths::SourcePathsLabel, "(This is only there to preserve connections, enable it in the settings.)", Advanced) }
 
 	PCGExSorting::DeclareSortingRulesInputs(PinProperties, bDoSelfPathIntersections ? EPCGPinStatus::Normal : EPCGPinStatus::Advanced);
 
@@ -31,13 +39,14 @@ bool UPCGExExtrudeTensorsSettings::GetSortingRules(FPCGExContext* InContext, TAr
 }
 
 PCGEX_INITIALIZE_ELEMENT(ExtrudeTensors)
+PCGEX_ELEMENT_BATCH_POINT_IMPL_ADV(ExtrudeTensors)
 
 FName UPCGExExtrudeTensorsSettings::GetMainInputPin() const { return PCGExGraph::SourceSeedsLabel; }
 FName UPCGExExtrudeTensorsSettings::GetMainOutputPin() const { return PCGExPaths::OutputPathsLabel; }
 
 bool FPCGExExtrudeTensorsElement::Boot(FPCGExContext* InContext) const
 {
-	if (!FPCGExPointsProcessorElement::Boot(InContext)) { return false; }
+	if (!FPCGExPathProcessorElement::Boot(InContext)) { return false; }
 
 	PCGEX_CONTEXT_AND_SETTINGS(ExtrudeTensors)
 
@@ -50,14 +59,22 @@ bool FPCGExExtrudeTensorsElement::Boot(FPCGExContext* InContext) const
 	PCGEX_FWD(MergeDetails)
 	Context->MergeDetails.Init();
 
-	if (!PCGExFactories::GetInputFactories(InContext, PCGExTensor::SourceTensorsLabel, Context->TensorFactories, {PCGExFactories::EType::Tensor}, true)) { return false; }
+	if (!PCGExFactories::GetInputFactories(
+		InContext, PCGExTensor::SourceTensorsLabel, Context->TensorFactories,
+		{PCGExFactories::EType::Tensor}))
+	{
+		return false;
+	}
 
-	GetInputFactories(Context, PCGExPointFilter::SourceStopConditionLabel, Context->StopFilterFactories, PCGExFactories::PointFilters, false);
+	GetInputFactories(
+		Context, PCGExPointFilter::SourceStopConditionLabel, Context->StopFilterFactories,
+		PCGExFactories::PointFilters, false);
+
 	PCGExPointFilter::PruneForDirectEvaluation(Context, Context->StopFilterFactories);
 
 	if (Context->TensorFactories.IsEmpty())
 	{
-		if (!Settings->bQuietMissingTensorError) { PCGE_LOG_C(Error, GraphAndLog, InContext, FTEXT("Missing tensors.")); }
+		PCGEX_LOG_MISSING_INPUT(InContext, FTEXT("Missing tensors."))
 		return false;
 	}
 
@@ -77,9 +94,9 @@ bool FPCGExExtrudeTensorsElement::ExecuteInternal(FPCGContext* InContext) const
 	{
 		Context->AddConsumableAttributeName(Settings->IterationsAttribute);
 
-		if (!Context->StartBatchProcessingPoints<PCGExExtrudeTensors::FBatch>(
+		if (!Context->StartBatchProcessingPoints(
 			[&](const TSharedPtr<PCGExData::FPointIO>& Entry) { return true; },
-			[&](const TSharedPtr<PCGExExtrudeTensors::FBatch>& NewBatch)
+			[&](const TSharedPtr<PCGExPointsMT::IBatch>& NewBatch)
 			{
 				NewBatch->bPrefetchData = true;
 			}))
@@ -90,7 +107,7 @@ bool FPCGExExtrudeTensorsElement::ExecuteInternal(FPCGContext* InContext) const
 
 	PCGEX_POINTS_BATCH_PROCESSING(PCGExCommon::State_Done)
 
-	Context->MainPoints->StageOutputs();
+	PCGEX_OUTPUT_VALID_PATHS(MainPoints)
 
 	return Context->TryComplete();
 }
@@ -125,10 +142,8 @@ namespace PCGExExtrudeTensors
 		ExtrudedPoints.Last() = Head;
 		Metrics = PCGExPaths::FPathMetrics(LastInsertion);
 
-		Bounds = FBox(ForceInit);
-		Bounds += (Metrics.Last + FVector::OneVector * 1);
-		Bounds += (Metrics.Last + FVector::OneVector * -1);
-		if (Context) { Bounds = Bounds.ExpandBy(Context->SelfPathIntersections.Tolerance); }
+		const double Tol = Context ? Context->SelfPathIntersections.Tolerance : 0;
+		PCGEX_SET_BOX_TOLERANCE(Bounds, (Metrics.Last + FVector::OneVector * 1), (Metrics.Last + FVector::OneVector * -1), Tol);
 
 		///
 		///
@@ -199,10 +214,7 @@ namespace PCGExExtrudeTensors
 
 		Complete();
 
-		FBox OEBox = FBox(ForceInit);
-		OEBox += PrevPos;
-		OEBox += ExtrudedPoints.Last().GetLocation();
-		OEBox = OEBox.ExpandBy(Context->SelfPathIntersections.ToleranceSquared + 1);
+		PCGEX_BOX_TOLERANCE(OEBox, PrevPos, ExtrudedPoints.Last().GetLocation(), (Context->SelfPathIntersections.ToleranceSquared + 1));
 		SegmentBounds.Last() = OEBox;
 
 		bIsStopped = true;
@@ -228,6 +240,8 @@ namespace PCGExExtrudeTensors
 		PCGExMath::FClosestPosition Crossing(InSegment.A);
 
 		const int32 LastSegment = SegmentBounds.Num() - 1;
+		const double SqrTolerance = Context->SelfPathIntersections.ToleranceSquared;
+		const uint8 Strictness = Context->SelfPathIntersections.Strictness;
 
 		for (int i = 0; i < MaxSearches; i++)
 		{
@@ -244,7 +258,7 @@ namespace PCGExExtrudeTensors
 			FVector OutSelf = FVector::ZeroVector;
 			FVector OutOther = FVector::ZeroVector;
 
-			if (!InSegment.FindIntersection(A, B, Context->SelfPathIntersections.ToleranceSquared, OutSelf, OutOther, PCGExMath::EIntersectionTestMode::Strict))
+			if (!InSegment.FindIntersection(A, B, SqrTolerance, OutSelf, OutOther, Strictness))
 			{
 				OutClosestPosition.Update(OutOther);
 				continue;
@@ -318,10 +332,7 @@ namespace PCGExExtrudeTensors
 
 		if (Settings->bDoSelfPathIntersections)
 		{
-			FBox OEBox = FBox(ForceInit);
-			OEBox += ExtrudedPoints.Last(1).GetLocation();
-			OEBox += ExtrudedPoints.Last().GetLocation();
-			OEBox = OEBox.ExpandBy(Context->SelfPathIntersections.ToleranceSquared + 1);
+			PCGEX_BOX_TOLERANCE(OEBox, ExtrudedPoints.Last(1).GetLocation(), ExtrudedPoints.Last().GetLocation(), (Context->SelfPathIntersections.ToleranceSquared + 1));
 			SegmentBounds.Emplace(OEBox);
 
 			Bounds += OEBox;

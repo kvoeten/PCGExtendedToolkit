@@ -27,7 +27,7 @@ public:
 	//~Begin UPCGSettings
 #if WITH_EDITOR
 	PCGEX_NODE_INFOS(SampleNeighbors, "Cluster : Sample Neighbors", "Sample cluster vtx' neighbors values.");
-	virtual FLinearColor GetNodeTitleColor() const override { return GetDefault<UPCGExGlobalSettings>()->NodeColorSampler; }
+	virtual FLinearColor GetNodeTitleColor() const override { return GetDefault<UPCGExGlobalSettings>()->ColorSampling; }
 #endif
 
 protected:
@@ -52,6 +52,9 @@ struct FPCGExSampleNeighborsContext final : FPCGExEdgesProcessorContext
 {
 	friend class FPCGExSampleNeighborsElement;
 	TArray<TObjectPtr<const UPCGExNeighborSamplerFactoryData>> SamplerFactories;
+
+protected:
+	PCGEX_ELEMENT_BATCH_EDGE_DECL
 };
 
 class FPCGExSampleNeighborsElement final : public FPCGExEdgesProcessorElement
@@ -99,7 +102,7 @@ namespace PCGExSampleNeighbors
 			PCGEX_TYPED_CONTEXT_AND_SETTINGS(SampleNeighbors)
 			bRequiresWriteStep = true;
 			bWriteVtxDataFacade = true;
-			bAllowVtxDataFacadeScopedGet = true;
+			bAllowVtxDataFacadeScopedGet = true; // TODO : More work required to support this
 		}
 
 		virtual void RegisterBuffersDependencies(PCGExData::FFacadePreloader& FacadePreloader) override;

@@ -5,12 +5,16 @@
 
 #include "CoreMinimal.h"
 #include "PCGExCompare.h"
-#include "PCGExDetailsData.h"
 #include "PCGExMatchRuleFactoryProvider.h"
 #include "PCGExPointsProcessor.h"
 
-
 #include "PCGExMatchTagToAttr.generated.h"
+
+namespace PCGEx
+{
+	template <typename T>
+	class TAttributeBroadcaster;
+}
 
 USTRUCT(BlueprintType)
 struct FPCGExMatchTagToAttrConfig : public FPCGExMatchRuleConfigBase
@@ -53,7 +57,7 @@ struct FPCGExMatchTagToAttrConfig : public FPCGExMatchRuleConfigBase
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta=(PCG_NotOverridable, DisplayName="Comparison", EditCondition="bDoValueMatch && ValueType == EPCGExComparisonDataType::Numeric", EditConditionHides))
 	EPCGExComparison NumericComparison = EPCGExComparison::NearlyEqual;
 
-	/** Rounding mode for relative measures */
+	/** Near-equality tolerance */
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta=(PCG_NotOverridable, EditCondition="bDoValueMatch && ValueType == EPCGExComparisonDataType::Numeric && (NumericComparison == EPCGExComparison::NearlyEqual || NumericComparison == EPCGExComparison::NearlyNotEqual)", EditConditionHides))
 	double Tolerance = DBL_COMPARE_TOLERANCE;
 

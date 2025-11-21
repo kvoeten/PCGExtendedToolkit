@@ -3,6 +3,8 @@
 
 #include "Misc/Filters/PCGExBoundsFilter.h"
 
+#include "Data/PCGExData.h"
+#include "Data/PCGExPointIO.h"
 #include "Geometry/PCGExGeoPointBox.h"
 
 
@@ -21,7 +23,7 @@ PCGExFactories::EPreparationResult UPCGExBoundsFilterFactory::Prepare(FPCGExCont
 
 	if (!PCGExData::TryGetFacades(InContext, FName("Bounds"), BoundsDataFacades, false))
 	{
-		if (MissingDataHandling == EPCGExFilterNoDataFallback::Error) { if (!bQuietMissingInputError) { PCGE_LOG_C(Error, GraphAndLog, InContext, FTEXT("Missing bounds data.")); } }
+		if (MissingDataPolicy == EPCGExFilterNoDataFallback::Error) { PCGEX_LOG_MISSING_INPUT(InContext, FTEXT("Missing bounds data.")) }
 		return PCGExFactories::EPreparationResult::MissingData;
 	}
 
@@ -150,6 +152,8 @@ if(TypedFilterFactory->Config.bInvert){\
 	return true;
 }
 
+bool PCGExPointFilter::FBoundsFilter::Test(const int32 PointIndex) const { return BoundCheck(PointDataFacade->Source->GetInPoint(PointIndex)); }
+
 bool PCGExPointFilter::FBoundsFilter::Test(const TSharedPtr<PCGExData::FPointIO>& IO, const TSharedPtr<PCGExData::FPointIOCollection>& ParentCollection) const
 {
 	PCGExData::FProxyPoint ProxyPoint;
@@ -157,10 +161,32 @@ bool PCGExPointFilter::FBoundsFilter::Test(const TSharedPtr<PCGExData::FPointIO>
 	return Test(ProxyPoint);
 }
 
+#if WITH_EDITOR
+TArray<FPCGPreConfiguredSettingsInfo> UPCGExBoundsFilterProviderSettings::GetPreconfiguredInfo() const
+{
+	TArray<FPCGPreConfiguredSettingsInfo> Infos;
+
+	const TSet<EPCGExBoundsCheckType> ValuesToSkip = {};
+	return FPCGPreConfiguredSettingsInfo::PopulateFromEnum<EPCGExBoundsCheckType>(ValuesToSkip, FTEXT("{0} (Bounds)"));
+}
+#endif
+
+void UPCGExBoundsFilterProviderSettings::ApplyPreconfiguredSettings(const FPCGPreConfiguredSettingsInfo& PreconfigureInfo)
+{
+	Super::ApplyPreconfiguredSettings(PreconfigureInfo);
+	if (const UEnum* EnumPtr = StaticEnum<EPCGExBoundsCheckType>())
+	{
+		if (EnumPtr->IsValidEnumValue(PreconfigureInfo.PreconfiguredIndex))
+		{
+			Config.CheckType = static_cast<EPCGExBoundsCheckType>(PreconfigureInfo.PreconfiguredIndex);
+		}
+	}
+}
+
 TArray<FPCGPinProperties> UPCGExBoundsFilterProviderSettings::InputPinProperties() const
 {
 	TArray<FPCGPinProperties> PinProperties = Super::InputPinProperties();
-	PCGEX_PIN_POINTS(FName("Bounds"), TEXT("Points which bounds will be used for testing"), Required, {})
+	PCGEX_PIN_POINTS(FName("Bounds"), TEXT("Points which bounds will be used for testing"), Required)
 	return PinProperties;
 }
 

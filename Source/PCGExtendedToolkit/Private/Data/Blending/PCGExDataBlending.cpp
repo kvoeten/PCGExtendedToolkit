@@ -3,15 +3,18 @@
 
 #include "Data/Blending/PCGExDataBlending.h"
 
+#include "PCGPin.h"
 #include "Data/PCGExData.h"
 #include "Data/PCGExAttributeHelpers.h"
 #include "Data/PCGExDataPreloader.h"
+#include "Data/PCGExPointIO.h"
+#include "Data/Blending/PCGExBlendOpFactoryProvider.h"
 
 namespace PCGExDataBlending
 {
 	void DeclareBlendOpsInputs(TArray<FPCGPinProperties>& PinProperties, const EPCGPinStatus InStatus, EPCGExBlendingInterface Interface)
 	{
-		FPCGPinProperties& Pin = PinProperties.Emplace_GetRef(SourceBlendingLabel, EPCGDataType::Param);
+		FPCGPinProperties& Pin = PinProperties.Emplace_GetRef(SourceBlendingLabel, FPCGExDataTypeInfoBlendOp::AsId());
 		PCGEX_PIN_TOOLTIP("Blending configurations, used by Individual (non-monolithic) blending interface.")
 		Pin.PinStatus = Interface == EPCGExBlendingInterface::Monolithic ? EPCGPinStatus::Advanced : InStatus;
 	}
@@ -261,9 +264,25 @@ void FPCGExBlendingDetails::GetBlendingParams(
 		}
 		else
 		{
-			const EPCGExDataBlendingType* TypePtr = AttributesOverrides.Find(Identity.Identifier.Name);
-			// TODO : Support global defaults (or ditch support)
-			Param.SetBlending(TypePtr ? *TypePtr : DefaultBlending);
+			if (const EPCGExDataBlendingType* TypePtr = AttributesOverrides.Find(Identity.Identifier.Name))
+			{
+				Param.SetBlending(*TypePtr);
+			}
+			else
+			{
+				EPCGExDataBlendingType DesiredBlending = DefaultBlending;
+
+#define PCGEX_GET_GLOBAL_BLENDMODE(_TYPE, _NAME, ...)\
+if (Identity.UnderlyingType == EPCGMetadataTypes::Boolean){\
+if (GetDefault<UPCGExGlobalSettings>()->DefaultBooleanBlendMode != EPCGExDataBlendingTypeDefault::Default){\
+DesiredBlending = static_cast<EPCGExDataBlendingType>(GetDefault<UPCGExGlobalSettings>()->DefaultBooleanBlendMode);}}
+
+				PCGEX_FOREACH_SUPPORTEDTYPES(PCGEX_GET_GLOBAL_BLENDMODE)
+
+#undef PCGEX_GET_GLOBAL_BLENDMODE
+
+				Param.SetBlending(DesiredBlending);
+			}
 		}
 
 		if (Param.Blending == EPCGExABBlendingType::None) { continue; }

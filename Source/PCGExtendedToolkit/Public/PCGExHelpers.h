@@ -12,7 +12,7 @@
 
 #include "PCGExtendedToolkit.h"
 #include "PCGContext.h"
-#include "PCGExMacros.h"
+#include "Details/PCGExMacros.h"
 #include "Metadata/PCGMetadataAttributeTraits.h"
 #include "Async/Async.h"
 #include "Metadata/PCGMetadata.h"
@@ -51,13 +51,13 @@ enum class EPCGExPointNativeProperties : uint8
 };
 
 ENUM_CLASS_FLAGS(EPCGExPointNativeProperties)
-using EPCGExEPCGExNativePointPropertiesBitmask = TEnumAsByte<EPCGExPointNativeProperties>;
+using EPCGExNativePointPropertiesBitmask = TEnumAsByte<EPCGExPointNativeProperties>;
 
 UCLASS(Hidden)
 class PCGEXTENDEDTOOLKIT_API UPCGExComponentCallback : public UObject
 {
 	GENERATED_BODY()
-	
+
 	bool bIsOnce = false;
 	TFunction<void(UActorComponent* InComponent)> CallbackFn;
 
@@ -74,30 +74,6 @@ public:
 		bIsOnce = bOnce;
 		CallbackFn = InCallback;
 		Delegate.AddDynamic(this, &UPCGExComponentCallback::Callback);
-	}
-};
-
-UCLASS(Hidden)
-class PCGEXTENDEDTOOLKIT_API UPCGExPCGComponentCallback : public UObject
-{
-	GENERATED_BODY()
-
-	bool bIsOnce = false;
-	TFunction<void(UPCGComponent* InComponent)> CallbackFn;
-
-public:
-	UFUNCTION()
-	void Callback(UPCGComponent* InComponent);
-
-	virtual void BeginDestroy() override;
-
-	template <typename T>
-	void Bind(T& Delegate, TFunction<void(UPCGComponent* InComponent)>&& InCallback, const bool bOnce = false)
-	{
-		check(!CallbackFn)
-		bIsOnce = bOnce;
-		CallbackFn = InCallback;
-		Delegate.AddDynamic(this, &UPCGExPCGComponentCallback::Callback);
 	}
 };
 
@@ -151,7 +127,7 @@ namespace PCGExHelpers
 	bool IsDataDomainAttribute(const FPCGAttributePropertyInputSelector& InputSelector);
 
 	PCGEXTENDEDTOOLKIT_API
-	void CopyBaseNativeProperties(const UPCGData* From, UPCGData* To, EPCGPointNativeProperties Properties = EPCGPointNativeProperties::All);
+	void InitEmptyNativeProperties(const UPCGData* From, UPCGData* To, EPCGPointNativeProperties Properties = EPCGPointNativeProperties::All);
 
 	PCGEXTENDEDTOOLKIT_API
 	void LoadBlocking_AnyThread(const FSoftObjectPath& Path);
@@ -234,6 +210,9 @@ namespace PCGEx
 
 	PCGEXTENDEDTOOLKIT_API
 	FPCGAttributeIdentifier GetAttributeIdentifier(const FName InName);
+
+	PCGEXTENDEDTOOLKIT_API
+	FPCGAttributePropertyInputSelector GetSelectorFromIdentifier(const FPCGAttributeIdentifier& InIdentifier);
 
 	class PCGEXTENDEDTOOLKIT_API FPCGExAsyncStateScope
 	{
@@ -329,7 +308,7 @@ namespace PCGEx
 		void AddExtraStructReferencedObjects(FReferenceCollector& Collector);
 
 		template <class T, typename... Args>
-		T* New(Args&&... InArgs)
+				T* New(Args&&... InArgs)
 		{
 			check(WeakHandle.IsValid())
 			if (IsFlushing()) { UE_LOG(LogPCGEx, Error, TEXT("Attempting to create a managed object while flushing!")) }
@@ -351,7 +330,7 @@ namespace PCGEx
 			Add(Object);
 			return Object;
 		}
-
+		
 		template <class T>
 		T* DuplicateData(const UPCGData* InData)
 		{
@@ -621,31 +600,10 @@ namespace PCGEx
 	const FSoftClassPath DummySoftClassPath = FSoftClassPath{};
 	const FSoftObjectPath DummySoftObjectPath = FSoftObjectPath{};
 
-	template <typename T, typename Func>
-	static void ExecuteWithRightType(Func&& Callback)
-	{
-		if constexpr (std::is_same_v<T, bool>) { Callback(DummyBoolean); }
-		else if constexpr (std::is_same_v<T, int32>) { Callback(DummyInteger32); }
-		else if constexpr (std::is_same_v<T, int64>) { Callback(DummyInteger64); }
-		else if constexpr (std::is_same_v<T, float>) { Callback(DummyFloat); }
-		else if constexpr (std::is_same_v<T, double>) { Callback(DummyDouble); }
-		else if constexpr (std::is_same_v<T, FVector2D>) { Callback(DummyVector2); }
-		else if constexpr (std::is_same_v<T, FVector>) { Callback(DummyVector); }
-		else if constexpr (std::is_same_v<T, FVector4>) { Callback(DummyVector4); }
-		else if constexpr (std::is_same_v<T, FQuat>) { Callback(DummyQuaternion); }
-		else if constexpr (std::is_same_v<T, FRotator>) { Callback(DummyRotator); }
-		else if constexpr (std::is_same_v<T, FTransform>) { Callback(DummyTransform); }
-		else if constexpr (std::is_same_v<T, FString>) { Callback(DummyString); }
-		else if constexpr (std::is_same_v<T, FName>) { Callback(DummyName); }
-		else if constexpr (std::is_same_v<T, FSoftClassPath>) { Callback(DummySoftClassPath); }
-		else if constexpr (std::is_same_v<T, FSoftObjectPath>) { Callback(DummySoftObjectPath); }
-		else { static_assert("Unsupported type"); }
-	}
-
 	template <typename Func>
 	static void ExecuteWithRightType(const EPCGMetadataTypes Type, Func&& Callback)
 	{
-#define PCGEX_EXECUTE_WITH_TYPE(_TYPE, _ID, ...) case EPCGMetadataTypes::_ID : ExecuteWithRightType<_TYPE>(Callback); break;
+#define PCGEX_EXECUTE_WITH_TYPE(_TYPE, _ID, ...) case EPCGMetadataTypes::_ID : Callback(Dummy##_ID); break;
 
 		switch (Type)
 		{
@@ -659,7 +617,15 @@ namespace PCGEx
 	template <typename Func>
 	static void ExecuteWithRightType(const int16 Type, Func&& Callback)
 	{
-		ExecuteWithRightType(static_cast<EPCGMetadataTypes>(Type), Callback);
+#define PCGEX_EXECUTE_WITH_TYPE(_TYPE, _ID, ...) case EPCGMetadataTypes::_ID : Callback(Dummy##_ID); break;
+
+		switch (static_cast<EPCGMetadataTypes>(Type))
+		{
+		PCGEX_FOREACH_SUPPORTEDTYPES(PCGEX_EXECUTE_WITH_TYPE)
+		default: ;
+		}
+
+#undef PCGEX_EXECUTE_WITH_TYPE
 	}
 
 #pragma endregion
@@ -786,6 +752,15 @@ namespace PCGEx
 		{
 		}
 	};
+
+	template <typename T>
+	void ReorderValueRange(TPCGValueRange<T>& InRange, const TArray<int32>& InOrder);
+
+#define PCGEX_TPL(_TYPE, _NAME, ...) \
+extern template void ReorderValueRange<_TYPE>(TPCGValueRange<_TYPE>& InRange, const TArray<int32>& InOrder);
+
+	PCGEX_FOREACH_SUPPORTEDTYPES(PCGEX_TPL)
+#undef PCGEX_TPL
 
 	PCGEXTENDEDTOOLKIT_API
 	void ReorderPointArrayData(UPCGBasePointData* InData, const TArray<int32>& InOrder);

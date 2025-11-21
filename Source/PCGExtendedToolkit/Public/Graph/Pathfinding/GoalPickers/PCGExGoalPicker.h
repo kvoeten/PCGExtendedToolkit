@@ -6,9 +6,15 @@
 #include "CoreMinimal.h"
 #include "PCGEx.h"
 #include "PCGExInstancedFactory.h"
+#include "PCGExMath.h"
 
 #include "UObject/Object.h"
 #include "PCGExGoalPicker.generated.h"
+
+namespace PCGExData
+{
+	struct FConstPoint;
+}
 
 /**
  * 

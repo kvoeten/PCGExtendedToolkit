@@ -2,18 +2,25 @@
 // Released under the MIT license https://opensource.org/license/MIT/
 
 #pragma once
-#include "PCGExDetails.h"
-#include "PCGExDetailsData.h"
-#include "Data/PCGExData.h"
+#include "Engine/EngineTypes.h"
+
+#include "PCGExMathBounds.h"
+#include "Details/PCGExSettingsMacros.h"
+#include "Metadata/PCGAttributePropertySelector.h"
 #include "Sampling/PCGExSampling.h"
 #include "PCGExTransform.generated.h"
 
-UENUM()
-enum class EPCGExTransformAxisMutation : uint8
+namespace PCGExDetails
 {
-	None   = 0 UMETA(DisplayName = "None", Tooltip="Keep things as-is"),
-	Offset = 1 UMETA(DisplayName = "Offset", Tooltip="Apply an offset along the axis"),
-	Bend   = 2 UMETA(DisplayName = "Bend", Tooltip="Bend around the axis")
+	template <typename T>
+	class TSettingValue;
+}
+
+UENUM()
+enum class EPCGExTransformMode : uint8
+{
+	Absolute = 0 UMETA(DisplayName = "Absolute", ToolTip="Absolute, ignores source transform."),
+	Relative = 1 UMETA(DisplayName = "Relative", ToolTip="Relative to source transform."),
 };
 
 UENUM()
@@ -30,6 +37,7 @@ struct PCGEXTENDEDTOOLKIT_API FPCGExAttachmentRules
 	GENERATED_BODY()
 
 	FPCGExAttachmentRules() = default;
+	explicit FPCGExAttachmentRules(EAttachmentRule InLoc, EAttachmentRule InRot = EAttachmentRule::KeepWorld, EAttachmentRule InScale = EAttachmentRule::KeepWorld);
 	~FPCGExAttachmentRules() = default;
 
 	/** The rule to apply to location when attaching */
@@ -84,7 +92,7 @@ struct PCGEXTENDEDTOOLKIT_API FPCGExSocketFitDetails
 	/** Whether socket fit is enabled or not */
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta=(PCG_NotOverridable))
 	bool bEnabled = false;
-	
+
 	/** Type of Socket name input */
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta=(PCG_Overridable, EditCondition="bEnabled"))
 	EPCGExInputValueType SocketNameInput = EPCGExInputValueType::Attribute;
@@ -97,7 +105,7 @@ struct PCGEXTENDEDTOOLKIT_API FPCGExSocketFitDetails
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta=(PCG_Overridable, DisplayName="Socket Name", EditCondition="bEnabled && SocketNameInput == EPCGExInputValueType::Constant", EditConditionHides))
 	FName SocketName = NAME_None;
 
-	PCGEX_SETTING_VALUE_GET(SocketName, FName, SocketNameInput, SocketNameAttribute, SocketName)
+	PCGEX_SETTING_VALUE_DECL(SocketName, FName)
 
 	/** Type of Socket name input */
 	//UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta=(PCG_Overridable))
@@ -119,7 +127,6 @@ struct PCGEXTENDEDTOOLKIT_API FPCGExSocketFitDetails
 protected:
 	bool bMutate = false;
 	TSharedPtr<PCGExDetails::TSettingValue<FName>> SocketNameBuffer;
-	
 };
 
 USTRUCT(BlueprintType)
@@ -152,7 +159,6 @@ struct PCGEXTENDEDTOOLKIT_API FPCGExUVW
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta=(PCG_Overridable, DisplayName="U", EditCondition="UInput == EPCGExInputValueType::Constant", EditConditionHides))
 	double UConstant = 0;
 
-	PCGEX_SETTING_VALUE_GET(U, double, UInput, UAttribute, UConstant)
 
 	/** V Source */
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta=(PCG_NotOverridable))
@@ -166,7 +172,6 @@ struct PCGEXTENDEDTOOLKIT_API FPCGExUVW
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta=(PCG_Overridable, DisplayName="V", EditCondition="VInput == EPCGExInputValueType::Constant", EditConditionHides))
 	double VConstant = 0;
 
-	PCGEX_SETTING_VALUE_GET(V, double, VInput, VAttribute, VConstant)
 
 	/** W Source */
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta=(PCG_NotOverridable))
@@ -180,13 +185,15 @@ struct PCGEXTENDEDTOOLKIT_API FPCGExUVW
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta=(PCG_Overridable, DisplayName="W", EditCondition="WInput == EPCGExInputValueType::Constant", EditConditionHides))
 	double WConstant = 0;
 
-	PCGEX_SETTING_VALUE_GET(W, double, WInput, WAttribute, WConstant)
+	PCGEX_SETTING_VALUE_DECL(U, double)
+	PCGEX_SETTING_VALUE_DECL(V, double)
+	PCGEX_SETTING_VALUE_DECL(W, double)
 
 	bool Init(FPCGExContext* InContext, const TSharedRef<PCGExData::FFacade>& InDataFacade);
 
 	// Without axis
 
-	FORCEINLINE FVector GetUVW(const int32 PointIndex) const { return FVector(UGetter->Read(PointIndex), VGetter->Read(PointIndex), WGetter->Read(PointIndex)); }
+	FVector GetUVW(const int32 PointIndex) const;
 
 	FVector GetPosition(const int32 PointIndex) const;
 
@@ -231,8 +238,8 @@ struct PCGEXTENDEDTOOLKIT_API FPCGExAxisDeformDetails
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta=(PCG_Overridable, DisplayName="First Alpha", EditCondition="FirstAlphaInput == EPCGExSampleSource::Constant", EditConditionHides))
 	double FirstAlphaConstant = 0;
 
-	PCGEX_SETTING_DATA_VALUE_GET_BOOL(FirstAlpha, double, FirstAlphaInput != EPCGExSampleSource::Constant, FirstAlphaAttribute, FirstAlphaConstant)
-	PCGEX_SETTING_VALUE_GET_BOOL(FirstAlpha, double, FirstAlphaInput != EPCGExSampleSource::Constant, FirstAlphaAttribute, FirstAlphaConstant)
+	PCGEX_SETTING_DATA_VALUE_DECL(FirstAlpha, double)
+	PCGEX_SETTING_VALUE_DECL(FirstAlpha, double)
 
 	/** */
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta=(PCG_Overridable))
@@ -246,8 +253,8 @@ struct PCGEXTENDEDTOOLKIT_API FPCGExAxisDeformDetails
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta=(PCG_Overridable, DisplayName="Second Alpha", EditCondition="SecondAlphaInput == EPCGExSampleSource::Constant", EditConditionHides))
 	double SecondAlphaConstant = 1;
 
-	PCGEX_SETTING_DATA_VALUE_GET_BOOL(SecondAlpha, double, SecondAlphaInput != EPCGExSampleSource::Constant, SecondAlphaAttribute, SecondAlphaConstant)
-	PCGEX_SETTING_VALUE_GET_BOOL(SecondAlpha, double, SecondAlphaInput != EPCGExSampleSource::Constant, SecondAlphaAttribute, SecondAlphaConstant)
+	PCGEX_SETTING_DATA_VALUE_DECL(SecondAlpha, double)
+	PCGEX_SETTING_VALUE_DECL(SecondAlpha, double)
 
 	bool Validate(FPCGExContext* InContext, const bool bSupportPoints = false) const;
 
@@ -278,7 +285,6 @@ struct PCGEXTENDEDTOOLKIT_API FPCGExAxisTwistDetails
 namespace PCGExTransform
 {
 	const FName SourceDeformersLabel = TEXT("Deformers");
-	const FName SourceDeformersBoundsLabel = TEXT("Bounds");
 
 	static void SanitizeBounds(FBox& InBox)
 	{

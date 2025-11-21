@@ -5,6 +5,8 @@
 
 
 #include "Data/PCGExPointFilter.h"
+#include "Data/PCGExPointIO.h"
+#include "Details/PCGExDetailsSettings.h"
 #include "Graph/PCGExGraph.h"
 #include "Graph/Data/PCGExClusterData.h"
 #include "Graph/PCGExUnionProcessor.h"
@@ -18,10 +20,10 @@
 TArray<FPCGPinProperties> UPCGExConnectPointsSettings::InputPinProperties() const
 {
 	TArray<FPCGPinProperties> PinProperties = Super::InputPinProperties();
-	PCGEX_PIN_FACTORIES(PCGExGraph::SourceProbesLabel, "Probes used to connect points", Required, {})
+	PCGEX_PIN_FACTORIES(PCGExGraph::SourceProbesLabel, "Probes used to connect points", Required, FPCGExDataTypeInfoProbe::AsId())
 
-	PCGEX_PIN_FACTORIES(PCGExGraph::SourceFilterGenerators, "Points that don't meet requirements won't generate connections", Normal, {})
-	PCGEX_PIN_FACTORIES(PCGExGraph::SourceFilterConnectables, "Points that don't meet requirements can't receive connections", Normal, {})
+	PCGEX_PIN_FILTERS(PCGExGraph::SourceFilterGenerators, "Points that don't meet requirements won't generate connections", Normal)
+	PCGEX_PIN_FILTERS(PCGExGraph::SourceFilterConnectables, "Points that don't meet requirements can't receive connections", Normal)
 
 	return PinProperties;
 }
@@ -29,11 +31,12 @@ TArray<FPCGPinProperties> UPCGExConnectPointsSettings::InputPinProperties() cons
 TArray<FPCGPinProperties> UPCGExConnectPointsSettings::OutputPinProperties() const
 {
 	TArray<FPCGPinProperties> PinProperties = Super::OutputPinProperties();
-	PCGEX_PIN_POINTS(PCGExGraph::OutputEdgesLabel, "Point data representing edges.", Required, {})
+	PCGEX_PIN_POINTS(PCGExGraph::OutputEdgesLabel, "Point data representing edges.", Required)
 	return PinProperties;
 }
 
 PCGEX_INITIALIZE_ELEMENT(ConnectPoints)
+PCGEX_ELEMENT_BATCH_POINT_IMPL(ConnectPoints)
 
 bool FPCGExConnectPointsElement::Boot(FPCGExContext* InContext) const
 {
@@ -43,7 +46,7 @@ bool FPCGExConnectPointsElement::Boot(FPCGExContext* InContext) const
 
 	if (!PCGExFactories::GetInputFactories<UPCGExProbeFactoryData>(
 		Context, PCGExGraph::SourceProbesLabel, Context->ProbeFactories,
-		{PCGExFactories::EType::Probe}, true))
+		{PCGExFactories::EType::Probe}))
 	{
 		return false;
 	}
@@ -51,6 +54,7 @@ bool FPCGExConnectPointsElement::Boot(FPCGExContext* InContext) const
 	GetInputFactories(
 		Context, PCGExGraph::SourceFilterGenerators, Context->GeneratorsFiltersFactories,
 		PCGExFactories::PointFilters, false);
+
 	GetInputFactories(
 		Context, PCGExGraph::SourceFilterConnectables, Context->ConnectablesFiltersFactories,
 		PCGExFactories::PointFilters, false);
@@ -69,7 +73,7 @@ bool FPCGExConnectPointsElement::ExecuteInternal(FPCGContext* InContext) const
 	PCGEX_ON_INITIAL_EXECUTION
 	{
 		PCGEX_ON_INVALILD_INPUTS(FTEXT("Some input have less than 2 points and will be ignored."))
-		if (!Context->StartBatchProcessingPoints<PCGExPointsMT::TBatch<PCGExConnectPoints::FProcessor>>(
+		if (!Context->StartBatchProcessingPoints(
 			[&](const TSharedPtr<PCGExData::FPointIO>& Entry)
 			{
 				if (Entry->GetNum() < 2)
@@ -79,7 +83,7 @@ bool FPCGExConnectPointsElement::ExecuteInternal(FPCGContext* InContext) const
 				}
 				return true;
 			},
-			[&](const TSharedPtr<PCGExPointsMT::TBatch<PCGExConnectPoints::FProcessor>>& NewBatch)
+			[&](const TSharedPtr<PCGExPointsMT::IBatch>& NewBatch)
 			{
 				NewBatch->bRequiresWriteStep = true;
 			}))
@@ -263,8 +267,8 @@ namespace PCGExConnectPoints
 			if (!CanGenerate[Index]) { continue; } // Not a generator
 
 			TSet<uint64>* UniqueEdges = ScopedEdges->Get(Scope).Get();
-			TUniquePtr<TSet<FInt32Vector>> LocalCoincidence;
-			if (bPreventCoincidence) { LocalCoincidence = MakeUnique<TSet<FInt32Vector>>(); }
+			TUniquePtr<TSet<uint64>> LocalCoincidence;
+			if (bPreventCoincidence) { LocalCoincidence = MakeUnique<TSet<uint64>>(); }
 
 			const FTransform& CandidateTransform = bUseProjection ? WorkingTransforms[Index] : OriginalTransforms[Index];
 
@@ -300,7 +304,7 @@ namespace PCGExConnectPoints
 						OtherPointIndex,
 						Dir,
 						FVector::DistSquared(Position, Origin),
-						bPreventCoincidence ? PCGEx::I323(Dir, CWCoincidenceTolerance) : FInt32Vector::ZeroValue);
+						bPreventCoincidence ? PCGEx::GH3(Dir, CWCoincidenceTolerance) : 0);
 
 					if (NumChainedOps > 0)
 					{

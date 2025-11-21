@@ -4,7 +4,6 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "PCGExDetailsData.h"
 #include "UObject/Object.h"
 
 #include "PCGExFactoryProvider.h"
@@ -12,9 +11,13 @@
 
 #include "PCGExVtxPropertyAmplitude.generated.h"
 
-///
+namespace PCGExDetails
+{
+	template <typename T>
+	class TSettingValue;
+}
 
-class UPCGExFilterFactoryData;
+class UPCGExPointFilterFactoryData;
 
 UENUM()
 enum class EPCGExVtxAmplitudeMode : uint8
@@ -44,6 +47,8 @@ struct FPCGExAmplitudeConfig
 {
 	GENERATED_BODY()
 
+	FPCGExAmplitudeConfig();
+	
 	/**  */
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta = (PCG_Overridable, InlineEditConditionToggle))
 	bool bWriteMinAmplitude = false;
@@ -135,14 +140,14 @@ class FPCGExVtxPropertyAmplitude : public FPCGExVtxPropertyOperation
 public:
 	FPCGExAmplitudeConfig Config;
 
-	TArray<TObjectPtr<const UPCGExFilterFactoryData>>* FilterFactories = nullptr;
+	TArray<TObjectPtr<const UPCGExPointFilterFactoryData>>* FilterFactories = nullptr;
 
 	virtual bool PrepareForCluster(
 		FPCGExContext* InContext,
 		TSharedPtr<PCGExCluster::FCluster> InCluster,
 		const TSharedPtr<PCGExData::FFacade>& InVtxDataFacade,
 		const TSharedPtr<PCGExData::FFacade>& InEdgeDataFacade) override;
-	virtual void ProcessNode(PCGExCluster::FNode& Node, const TArray<PCGExCluster::FAdjacencyData>& Adjacency) override;
+	virtual void ProcessNode(PCGExCluster::FNode& Node, const TArray<PCGExCluster::FAdjacencyData>& Adjacency, const PCGExGeo::FBestFitPlane& BFP) override;
 
 protected:
 	TSharedPtr<PCGExDetails::TSettingValue<FVector>> DirCache;

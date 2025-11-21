@@ -4,21 +4,23 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "PCGEx.h"
 #include "PCGExGlobalSettings.h"
 #include "PCGExPaths.h"
 
-#include "PCGExPointsProcessor.h"
+#include "PCGExPathProcessor.h"
+#include "PCGExSorting.h"
 #include "Data/PCGExDataForward.h"
-
 
 #include "Transform/PCGExTensorsTransform.h"
 #include "Transform/PCGExTransform.h"
-#include "Transform/Tensors/PCGExTensor.h"
-#include "Transform/Tensors/PCGExTensorFactoryProvider.h"
-#include "Transform/Tensors/PCGExTensorHandler.h"
 
 #include "PCGExExtrudeTensors.generated.h"
+
+namespace PCGExMT
+{
+	template <typename T>
+	class TScopedArray;
+}
 
 UENUM()
 enum class EPCGExSelfIntersectionMode : uint8
@@ -35,7 +37,7 @@ enum class EPCGExSelfIntersectionPriority : uint8
 };
 
 UCLASS(BlueprintType, ClassGroup = (Procedural), Category="PCGEx|Misc", meta=(PCGExNodeLibraryDoc="tensors/extrude-tensors"))
-class UPCGExExtrudeTensorsSettings : public UPCGExPointsProcessorSettings
+class UPCGExExtrudeTensorsSettings : public UPCGExPathProcessorSettings
 {
 	GENERATED_BODY()
 
@@ -43,7 +45,7 @@ public:
 	//~Begin UPCGSettings
 #if WITH_EDITOR
 	PCGEX_NODE_INFOS(ExtrudeTensors, "Path : Extrude Tensors", "Extrude input points into paths along tensors.");
-	virtual FLinearColor GetNodeTitleColor() const override { return GetDefault<UPCGExGlobalSettings>()->NodeColorTransform; }
+	virtual FLinearColor GetNodeTitleColor() const override { return GetDefault<UPCGExGlobalSettings>()->ColorTransform; }
 #endif
 
 protected:
@@ -51,11 +53,11 @@ protected:
 	virtual FPCGElementPtr CreateElement() const override;
 	//~End UPCGSettings
 
-	//~Begin UPCGExPointsProcessorSettings
+	//~Begin UPCGExPathProcessorSettings
 public:
 	virtual FName GetMainInputPin() const override;
 	virtual FName GetMainOutputPin() const override;
-	//~End UPCGExPointsProcessorSettings
+	//~End UPCGExPathProcessorSettings
 
 	/**  */
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = "Settings|Transforms", meta=(PCG_Overridable))
@@ -81,7 +83,7 @@ public:
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta=(PCG_Overridable, DisplayName="Max Iterations", ClampMin=1))
 	int32 Iterations = 1;
 
-	PCGEX_SETTING_VALUE_GET_BOOL(Iterations, int32, bUsePerPointMaxIterations, IterationsAttribute, Iterations)
+	PCGEX_SETTING_VALUE_DECL(Iterations, int32)
 
 	/** Whether to adjust max iteration based on max value found on points. Use at your own risks! */
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta=(PCG_Overridable, DisplayName="Use Max from Points", ClampMin=1, EditCondition="bUsePerPointMaxIterations", HideEditConditionToggle))
@@ -103,7 +105,7 @@ public:
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = "Settings|Limits", meta=(PCG_Overridable, DisplayName="Max Length", EditCondition="bUseMaxLength && MaxLengthInput == EPCGExInputValueType::Constant", EditConditionHides, ClampMin=1))
 	double MaxLength = 100;
 
-	PCGEX_SETTING_VALUE_GET(MaxLength, double, MaxLengthInput, MaxLengthAttribute, MaxLength)
+	PCGEX_SETTING_VALUE_DECL(MaxLength, double)
 
 	/** Whether to limit the number of points in a generated path */
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = "Settings|Limits", meta=(PCG_NotOverridable))
@@ -121,7 +123,7 @@ public:
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = "Settings|Limits", meta=(PCG_Overridable, DisplayName="Max Points Count", EditCondition="bUseMaxPointsCount && MaxPointsCountInput == EPCGExInputValueType::Constant", EditConditionHides, ClampMin=1))
 	int32 MaxPointsCount = 100;
 
-	PCGEX_SETTING_VALUE_GET(MaxPointsCount, int32, MaxPointsCountInput, MaxPointsCountAttribute, MaxPointsCount)
+	PCGEX_SETTING_VALUE_DECL(MaxPointsCount, int32)
 
 	/** Whether to limit path length or not */
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = "Settings|Limits", meta=(PCG_Overridable, ClampMin=0.001))
@@ -263,23 +265,18 @@ public:
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = "Settings|Output", meta=(DisplayName="Paths Output Settings"))
 	FPCGExPathOutputDetails PathOutputDetails;
 
-	/** */
-	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = "Warnings and Errors", meta=(PCG_NotOverridable, AdvancedDisplay))
-	bool bQuietMissingTensorError = false;
-
-
 	virtual bool GetSortingRules(FPCGExContext* InContext, TArray<FPCGExSortRuleConfig>& OutRules) const;
 
 private:
 	friend class FPCGExExtrudeTensorsElement;
 };
 
-struct FPCGExExtrudeTensorsContext final : FPCGExPointsProcessorContext
+struct FPCGExExtrudeTensorsContext final : FPCGExPathProcessorContext
 {
 	friend class FPCGExExtrudeTensorsElement;
 
 	TArray<TObjectPtr<const UPCGExTensorFactoryData>> TensorFactories;
-	TArray<TObjectPtr<const UPCGExFilterFactoryData>> StopFilterFactories;
+	TArray<TObjectPtr<const UPCGExPointFilterFactoryData>> StopFilterFactories;
 
 	FPCGExPathIntersectionDetails ExternalPathIntersections;
 	FPCGExPathIntersectionDetails SelfPathIntersections;
@@ -290,9 +287,12 @@ struct FPCGExExtrudeTensorsContext final : FPCGExPointsProcessorContext
 
 	TArray<TSharedPtr<PCGExData::FFacade>> PathsFacades;
 	TArray<TSharedPtr<PCGExPaths::FPath>> ExternalPaths;
+
+protected:
+	PCGEX_ELEMENT_BATCH_POINT_DECL
 };
 
-class FPCGExExtrudeTensorsElement final : public FPCGExPointsProcessorElement
+class FPCGExExtrudeTensorsElement final : public FPCGExPathProcessorElement
 {
 protected:
 	PCGEX_ELEMENT_CREATE_CONTEXT(ExtrudeTensors)
@@ -527,7 +527,7 @@ namespace PCGExExtrudeTensors
 
 			PCGExMath::FClosestPosition Intersection = FindClosestIntersection(
 				Context->ExternalPaths, Context->ExternalPathIntersections,
-				Segment, PathIndex, PCGExMath::EIntersectionTestMode::Strict);
+				Segment, PathIndex);
 
 			// Path intersection
 			if (Intersection)
@@ -555,7 +555,7 @@ namespace PCGExExtrudeTensors
 
 			Intersection = FindClosestIntersection(
 				*SolidPaths.Get(), Context->ExternalPathIntersections,
-				Segment, PathIndex, Merge, PCGExMath::EIntersectionTestMode::Strict);
+				Segment, PathIndex, Merge);
 
 			if (Settings->SelfIntersectionPriority == EPCGExSelfIntersectionPriority::Crossing)
 			{

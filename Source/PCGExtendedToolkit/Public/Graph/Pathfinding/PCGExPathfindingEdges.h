@@ -27,7 +27,7 @@ public:
 	//~Begin UPCGSettings
 #if WITH_EDITOR
 	PCGEX_NODE_INFOS(PathfindingEdges, "Pathfinding : Edges", "Extract paths from edges clusters.");
-	virtual FLinearColor GetNodeTitleColor() const override { return GetDefault<UPCGExGlobalSettings>()->NodeColorPathfinding; }
+	virtual FLinearColor GetNodeTitleColor() const override { return GetDefault<UPCGExGlobalSettings>()->ColorPathfinding; }
 #endif
 
 protected:
@@ -42,7 +42,7 @@ public:
 
 	//~Begin UObject interface
 #if WITH_EDITOR
-
+	virtual void PostInitProperties() override;
 	virtual void PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent) override;
 #endif
 	//~End UObject interface
@@ -102,6 +102,10 @@ public:
 	/** Whether or not to search for closest node using an octree. Depending on your dataset, enabling this may be either much faster, or slightly slower. */
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Performance, meta=(PCG_NotOverridable, AdvancedDisplay))
 	bool bUseOctreeSearch = false;
+
+	/** If disabled, will share memory allocations between queries, forcing them to execute one after another. Much slower, but very conservative for memory.  Using global feedback forces this behavior under the hood.*/
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Performance, meta=(PCG_NotOverridable, AdvancedDisplay))
+	bool bGreedyQueries = true;
 };
 
 struct FPCGExPathfindingEdgesContext final : FPCGExEdgesProcessorContext
@@ -124,8 +128,10 @@ struct FPCGExPathfindingEdgesContext final : FPCGExEdgesProcessorContext
 
 	TArray<uint64> SeedGoalPairs;
 
-	void BuildPath(
-		const TSharedPtr<PCGExPathfinding::FPathQuery>& Query);
+	void BuildPath(const TSharedPtr<PCGExPathfinding::FPathQuery>& Query, const TSharedPtr<PCGExData::FPointIO>& PathIO);
+
+protected:
+	PCGEX_ELEMENT_BATCH_EDGE_DECL
 };
 
 class FPCGExPathfindingEdgesElement final : public FPCGExEdgesProcessorElement
@@ -137,11 +143,13 @@ protected:
 	virtual bool ExecuteInternal(FPCGContext* Context) const override;
 };
 
-namespace PCGExPathfindingEdge
+namespace PCGExPathfindingEdges
 {
 	class FProcessor final : public PCGExClusterMT::TProcessor<FPCGExPathfindingEdgesContext, UPCGExPathfindingEdgesSettings>
 	{
 		TArray<TSharedPtr<PCGExPathfinding::FPathQuery>> Queries;
+		TArray<TSharedPtr<PCGExData::FPointIO>> QueriesIO;
+		TSharedPtr<PCGExPathfinding::FSearchAllocations> SearchAllocations;
 
 	public:
 		FProcessor(const TSharedRef<PCGExData::FFacade>& InVtxDataFacade, const TSharedRef<PCGExData::FFacade>& InEdgeDataFacade):
@@ -155,5 +163,6 @@ namespace PCGExPathfindingEdge
 		TSharedPtr<FPCGExSearchOperation> SearchOperation;
 
 		virtual bool Process(const TSharedPtr<PCGExMT::FTaskManager>& InAsyncManager) override;
+		virtual void ProcessRange(const PCGExMT::FScope& Scope) override;
 	};
 }

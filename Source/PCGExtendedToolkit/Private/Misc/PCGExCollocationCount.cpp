@@ -3,11 +3,18 @@
 
 #include "Misc/PCGExCollocationCount.h"
 
+#include "Data/PCGExData.h"
+#include "Data/PCGExPointIO.h"
+
 
 #define LOCTEXT_NAMESPACE "PCGExCollocationCountElement"
 #define PCGEX_NAMESPACE CollocationCount
 
 PCGEX_INITIALIZE_ELEMENT(CollocationCount)
+
+PCGExData::EIOInit UPCGExCollocationCountSettings::GetMainDataInitializationPolicy() const { return PCGExData::EIOInit::Duplicate; }
+
+PCGEX_ELEMENT_BATCH_POINT_IMPL(CollocationCount)
 
 bool FPCGExCollocationCountElement::Boot(FPCGExContext* InContext) const
 {
@@ -29,9 +36,9 @@ bool FPCGExCollocationCountElement::ExecuteInternal(FPCGContext* InContext) cons
 	PCGEX_EXECUTION_CHECK
 	PCGEX_ON_INITIAL_EXECUTION
 	{
-		if (!Context->StartBatchProcessingPoints<PCGExPointsMT::TBatch<PCGExCollocationCount::FProcessor>>(
+		if (!Context->StartBatchProcessingPoints(
 			[&](const TSharedPtr<PCGExData::FPointIO>& Entry) { return true; },
-			[&](const TSharedPtr<PCGExPointsMT::TBatch<PCGExCollocationCount::FProcessor>>& NewBatch)
+			[&](const TSharedPtr<PCGExPointsMT::IBatch>& NewBatch)
 			{
 			}))
 		{

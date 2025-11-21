@@ -3,6 +3,10 @@
 
 #include "Graph/Pathfinding/PCGExPathfindingFindClusterHull.h"
 
+#include "Data/PCGExData.h"
+#include "Data/PCGExDataTag.h"
+#include "Data/PCGExPointIO.h"
+
 #define LOCTEXT_NAMESPACE "PCGExFindClusterHull"
 #define PCGEX_NAMESPACE FindClusterHull
 
@@ -15,7 +19,7 @@ TArray<FPCGPinProperties> UPCGExFindClusterHullSettings::InputPinProperties() co
 TArray<FPCGPinProperties> UPCGExFindClusterHullSettings::OutputPinProperties() const
 {
 	TArray<FPCGPinProperties> PinProperties;
-	PCGEX_PIN_POINTS(PCGExPaths::OutputPathsLabel, "Hulls", Required, {})
+	PCGEX_PIN_POINTS(PCGExPaths::OutputPathsLabel, "Hulls", Required)
 	return PinProperties;
 }
 
@@ -23,6 +27,7 @@ PCGExData::EIOInit UPCGExFindClusterHullSettings::GetEdgeOutputInitMode() const 
 PCGExData::EIOInit UPCGExFindClusterHullSettings::GetMainOutputInitMode() const { return PCGExData::EIOInit::NoInit; }
 
 PCGEX_INITIALIZE_ELEMENT(FindClusterHull)
+PCGEX_ELEMENT_BATCH_EDGE_IMPL(FindClusterHull)
 
 bool FPCGExFindClusterHullElement::Boot(FPCGExContext* InContext) const
 {
@@ -33,8 +38,8 @@ bool FPCGExFindClusterHullElement::Boot(FPCGExContext* InContext) const
 	PCGEX_FWD(Artifacts)
 	if (!Context->Artifacts.Init(Context)) { return false; }
 
-	Context->Paths = MakeShared<PCGExData::FPointIOCollection>(Context);
-	Context->Paths->OutputPin = PCGExPaths::OutputPathsLabel;
+	Context->OutputPaths = MakeShared<PCGExData::FPointIOCollection>(Context);
+	Context->OutputPaths->OutputPin = PCGExPaths::OutputPathsLabel;
 
 	return true;
 }
@@ -48,9 +53,9 @@ bool FPCGExFindClusterHullElement::ExecuteInternal(
 	PCGEX_EXECUTION_CHECK
 	PCGEX_ON_INITIAL_EXECUTION
 	{
-		if (!Context->StartProcessingClusters<PCGExClusterMT::TBatch<PCGExFindClusterHull::FProcessor>>(
+		if (!Context->StartProcessingClusters(
 			[](const TSharedPtr<PCGExData::FPointIOTaggedEntries>& Entries) { return true; },
-			[&](const TSharedPtr<PCGExClusterMT::TBatch<PCGExFindClusterHull::FProcessor>>& NewBatch)
+			[&](const TSharedPtr<PCGExClusterMT::IBatch>& NewBatch)
 			{
 				// NewBatch->bRequiresWriteStep = true;
 				NewBatch->SetProjectionDetails(Settings->ProjectionDetails);
@@ -64,7 +69,7 @@ bool FPCGExFindClusterHullElement::ExecuteInternal(
 
 	// TODO : Output seeds?
 
-	Context->Paths->StageOutputs();
+	Context->OutputPaths->StageOutputs();
 
 	return Context->TryComplete();
 }
@@ -103,7 +108,7 @@ namespace PCGExFindClusterHull
 
 	void FProcessor::ProcessCell(const TSharedPtr<PCGExTopology::FCell>& InCell)
 	{
-		const TSharedPtr<PCGExData::FPointIO> PathIO = Context->Paths->Emplace_GetRef<UPCGPointArrayData>(VtxDataFacade->Source, PCGExData::EIOInit::New);
+		const TSharedPtr<PCGExData::FPointIO> PathIO = Context->OutputPaths->Emplace_GetRef<UPCGPointArrayData>(VtxDataFacade->Source, PCGExData::EIOInit::New);
 		if (!PathIO) { return; }
 
 		PathIO->Tags->Reset();                                          // Tag forwarding handled by artifacts
@@ -116,7 +121,7 @@ namespace PCGExFindClusterHull
 		TArray<int32> ReadIndices;
 		ReadIndices.SetNumUninitialized(InCell->Nodes.Num());
 
-		for (int i = 0; i < InCell->Nodes.Num(); i++) { ReadIndices[i] = Cluster->GetNode(InCell->Nodes[i])->PointIndex; }
+		for (int i = 0; i < InCell->Nodes.Num(); i++) { ReadIndices[i] = Cluster->GetNodePointIndex(InCell->Nodes[i]); }
 		PathIO->InheritPoints(ReadIndices, 0);
 		InCell->PostProcessPoints(PathIO->GetOut());
 

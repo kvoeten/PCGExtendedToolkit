@@ -23,7 +23,7 @@ public:
 	//~Begin UPCGSettings
 #if WITH_EDITOR
 	PCGEX_NODE_INFOS(MergePoints, "Merge Points", "An alternative to the native Merge Points node with additional controls.");
-	virtual FLinearColor GetNodeTitleColor() const override { return GetDefault<UPCGExGlobalSettings>()->NodeColorMisc; }
+	virtual FLinearColor GetNodeTitleColor() const override { return GetDefault<UPCGExGlobalSettings>()->ColorMisc; }
 #endif
 
 protected:
@@ -64,6 +64,9 @@ struct FPCGExMergePointsContext final : FPCGExPointsProcessorContext
 	FPCGExCarryOverDetails CarryOverDetails;
 	FPCGExNameFiltersDetails TagsToAttributes;
 	TSharedPtr<PCGExData::FFacade> CompositeDataFacade;
+
+protected:
+	PCGEX_ELEMENT_BATCH_POINT_DECL
 };
 
 class FPCGExMergePointsElement final : public FPCGExPointsProcessorElement
@@ -99,7 +102,6 @@ namespace PCGExMergePoints
 		{
 		}
 
-		virtual bool IsTrivial() const override { return false; }
 		virtual bool Process(const TSharedPtr<PCGExMT::FTaskManager>& InAsyncManager) override;
 		virtual void ProcessRange(const PCGExMT::FScope& Scope) override;
 		virtual void OnRangeProcessingComplete() override;
@@ -113,7 +115,7 @@ namespace PCGExMergePoints
 
 	public:
 		explicit FBatch(FPCGExContext* InContext, const TArray<TWeakPtr<PCGExData::FPointIO>>& InPointsCollection);
-		virtual bool PrepareSingle(const TSharedPtr<FProcessor>& PointsProcessor) override;
+		virtual bool PrepareSingle(const TSharedRef<PCGExPointsMT::IProcessor>& InProcessor) override;
 		virtual void OnProcessingPreparationComplete() override;
 		virtual void Write() override;
 

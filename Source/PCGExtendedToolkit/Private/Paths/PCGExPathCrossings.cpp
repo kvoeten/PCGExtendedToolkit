@@ -3,8 +3,13 @@
 
 #include "Paths/PCGExPathCrossings.h"
 #include "PCGExMath.h"
+#include "PCGParamData.h"
+#include "Data/PCGExDataTag.h"
 #include "Data/PCGExPointFilter.h"
+#include "Data/PCGExPointIO.h"
+#include "Data/PCGExUnionData.h"
 #include "Data/Blending/PCGExUnionBlender.h"
+#include "Details/PCGExDetailsDistances.h"
 
 
 #include "Paths/SubPoints/DataBlending/PCGExSubPointsBlendInterpolate.h"
@@ -12,16 +17,28 @@
 #define LOCTEXT_NAMESPACE "PCGExPathCrossingsElement"
 #define PCGEX_NAMESPACE PathCrossings
 
+#if WITH_EDITORONLY_DATA
+void UPCGExPathCrossingsSettings::PostInitProperties()
+{
+	if (!HasAnyFlags(RF_ClassDefaultObject) && IsInGameThread())
+	{
+		if (!Blending) { Blending = NewObject<UPCGExSubPointsBlendInterpolate>(this, TEXT("Blending")); }
+	}
+	Super::PostInitProperties();
+}
+#endif
+
 TArray<FPCGPinProperties> UPCGExPathCrossingsSettings::InputPinProperties() const
 {
 	TArray<FPCGPinProperties> PinProperties = Super::InputPinProperties();
-	PCGEX_PIN_FACTORIES(PCGExPaths::SourceCanCutFilters, "Fiter which edges can 'cut' other edges. Leave empty so all edges are can cut other edges.", Normal, {})
-	PCGEX_PIN_FACTORIES(PCGExPaths::SourceCanBeCutFilters, "Fiter which edges can be 'cut' by other edges. Leave empty so all edges are can cut other edges.", Normal, {})
+	PCGEX_PIN_FILTERS(PCGExPaths::SourceCanCutFilters, "Fiter which edges can 'cut' other edges. Leave empty so all edges are can cut other edges.", Normal)
+	PCGEX_PIN_FILTERS(PCGExPaths::SourceCanBeCutFilters, "Fiter which edges can be 'cut' by other edges. Leave empty so all edges are can cut other edges.", Normal)
 	PCGEX_PIN_OPERATION_OVERRIDES(PCGExDataBlending::SourceOverridesBlendingOps)
 	return PinProperties;
 }
 
 PCGEX_INITIALIZE_ELEMENT(PathCrossings)
+PCGEX_ELEMENT_BATCH_POINT_IMPL(PathCrossings)
 
 bool FPCGExPathCrossingsElement::Boot(FPCGExContext* InContext) const
 {
@@ -36,8 +53,13 @@ bool FPCGExPathCrossingsElement::Boot(FPCGExContext* InContext) const
 
 	PCGEX_OPERATION_BIND(Blending, UPCGExSubPointsBlendInstancedFactory, PCGExDataBlending::SourceOverridesBlendingOps)
 
-	GetInputFactories(Context, PCGExPaths::SourceCanCutFilters, Context->CanCutFilterFactories, PCGExFactories::PointFilters, false);
-	GetInputFactories(Context, PCGExPaths::SourceCanBeCutFilters, Context->CanBeCutFilterFactories, PCGExFactories::PointFilters, false);
+	GetInputFactories(
+		Context, PCGExPaths::SourceCanCutFilters, Context->CanCutFilterFactories,
+		PCGExFactories::PointFilters, false);
+
+	GetInputFactories(
+		Context, PCGExPaths::SourceCanBeCutFilters, Context->CanBeCutFilterFactories,
+		PCGExFactories::PointFilters, false);
 
 	Context->Distances = PCGExDetails::MakeDistances();
 	Context->CrossingBlending = Settings->CrossingBlending;
@@ -66,7 +88,7 @@ bool FPCGExPathCrossingsElement::ExecuteInternal(FPCGContext* InContext) const
 
 		const bool bIsCanBeCutTagValid = PCGEx::IsValidStringTag(Context->CanBeCutTag);
 
-		if (!Context->StartBatchProcessingPoints<PCGExPointsMT::TBatch<PCGExPathCrossings::FProcessor>>(
+		if (!Context->StartBatchProcessingPoints(
 			[&](const TSharedPtr<PCGExData::FPointIO>& Entry)
 			{
 				if (Entry->GetNum() < 2)
@@ -81,7 +103,7 @@ bool FPCGExPathCrossingsElement::ExecuteInternal(FPCGContext* InContext) const
 				}
 				return true;
 			},
-			[&](const TSharedPtr<PCGExPointsMT::TBatch<PCGExPathCrossings::FProcessor>>& NewBatch)
+			[&](const TSharedPtr<PCGExPointsMT::IBatch>& NewBatch)
 			{
 				//NewBatch->SetPointsFilterData(&Context->FilterFactories);
 				NewBatch->bRequiresWriteStep = Settings->bDoCrossBlending;
@@ -93,7 +115,7 @@ bool FPCGExPathCrossingsElement::ExecuteInternal(FPCGContext* InContext) const
 
 	PCGEX_POINTS_BATCH_PROCESSING(PCGExCommon::State_Done)
 
-	Context->MainPoints->StageOutputs();
+	PCGEX_OUTPUT_VALID_PATHS(MainPoints)
 
 	return Context->TryComplete();
 }
@@ -197,12 +219,15 @@ namespace PCGExPathCrossings
 		{
 			Cutters.Reserve(Parent->ProcessorFacades.Num());
 
-			for (const TSharedRef<FProcessor>& OtherProcessor : TypedParent->Processors)
-			{
-				if (!Details.bEnableSelfIntersection && &OtherProcessor.Get() == this) { continue; }
-				if (!OtherProcessor->bCanCut || !OtherProcessor->Path->GetEdgeOctree()) { continue; }
 
-				Cutters.Add(OtherProcessor->Path);
+			for (int Pi = 0; Pi < TypedParent->GetNumProcessors(); Pi++)
+			{
+				const TSharedPtr<FProcessor> P = TypedParent->GetProcessor<FProcessor>(Pi);
+
+				if (!Details.bEnableSelfIntersection && P.Get() == this) { continue; }
+				if (!P->bCanCut || !P->Path->GetEdgeOctree()) { continue; }
+
+				Cutters.Add(P->Path);
 			}
 		}
 
@@ -456,7 +481,7 @@ namespace PCGExPathCrossings
 	{
 		if (!bCanBeCut)
 		{
-			PCGEX_INIT_IO_VOID(PointDataFacade->Source, PCGExData::EIOInit::Forward)
+			if (!Settings->bOmitUncuttableFromOutput) { PCGEX_INIT_IO_VOID(PointDataFacade->Source, PCGExData::EIOInit::Forward) }
 			return;
 		}
 

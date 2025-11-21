@@ -10,13 +10,21 @@
 
 #include "PCGEx.h"
 #include "PCGExGlobalSettings.h"
+#include "PCGExMath.h"
 #include "PCGExPointsProcessor.h"
-#include "PCGExScopedContainers.h"
-#include "Data/PCGExAttributeHelpers.h"
 #include "Data/PCGExProxyData.h"
+#include "Details/PCGExDetailsAttributes.h"
+#include "Details/PCGExDetailsInputShorthands.h"
+#include "Sampling/PCGExSampling.h"
+#include "Transform/PCGExFitting.h"
 
 #include "PCGExAttributeRemap.generated.h"
 
+namespace PCGExMT
+{
+	template <typename T>
+	class TScopedNumericValue;
+}
 
 namespace PCGExData
 {
@@ -41,7 +49,7 @@ struct PCGEXTENDEDTOOLKIT_API FPCGExClampDetails
 	}
 
 	/** Clamp minimum value. */
-	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta = (PCG_Overridable, InlineEditConditionToggle))
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta = (PCG_Overridable))
 	bool bApplyClampMin = false;
 
 	/** Clamp minimum value. */
@@ -49,7 +57,7 @@ struct PCGEXTENDEDTOOLKIT_API FPCGExClampDetails
 	double ClampMinValue = 0;
 
 	/** Clamp maximum value. */
-	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta = (PCG_Overridable, InlineEditConditionToggle))
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta = (PCG_Overridable))
 	bool bApplyClampMax = false;
 
 	/** Clamp maximum value. */
@@ -101,7 +109,7 @@ struct PCGEXTENDEDTOOLKIT_API FPCGExRemapDetails
 	double InMin = 0;
 
 	/** Fixed In Max value. */
-	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta = (PCG_Overridable, InlineEditConditionToggle))
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta = (PCG_Overridable, InlineEditConditionToggle, FullyExpand=true))
 	bool bUseInMax = false;
 
 	/** Fixed In Max value. If disabled, will use the highest input value.*/
@@ -141,18 +149,20 @@ struct PCGEXTENDEDTOOLKIT_API FPCGExRemapDetails
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta = (PCG_Overridable))
 	double Offset = 0;
 
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta = (PCG_Overridable))
+	EPCGExVariationSnapping Snapping = EPCGExVariationSnapping::None;
+
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta = (PCG_Overridable, EditCondition="Snapping != EPCGExVariationSnapping::None", EditConditionHides))
+	FPCGExInputShorthandSelectorDouble Snap = FPCGExInputShorthandSelectorDouble(FName("Step"), 10, false);
+
 	void Init()
 	{
 		if (!bUseLocalCurve) { LocalScoreCurve.ExternalCurve = RemapCurve.Get(); }
 		RemapCurveObj = LocalScoreCurve.GetRichCurveConst();
 	}
 
-	FORCEINLINE double GetRemappedValue(const double Value) const
-	{
-		return PCGEx::TruncateDbl(
-			RemapCurveObj->Eval(PCGExMath::Remap(Value, InMin, InMax, 0, 1)) * Scale,
-			TruncateOutput) * PostTruncateScale + Offset;
-	}
+	double GetRemappedValue(const double Value, const double Step) const;
+	
 };
 
 USTRUCT(BlueprintType)
@@ -171,17 +181,18 @@ struct PCGEXTENDEDTOOLKIT_API FPCGExComponentRemapRule
 	{
 	}
 
-	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta = (PCG_Overridable))
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta = (PCG_Overridable, DisplayName="Clamp Input"))
 	FPCGExClampDetails InputClampDetails;
 
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta = (PCG_Overridable, ShowOnlyInnerProperties))
 	FPCGExRemapDetails RemapDetails;
 
-	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta = (PCG_Overridable))
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta = (PCG_Overridable, DisplayName="Clamp Output"))
 	FPCGExClampDetails OutputClampDetails;
 
 	TSharedPtr<PCGExMT::TScopedNumericValue<double>> MinCache;
 	TSharedPtr<PCGExMT::TScopedNumericValue<double>> MaxCache;
+	TSharedPtr<PCGExDetails::TSettingValue<double>> SnapCache;
 };
 
 UCLASS(MinimalAPI, BlueprintType, ClassGroup = (Procedural), Category="PCGEx|Misc", meta=(PCGExNodeLibraryDoc="metadata/attribute-remap"))
@@ -196,12 +207,14 @@ public:
 
 	PCGEX_NODE_INFOS_CUSTOM_SUBTITLE(AttributeRemap, "Attribute Remap", "Remap a single property or attribute.", FName(GetDisplayName()));
 	virtual EPCGSettingsType GetType() const override { return EPCGSettingsType::Metadata; }
-	virtual FLinearColor GetNodeTitleColor() const override { return GetDefault<UPCGExGlobalSettings>()->WantsColor(GetDefault<UPCGExGlobalSettings>()->NodeColorMiscWrite); }
+	virtual FLinearColor GetNodeTitleColor() const override { return GetDefault<UPCGExGlobalSettings>()->WantsColor(GetDefault<UPCGExGlobalSettings>()->ColorMiscWrite); }
 #endif
 
 protected:
 	virtual FPCGElementPtr CreateElement() const override;
 	//~End UPCGSettings
+
+	virtual PCGExData::EIOInit GetMainDataInitializationPolicy() const override;
 
 public:
 #pragma region DEPRECATED
@@ -266,6 +279,9 @@ struct FPCGExAttributeRemapContext final : FPCGExPointsProcessorContext
 	int32 RemapIndices[4];
 
 	virtual void RegisterAssetDependencies() override;
+
+protected:
+	PCGEX_ELEMENT_BATCH_POINT_DECL
 };
 
 class FPCGExAttributeRemapElement final : public FPCGExPointsProcessorElement

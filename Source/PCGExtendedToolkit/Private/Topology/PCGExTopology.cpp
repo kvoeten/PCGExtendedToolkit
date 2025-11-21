@@ -3,6 +3,13 @@
 
 #include "Topology/PCGExTopology.h"
 
+#include "PCGExContext.h"
+#include "PCGExGlobalSettings.h"
+#include "Data/PCGExData.h"
+#include "Data/PCGExDataHelpers.h"
+#include "Data/PCGExDataTag.h"
+#include "Data/PCGExPointElements.h"
+#include "Data/PCGExPointIO.h"
 #include "Geometry/PCGExGeoPrimtives.h"
 #include "Graph/PCGExCluster.h"
 #include "Paths/PCGExPaths.h"
@@ -40,13 +47,53 @@ void FPCGExCellSeedMutationDetails::ApplyToPoint(const PCGExTopology::FCell* InC
 		OutSeedPoint.SetBoundsMax(InCell->Data.Bounds.Max - Offset);
 	}
 
-	SetPointProperty(OutSeedPoint, InCell->Data.Area, AreaTo);
-	SetPointProperty(OutSeedPoint, InCell->Data.Perimeter, PerimeterTo);
-	SetPointProperty(OutSeedPoint, InCell->Data.Compactness, CompactnessTo);
+	PCGExTopology::SetPointProperty(OutSeedPoint, InCell->Data.Area, AreaTo);
+	PCGExTopology::SetPointProperty(OutSeedPoint, InCell->Data.Perimeter, PerimeterTo);
+	PCGExTopology::SetPointProperty(OutSeedPoint, InCell->Data.Compactness, CompactnessTo);
+}
+
+void FPCGExTopologyDetails::PostProcessMesh(const TObjectPtr<UDynamicMesh>& InDynamicMesh) const
+{
+	if (bWeldEdges) { UGeometryScriptLibrary_MeshRepairFunctions::WeldMeshEdges(InDynamicMesh, WeldEdgesOptions); }
+	if (bComputeNormals) { UGeometryScriptLibrary_MeshNormalsFunctions::RecomputeNormals(InDynamicMesh, NormalsOptions); }
 }
 
 namespace PCGExTopology
 {
+	void SetPointProperty(PCGExData::FMutablePoint& InPoint, const double InValue, const EPCGExPointPropertyOutput InProperty)
+	{
+		if (InProperty == EPCGExPointPropertyOutput::Density)
+		{
+			TPCGValueRange<float> Density = InPoint.Data->GetDensityValueRange(false);
+			Density[InPoint.Index] = InValue;
+		}
+		else if (InProperty == EPCGExPointPropertyOutput::Steepness)
+		{
+			TPCGValueRange<float> Steepness = InPoint.Data->GetSteepnessValueRange(false);
+			Steepness[InPoint.Index] = InValue;
+		}
+		else if (InProperty == EPCGExPointPropertyOutput::ColorR)
+		{
+			TPCGValueRange<FVector4> Color = InPoint.Data->GetColorValueRange(false);
+			Color[InPoint.Index].Component(0) = InValue;
+		}
+		else if (InProperty == EPCGExPointPropertyOutput::ColorG)
+		{
+			TPCGValueRange<FVector4> Color = InPoint.Data->GetColorValueRange(false);
+			Color[InPoint.Index].Component(1) = InValue;
+		}
+		else if (InProperty == EPCGExPointPropertyOutput::ColorB)
+		{
+			TPCGValueRange<FVector4> Color = InPoint.Data->GetColorValueRange(false);
+			Color[InPoint.Index].Component(2) = InValue;
+		}
+		else if (InProperty == EPCGExPointPropertyOutput::ColorA)
+		{
+			TPCGValueRange<FVector4> Color = InPoint.Data->GetColorValueRange(false);
+			Color[InPoint.Index].Component(3) = InValue;
+		}
+	}
+
 	bool IsAnyPointInPolygon(const TArray<FVector2D>& Points, const FGeometryScriptSimplePolygon& Polygon)
 	{
 		if (Points.IsEmpty()) { return false; }
@@ -89,42 +136,29 @@ namespace PCGExTopology
 		}
 	}
 
-	bool FCellConstraints::ContainsSignedEdgeHash(const uint64 Hash) const
+	void FCellConstraints::Reserve(const int32 InCellHashReserve)
 	{
-		FReadScopeLock ReadScopeLock(UniqueStartHalfEdgesHashLock);
+		UniqueStartHalfEdgesHash.Reserve(InCellHashReserve);
+		UniquePathsHashSet.Reserve(InCellHashReserve);
+	}
+
+	bool FCellConstraints::ContainsSignedEdgeHash(const uint64 Hash)
+	{
 		return UniqueStartHalfEdgesHash.Contains(Hash);
 	}
 
 	bool FCellConstraints::IsUniqueStartHalfEdge(const uint64 Hash)
 	{
 		bool bAlreadyExists = false;
-		{
-			FReadScopeLock ReadScopeLock(UniqueStartHalfEdgesHashLock);
-			bAlreadyExists = UniqueStartHalfEdgesHash.Contains(Hash);
-			if (bAlreadyExists) { return false; }
-		}
-		{
-			FWriteScopeLock WriteScopeLock(UniqueStartHalfEdgesHashLock);
-			UniqueStartHalfEdgesHash.Add(Hash, &bAlreadyExists);
-			return !bAlreadyExists;
-		}
+		UniqueStartHalfEdgesHash.Add(Hash, bAlreadyExists);
+		return !bAlreadyExists;
 	}
 
 	bool FCellConstraints::IsUniqueCellHash(const TSharedPtr<FCell>& InCell)
 	{
-		const uint32 CellHash = InCell->GetCellHash();
-
-		{
-			FReadScopeLock ReadScopeLock(UniqueStartHalfEdgesHashLock);
-			if (UniquePathsHashSet.Contains(CellHash)) { return false; }
-		}
-
-		{
-			FWriteScopeLock WriteScope(UniqueStartHalfEdgesHashLock);
-			bool bAlreadyExists;
-			UniquePathsHashSet.Add(CellHash, &bAlreadyExists);
-			return !bAlreadyExists;
-		}
+		bool bAlreadyExists;
+		UniquePathsHashSet.Add(InCell->GetCellHash(), bAlreadyExists);
+		return !bAlreadyExists;
 	}
 
 	void FCellConstraints::BuildWrapperCell(const TSharedRef<PCGExCluster::FCluster>& InCluster, const TArray<FVector2D>& ProjectedPositions, const TSharedPtr<FCellConstraints>& InConstraints)
@@ -210,15 +244,10 @@ namespace PCGExTopology
 		WrapperCell = nullptr;
 	}
 
-	uint32 FCell::GetCellHash()
+	uint64 FCell::GetCellHash()
 	{
 		if (CellHash != 0) { return CellHash; }
-
-		//TArray<int32> SortedNodes = Nodes;
-		//SortedNodes.Sort();
-
-		for (int32 i = 0; i < Nodes.Num(); i++) { CellHash = HashCombineFast(CellHash, Nodes[i]); }
-
+		CellHash = CityHash64(reinterpret_cast<const char*>(Nodes.GetData()), Nodes.Num() * sizeof(int32));
 		return CellHash;
 	}
 
@@ -227,12 +256,16 @@ namespace PCGExTopology
 		TSharedRef<PCGExCluster::FCluster> InCluster,
 		const TArray<FVector2D>& ProjectedPositions)
 	{
+		TRACE_CPUPROFILER_EVENT_SCOPE(FCell::BuildFromCluster);
+
 		bBuiltSuccessfully = false;
 		Data.Bounds = FBox(ForceInit);
 
 		Seed = InSeedLink;
-		PCGExGraph::FLink From = InSeedLink;                                                           // From node, through edge; edge will be updated to be last traversed after.
-		PCGExGraph::FLink To = PCGExGraph::FLink(InCluster->GetEdgeOtherNode(From)->Index, Seed.Edge); // To node, through edge
+		// From node, through edge; edge will be updated to be last traversed after.
+		PCGExGraph::FLink From = InSeedLink;
+		// To node, through edge
+		PCGExGraph::FLink To = PCGExGraph::FLink(InCluster->GetEdgeOtherNode(From)->Index, Seed.Edge);
 
 		const uint64 SeedHalfEdge = PCGEx::H64(From.Node, To.Node);
 		if (!Constraints->IsUniqueStartHalfEdge(SeedHalfEdge)) { return ECellResult::Duplicate; }
@@ -303,7 +336,7 @@ namespace PCGExTopology
 
 			// Seek next best candidate
 			const FVector2D PP = ProjectedPositions[Current->PointIndex];
-			const FVector2D GuideDir = (PP - ProjectedPositions[InCluster->GetNode(From.Node)->PointIndex]).GetSafeNormal();
+			const FVector2D GuideDir = (PP - ProjectedPositions[InCluster->GetNodePointIndex(From.Node)]).GetSafeNormal();
 
 			From = To;
 			To = PCGExGraph::FLink(-1, -1);
@@ -315,7 +348,7 @@ namespace PCGExTopology
 
 				if (Lk.Edge == LockedEdge) { continue; }
 
-				const FVector2D OtherDir = (PP - ProjectedPositions[InCluster->GetNode(NeighborIndex)->PointIndex]).GetSafeNormal();
+				const FVector2D OtherDir = (PP - ProjectedPositions[InCluster->GetNodePointIndex(NeighborIndex)]).GetSafeNormal();
 
 				if (const double Angle = PCGExMath::GetRadiansBetweenVectors(OtherDir, GuideDir); Angle < BestAngle)
 				{
@@ -366,7 +399,7 @@ namespace PCGExTopology
 		Polygon.Reset();
 		TArray<FVector2D>& Vertices = *Polygon.Vertices;
 		Vertices.SetNumUninitialized(Nodes.Num());
-		for (int i = 0; i < Nodes.Num(); ++i) { Vertices[i] = FVector2D(ProjectedPositions[InCluster->GetNode(Nodes[i])->PointIndex]); }
+		for (int i = 0; i < Nodes.Num(); ++i) { Vertices[i] = FVector2D(ProjectedPositions[InCluster->GetNodePointIndex(Nodes[i])]); }
 
 		PCGExGeo::FPolygonInfos PolyInfos = PCGExGeo::FPolygonInfos(Vertices);
 
@@ -400,10 +433,11 @@ namespace PCGExTopology
 		const FVector& SeedPosition,
 		const TSharedRef<PCGExCluster::FCluster>& InCluster,
 		const TArray<FVector2D>& ProjectedPositions,
+		const FVector& UpVector,
 		const FPCGExNodeSelectionDetails* Picking)
 	{
 		PCGExGraph::FLink Link = PCGExGraph::FLink(-1, -1);
-		Link.Node = InCluster->FindClosestNode<2>(SeedPosition, Picking ? Picking->PickingMethod : EPCGExClusterClosestSearchMode::Edge);
+		Link.Node = InCluster->FindClosestNode(SeedPosition, Picking ? Picking->PickingMethod : EPCGExClusterClosestSearchMode::Edge, 2);
 
 		if (Link.Node == -1)
 		{
@@ -419,7 +453,7 @@ namespace PCGExTopology
 		}
 
 		// Find edge closest to seed position
-		Link.Edge = InCluster->FindClosestEdge<2>(Link.Node, SeedPosition);
+		Link.Edge = InCluster->FindClosestEdge(Link.Node, SeedPosition, 2);
 
 		if (Link.Edge == -1)
 		{
@@ -429,8 +463,8 @@ namespace PCGExTopology
 
 		const PCGExGraph::FEdge* E = InCluster->GetEdge(Link.Edge);
 
-		// Reproject normal as between projected and original
-		Link.Node = InCluster->GetGuidedHalfEdge(Link.Edge, SeedPosition, FQuat::FindBetweenNormals(InCluster->GetEdgeDir(Link), FVector((ProjectedPositions[E->End] - ProjectedPositions[E->Start]).GetSafeNormal(), 0)).GetUpVector())->Index;
+		// choose a deterministic right-hand frame		
+		Link.Node = InCluster->GetGuidedHalfEdge(Link.Edge, SeedPosition, UpVector)->Index;
 		return BuildFromCluster(Link, InCluster, ProjectedPositions);
 	}
 
@@ -448,12 +482,16 @@ namespace PCGExTopology
 
 bool FPCGExCellArtifactsDetails::WriteAny() const
 {
-	return bWriteVtxId || bFlagTerminalPoint || bWriteNumRepeat;
+	return bWriteCellHash || bWriteArea || bWriteCompactness ||
+		bWriteVtxId || bFlagTerminalPoint || bWriteNumRepeat;
 }
 
 bool FPCGExCellArtifactsDetails::Init(FPCGExContext* InContext)
 {
 	if (bWriteVtxId) { PCGEX_VALIDATE_NAME_C(InContext, VtxIdAttributeName); }
+	if (bWriteCellHash) { PCGEX_VALIDATE_NAME_C(InContext, CellHashAttributeName); }
+	if (bWriteArea) { PCGEX_VALIDATE_NAME_C(InContext, AreaAttributeName); }
+	if (bWriteCompactness) { PCGEX_VALIDATE_NAME_C(InContext, CompactnessAttributeName); }
 	if (bFlagTerminalPoint) { PCGEX_VALIDATE_NAME_C(InContext, TerminalFlagAttributeName); }
 	if (bWriteNumRepeat) { PCGEX_VALIDATE_NAME_C(InContext, NumRepeatAttributeName); }
 	TagForwarding.bFilterToRemove = true;
@@ -507,17 +545,15 @@ void FPCGExCellArtifactsDetails::Process(
 		for (int i = 0; i < NumNodes; i++)
 		{
 			int32 NodeIdx = InCell->Nodes[i];
-			int32 Count = NumRepeats.FindOrAdd(NodeIdx, 0);
-			NumRepeats.Add(NodeIdx, Count + 1);
+			NumRepeats.Add(NodeIdx, NumRepeats.FindOrAdd(NodeIdx, 0) + 1);
 		}
 	}
 
-	for (int i = 0; i < NumNodes; i++)
-	{
-		int32 NodeIdx = InCell->Nodes[i];
-		if (TerminalBuffer) { TerminalBuffer->SetValue(i, InCluster->GetNode(NodeIdx)->IsLeaf()); }
-		if (RepeatBuffer) { RepeatBuffer->SetValue(i, NumRepeats[NodeIdx] - 1); }
-	}
+	if (bWriteCellHash) { InDataFacade->GetWritable<int64>(CellHashAttributeName, static_cast<int64>(InCell->GetCellHash()), true, PCGExData::EBufferInit::New); }
+	if (bWriteArea) { InDataFacade->GetWritable<double>(AreaAttributeName, InCell->Data.Area, true, PCGExData::EBufferInit::New); }
+	if (bWriteCompactness) { InDataFacade->GetWritable<double>(CompactnessAttributeName, InCell->Data.Compactness, true, PCGExData::EBufferInit::New); }
+	if (TerminalBuffer) { for (int i = 0; i < NumNodes; i++) { TerminalBuffer->SetValue(i, InCluster->GetNode(InCell->Nodes[i])->IsLeaf()); } }
+	if (RepeatBuffer) { for (int i = 0; i < NumNodes; i++) { RepeatBuffer->SetValue(i, NumRepeats[InCell->Nodes[i]] - 1); } }
 
 	const TSharedPtr<PCGExData::TBuffer<int32>> VtxIDBuffer = bWriteVtxId ? InDataFacade->GetWritable(VtxIdAttributeName, 0, true, PCGExData::EBufferInit::New) : nullptr;
 	if (VtxIDBuffer)

@@ -5,17 +5,12 @@
 
 #include "CoreMinimal.h"
 #include "PCGExCompare.h"
-#include "PCGExDetailsData.h"
 
 #include "PCGExFilterFactoryProvider.h"
 #include "UObject/Object.h"
-
 #include "Data/PCGExPointFilter.h"
-#include "PCGExPointsProcessor.h"
-
-
+#include "Details/PCGExDetailsDistances.h"
 #include "Sampling/PCGExSampling.h"
-
 
 #include "PCGExNumericCompareNearestFilter.generated.h"
 
@@ -25,9 +20,7 @@ struct FPCGExNumericCompareNearestFilterConfig
 {
 	GENERATED_BODY()
 
-	FPCGExNumericCompareNearestFilterConfig()
-	{
-	}
+	FPCGExNumericCompareNearestFilterConfig() = default;
 
 	/** Distance method to be used for source & target points. */
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta=(PCG_Overridable))
@@ -53,11 +46,11 @@ struct FPCGExNumericCompareNearestFilterConfig
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta=(PCG_Overridable, DisplayName="Operand B", EditCondition="CompareAgainst == EPCGExInputValueType::Constant", EditConditionHides))
 	double OperandBConstant = 0;
 
-	/** Rounding mode for relative measures */
+	/** Near-equality tolerance */
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta=(PCG_Overridable, EditCondition="Comparison == EPCGExComparison::NearlyEqual || Comparison == EPCGExComparison::NearlyNotEqual", EditConditionHides))
 	double Tolerance = DBL_COMPARE_TOLERANCE;
 
-	PCGEX_SETTING_VALUE_GET(OperandB, double, CompareAgainst, OperandB, OperandBConstant)
+	PCGEX_SETTING_VALUE_DECL(OperandB, double)
 
 	/**  */
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta=(PCG_Overridable))
@@ -69,7 +62,7 @@ struct FPCGExNumericCompareNearestFilterConfig
  * 
  */
 UCLASS(MinimalAPI, BlueprintType, ClassGroup = (Procedural), Category="PCGEx|Filter")
-class UPCGExNumericCompareNearestFilterFactory : public UPCGExFilterFactoryData
+class UPCGExNumericCompareNearestFilterFactory : public UPCGExPointFilterFactoryData
 {
 	GENERATED_BODY()
 
@@ -88,6 +81,7 @@ public:
 	virtual bool SupportsCollectionEvaluation() const override { return false; }
 
 	virtual TSharedPtr<PCGExPointFilter::IFilter> CreateFilter() const override;
+	virtual void RegisterBuffersDependencies(FPCGExContext* InContext, PCGExData::FFacadePreloader& FacadePreloader) const override;
 	virtual bool RegisterConsumableAttributesWithData(FPCGExContext* InContext, const UPCGData* InData) const override;
 	virtual void BeginDestroy() override;
 };
@@ -150,6 +144,6 @@ protected:
 
 #if WITH_EDITOR
 	virtual FString GetDisplayName() const override;
-	virtual bool ShowMissingDataHandling_Internal() const override { return true; }
+	virtual bool ShowMissingDataPolicy_Internal() const override { return true; }
 #endif
 };

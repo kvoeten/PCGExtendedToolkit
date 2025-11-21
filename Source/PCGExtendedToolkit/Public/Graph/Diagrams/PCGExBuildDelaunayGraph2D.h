@@ -33,7 +33,7 @@ public:
 	//~Begin UPCGSettings
 #if WITH_EDITOR
 	PCGEX_NODE_INFOS(BuildDelaunayGraph2D, "Cluster : Delaunay 2D", "Create a 2D delaunay triangulation for each input dataset.");
-	virtual FLinearColor GetNodeTitleColor() const override { return GetDefault<UPCGExGlobalSettings>()->NodeColorClusterGen; }
+	virtual FLinearColor GetNodeTitleColor() const override { return GetDefault<UPCGExGlobalSettings>()->ColorClusterGenerator; }
 #endif
 	virtual TArray<FPCGPinProperties> OutputPinProperties() const override;
 
@@ -95,6 +95,9 @@ struct FPCGExBuildDelaunayGraph2DContext final : FPCGExPointsProcessorContext
 	friend class FPCGExBuildDelaunayGraph2DElement;
 
 	TSharedPtr<PCGExData::FPointIOCollection> MainSites;
+
+protected:
+	PCGEX_ELEMENT_BATCH_POINT_DECL
 };
 
 class FPCGExBuildDelaunayGraph2DElement final : public FPCGExPointsProcessorElement
@@ -106,7 +109,7 @@ protected:
 	virtual bool ExecuteInternal(FPCGContext* InContext) const override;
 };
 
-namespace PCGExBuildDelaunay2D
+namespace PCGExBuildDelaunayGraph2D
 {
 	class FProcessor final : public PCGExPointsMT::TProcessor<FPCGExBuildDelaunayGraph2DContext, UPCGExBuildDelaunayGraph2DSettings>
 	{

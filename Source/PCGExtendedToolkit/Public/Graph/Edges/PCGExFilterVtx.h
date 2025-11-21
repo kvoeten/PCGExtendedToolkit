@@ -5,6 +5,7 @@
 
 #include "CoreMinimal.h"
 #include "PCGExScopedContainers.h"
+#include "Details/PCGExDetailsFiltering.h"
 
 
 #include "Graph/PCGExClusterMT.h"
@@ -35,9 +36,11 @@ class UPCGExFilterVtxSettings : public UPCGExEdgesProcessorSettings
 public:
 	//~Begin UPCGSettings
 #if WITH_EDITOR
+	virtual void ApplyDeprecation(UPCGNode* InOutNode) override;
+
 	PCGEX_NODE_INFOS(FilterVtx, "Cluster : Filter Vtx", "Filter out vtx from clusters.");
 	virtual EPCGSettingsType GetType() const override { return EPCGSettingsType::Filter; }
-	virtual FLinearColor GetNodeTitleColor() const override { return GetDefault<UPCGExGlobalSettings>()->WantsColor(GetDefault<UPCGExGlobalSettings>()->NodeColorEdge); }
+	virtual FLinearColor GetNodeTitleColor() const override { return GetDefault<UPCGExGlobalSettings>()->WantsColor(GetDefault<UPCGExGlobalSettings>()->ColorClusterOp); }
 #endif
 
 protected:
@@ -56,6 +59,9 @@ public:
 	UPROPERTY(BlueprintReadOnly, EditAnywhere, Category = Settings, meta = (PCG_NotOverridable))
 	EPCGExVtxFilterOutput Mode = EPCGExVtxFilterOutput::Clusters;
 
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta=(DisplayName=" └─ Result", PCG_Overridable, EditCondition="Mode == EPCGExVtxFilterOutput::Attribute", EditConditionHides))
+	FPCGExFilterResultDetails ResultOutputVtx;
+
 	/** Invert the filter result */
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta=(PCG_Overridable))
 	bool bInvert = false;
@@ -64,9 +70,12 @@ public:
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta=(PCG_Overridable, EditCondition="Mode == EPCGExVtxFilterOutput::Clusters", EditConditionHides))
 	bool bInvertEdgeFilters = false;
 
-	/** Name of the attribute to write the filter result to. */
-	UPROPERTY(BlueprintReadOnly, EditAnywhere, Category = Settings, meta = (PCG_NotOverridable, EditCondition="Mode == EPCGExVtxFilterOutput::Attribute", EditConditionHides))
-	FName ResultAttributeName = FName("PassFilters");
+#pragma region DEPRECATED
+
+	UPROPERTY()
+	FName ResultAttributeName_DEPRECATED = NAME_None;
+
+#pragma endregion
 
 	/** If enabled, inside/outside groups will be partitioned by initial edge connectivity. */
 	UPROPERTY(BlueprintReadOnly, EditAnywhere, Category = Settings, meta = (PCG_NotOverridable, EditCondition="Mode == EPCGExVtxFilterOutput::Points", EditConditionHides))
@@ -115,11 +124,14 @@ struct FPCGExFilterVtxContext final : FPCGExEdgesProcessorContext
 
 	bool bWantsClusters = true;
 
-	TArray<TObjectPtr<const UPCGExFilterFactoryData>> VtxFilterFactories;
-	TArray<TObjectPtr<const UPCGExFilterFactoryData>> EdgeFilterFactories;
+	TArray<TObjectPtr<const UPCGExPointFilterFactoryData>> VtxFilterFactories;
+	TArray<TObjectPtr<const UPCGExPointFilterFactoryData>> EdgeFilterFactories;
 
 	TSharedPtr<PCGExData::FPointIOCollection> Inside;
 	TSharedPtr<PCGExData::FPointIOCollection> Outside;
+
+protected:
+	PCGEX_ELEMENT_BATCH_EDGE_DECL
 };
 
 class FPCGExFilterVtxElement final : public FPCGExEdgesProcessorElement
@@ -140,11 +152,9 @@ namespace PCGExFilterVtx
 		friend class FBatch;
 
 	protected:
-		TSharedPtr<PCGExData::TBuffer<bool>> TestResults;
-		TSharedPtr<PCGExMT::TScopedNumericValue<int32>> ScopedPassNum;
-		int32 PassNum = 0;
+		FPCGExFilterResultDetails ResultOutputVtx = FPCGExFilterResultDetails(false, false);
 
-		TSharedPtr<PCGExMT::TScopedNumericValue<int32>> ScopedFailNum;
+		int32 PassNum = 0;
 		int32 FailNum = 0;
 
 		virtual TSharedPtr<PCGExCluster::FCluster> HandleCachedCluster(const TSharedRef<PCGExCluster::FCluster>& InClusterRef) override;
@@ -159,7 +169,6 @@ namespace PCGExFilterVtx
 
 		virtual bool Process(const TSharedPtr<PCGExMT::FTaskManager>& InAsyncManager) override;
 
-		virtual void PrepareLoopScopesForNodes(const TArray<PCGExMT::FScope>& Loops) override;
 		virtual void ProcessNodes(const PCGExMT::FScope& Scope) override;
 
 		virtual void ProcessEdges(const PCGExMT::FScope& Scope) override;
@@ -169,8 +178,10 @@ namespace PCGExFilterVtx
 
 	class FBatch final : public PCGExClusterMT::TBatch<FProcessor>
 	{
+		friend class FProcessor;
+
 	protected:
-		TSharedPtr<PCGExData::TBuffer<bool>> TestResults;
+		FPCGExFilterResultDetails ResultOutputVtx = FPCGExFilterResultDetails(false, false);
 
 	public:
 		FBatch(FPCGExContext* InContext, const TSharedRef<PCGExData::FPointIO>& InVtx, const TArrayView<TSharedRef<PCGExData::FPointIO>> InEdges)
@@ -181,6 +192,8 @@ namespace PCGExFilterVtx
 			bRequiresGraphBuilder = Settings->Mode == EPCGExVtxFilterOutput::Clusters;
 			bRequiresWriteStep = Settings->Mode == EPCGExVtxFilterOutput::Attribute;
 		}
+
+		virtual void OnProcessingPreparationComplete() override;
 
 		virtual void CompleteWork() override;
 		virtual void Write() override;

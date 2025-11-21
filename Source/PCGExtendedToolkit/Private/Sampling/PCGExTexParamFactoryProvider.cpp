@@ -3,14 +3,18 @@
 
 #include "Sampling/PCGExTexParamFactoryProvider.h"
 
+#include "PCGExHelpers.h"
 #include "Data/PCGTextureData.h"
 #include "Materials/MaterialInterface.h"
 #include "TextureResource.h"
+#include "Data/PCGExData.h"
 #include "Engine/Texture.h"
 #include "Engine/Texture2D.h"
 
 #define LOCTEXT_NAMESPACE "PCGExCreateTexParam"
 #define PCGEX_NAMESPACE PCGExCreateTexParam
+
+PCG_DEFINE_TYPE_INFO(FPCGExDataTypeInfoTexParam, UPCGExTexParamFactoryData)
 
 void FPCGExTextureParamConfig::Init()
 {
@@ -102,7 +106,13 @@ namespace PCGExTexture
 
 	bool FLookup::BuildFrom(FPCGExContext* InContext, const FName InPin)
 	{
-		if (!PCGExFactories::GetInputFactories(InContext, InPin, Factories, {PCGExFactories::EType::TexParam}, true)) { return false; }
+		if (!PCGExFactories::GetInputFactories(
+			InContext, InPin, Factories,
+			{PCGExFactories::EType::TexParam}))
+		{
+			return false;
+		}
+
 		for (const TObjectPtr<const UPCGExTexParamFactoryData>& Factory : Factories) { PCGEX_VALIDATE_NAME_C(InContext, Factory->Config.TextureIDAttributeName) }
 		return true;
 	}

@@ -3,7 +3,14 @@
 
 #include "Misc/PCGExWriteIndex.h"
 
+#include "PCGExBroadcast.h"
+#include "PCGParamData.h"
+#include "Data/PCGExData.h"
+#include "Data/PCGExDataTag.h"
+#include "Data/PCGExPointIO.h"
+#include "Data/PCGPointData.h"
 #include "Data/PCGSplineData.h"
+#include "Metadata/Accessors/PCGAttributeAccessorKeys.h"
 
 #define LOCTEXT_NAMESPACE "PCGExWriteIndexElement"
 #define PCGEX_NAMESPACE WriteIndex
@@ -68,7 +75,7 @@ TArray<FPCGPinProperties> UPCGExWriteIndexSettings::InputPinProperties() const
 {
 	if (!IsInputless()) { return Super::InputPinProperties(); }
 	TArray<FPCGPinProperties> PinProperties;
-	PCGEX_PIN_ANY(GetMainInputPin(), "Inputs", Required, {})
+	PCGEX_PIN_ANY(GetMainInputPin(), "Inputs", Required)
 	return PinProperties;
 }
 
@@ -76,7 +83,7 @@ TArray<FPCGPinProperties> UPCGExWriteIndexSettings::OutputPinProperties() const
 {
 	if (!IsInputless()) { return Super::OutputPinProperties(); }
 	TArray<FPCGPinProperties> PinProperties;
-	PCGEX_PIN_ANY(GetMainOutputPin(), "Output", Required, {})
+	PCGEX_PIN_ANY(GetMainOutputPin(), "Output", Required)
 	return PinProperties;
 }
 
@@ -88,6 +95,10 @@ FString UPCGExWriteIndexSettings::GetDisplayName() const
 #endif
 
 PCGEX_INITIALIZE_ELEMENT(WriteIndex)
+
+PCGExData::EIOInit UPCGExWriteIndexSettings::GetMainDataInitializationPolicy() const { return PCGExData::EIOInit::Duplicate; }
+
+PCGEX_ELEMENT_BATCH_POINT_IMPL(WriteIndex)
 
 bool FPCGExWriteIndexElement::Boot(FPCGExContext* InContext) const
 {
@@ -179,9 +190,9 @@ bool FPCGExWriteIndexElement::ExecuteInternal(FPCGContext* InContext) const
 	{
 		PCGEX_ON_INITIAL_EXECUTION
 		{
-			if (!Context->StartBatchProcessingPoints<PCGExPointsMT::TBatch<PCGExWriteIndex::FProcessor>>(
+			if (!Context->StartBatchProcessingPoints(
 				[&](const TSharedPtr<PCGExData::FPointIO>& Entry) { return true; },
-				[&](const TSharedPtr<PCGExPointsMT::TBatch<PCGExWriteIndex::FProcessor>>& NewBatch)
+				[&](const TSharedPtr<PCGExPointsMT::IBatch>& NewBatch)
 				{
 					NewBatch->bSkipCompletion = !Settings->bOutputPointIndex;
 				}))

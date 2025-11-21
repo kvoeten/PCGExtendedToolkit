@@ -8,12 +8,8 @@
 
 #include "UObject/Object.h"
 
-#include "Data/PCGExPointFilter.h"
-#include "PCGExPointsProcessor.h"
-
-
 #include "Misc/Filters/PCGExFilterFactoryProvider.h"
-
+#include "Data/PCGExPointFilter.h"
 
 #include "PCGExEntryCountFilter.generated.h"
 
@@ -31,11 +27,19 @@ struct FPCGExEntryCountFilterConfig
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta=(PCG_Overridable))
 	EPCGExComparison Comparison = EPCGExComparison::NearlyEqual;
 
+	/** Type of OperandB */
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta=(PCG_Overridable))
+	EPCGExInputValueType CompareAgainst = EPCGExInputValueType::Constant;
+
+	/** Operand B for testing -- Will be translated to `int32` under the hood. */
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta=(PCG_Overridable, DisplayName="Operand B (Attr)", EditCondition="CompareAgainst != EPCGExInputValueType::Constant", EditConditionHides))
+	FPCGAttributePropertyInputSelector OperandBAttr;
+
 	/** Operand B to test Entries count against */
-	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta=(PCG_Overridable, DisplayName="Operand B", ClampMin=0))
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta=(PCG_Overridable, DisplayName="Operand B", EditCondition="CompareAgainst == EPCGExInputValueType::Constant", EditConditionHides, ClampMin=0))
 	int32 OperandB = 0;
 
-	/** Rounding mode for relative measures */
+	/** Near-equality tolerance */
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta=(PCG_Overridable, EditCondition="Comparison == EPCGExComparison::NearlyEqual || Comparison == EPCGExComparison::NearlyNotEqual", EditConditionHides))
 	double Tolerance = DBL_COMPARE_TOLERANCE;
 };
@@ -83,11 +87,14 @@ class UPCGExEntryCountFilterProviderSettings : public UPCGExFilterProviderSettin
 {
 	GENERATED_BODY()
 
+protected:
+	PCGEX_FACTORY_TYPE_ID(FPCGExDataTypeInfoFilterCollection)
+
 public:
 	//~Begin UPCGSettings
 #if WITH_EDITOR
 	PCGEX_NODE_INFOS_CUSTOM_SUBTITLE(
-		EntryCountFilterFactory, "C-Filter : Entry Count", "Does a numeric comparison against the number of entries",
+		EntryCountFilterFactory, "Data Filter : Entry Count", "Does a numeric comparison against the number of entries",
 		PCGEX_FACTORY_NAME_PRIORITY)
 #endif
 	//~End UPCGSettings

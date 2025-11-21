@@ -36,9 +36,12 @@ public:
 	//~Begin UPCGSettings
 #if WITH_EDITOR
 	PCGEX_NODE_INFOS(UberBranch, "Uber Branch", "Branch collections based on multiple rules & conditions.");
-	virtual FLinearColor GetNodeTitleColor() const override { return GetDefault<UPCGExGlobalSettings>()->WantsColor(GetDefault<UPCGExGlobalSettings>()->NodeColorFilterHub); }
+	virtual FLinearColor GetNodeTitleColor() const override { return GetDefault<UPCGExGlobalSettings>()->WantsColor(GetDefault<UPCGExGlobalSettings>()->ColorFilterHub); }
 	virtual EPCGSettingsType GetType() const override { return EPCGSettingsType::ControlFlow; }
 #endif
+
+	virtual bool OutputPinsCanBeDeactivated() const override { return true; }
+	virtual bool HasDynamicPins() const override;
 
 protected:
 	virtual TArray<FPCGPinProperties> InputPinProperties() const override;
@@ -65,14 +68,6 @@ public:
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta=(PCG_NotOverridable), AdvancedDisplay)
 	int32 AsyncChunkSize = 32;
 
-	/** */
-	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = "Warnings and Errors")
-	bool bQuietMissingFilters = false;
-
-	/** */
-	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = "Warnings and Errors")
-	bool bQuietInvalidFilters = false;
-
 private:
 	friend class FPCGExUberBranchElement;
 };
@@ -81,6 +76,7 @@ struct FPCGExUberBranchContext final : FPCGExPointsProcessorContext
 {
 	friend class FPCGExUberBranchElement;
 
+	TArray<int32> Dispatch;
 	TArray<TSharedPtr<PCGExPointFilter::FManager>> Managers;
 	TArray<TSharedPtr<PCGExData::FFacade>> Facades;
 };

@@ -37,10 +37,10 @@ namespace PCGExEdgeEndpointsCompareStr
 	{
 		if (!IFilter::Init(InContext, InCluster, InPointDataFacade, InEdgeDataFacade)) { return false; }
 
-		StringBuffer = InPointDataFacade->GetBroadcaster<FString>(TypedFilterFactory->Config.Attribute);
+		StringBuffer = InPointDataFacade->GetBroadcaster<FString>(TypedFilterFactory->Config.Attribute, false, PCGEX_QUIET_HANDLING);
 		if (!StringBuffer)
 		{
-			PCGE_LOG_C(Warning, GraphAndLog, InContext, FText::Format(FTEXT("Comparison Attribute ({0}) is not valid."), FText::FromString(PCGEx::GetSelectorDisplayName(TypedFilterFactory->Config.Attribute))));
+			PCGEX_LOG_INVALID_SELECTOR_HANDLED_C(InContext, Comparison Attribute, TypedFilterFactory->Config.Attribute)
 			return false;
 		}
 

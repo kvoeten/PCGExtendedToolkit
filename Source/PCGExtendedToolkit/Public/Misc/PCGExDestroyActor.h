@@ -23,7 +23,7 @@ public:
 	//~Begin UPCGSettings
 #if WITH_EDITOR
 	PCGEX_NODE_INFOS(DestroyActor, "Destroy Actor", "Destroy target actor references that have been previously spawned by the PCG component this note is currently executing on.");
-	virtual FLinearColor GetNodeTitleColor() const override { return GetDefault<UPCGExGlobalSettings>()->NodeColorMiscRemove; }
+	virtual FLinearColor GetNodeTitleColor() const override { return GetDefault<UPCGExGlobalSettings>()->ColorMiscRemove; }
 #endif
 
 protected:
@@ -45,6 +45,9 @@ public:
 struct FPCGExDestroyActorContext final : FPCGExPointsProcessorContext
 {
 	friend class FPCGExDestroyActorElement;
+
+protected:
+	PCGEX_ELEMENT_BATCH_POINT_DECL
 };
 
 class FPCGExDestroyActorElement final : public FPCGExPointsProcessorElement
@@ -56,7 +59,7 @@ protected:
 	virtual bool ExecuteInternal(FPCGContext* Context) const override;
 };
 
-namespace PCGExDestroyActors
+namespace PCGExDestroyActor
 {
 	const FName SourceOverridesPacker = TEXT("Overrides : Packer");
 

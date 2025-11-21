@@ -25,13 +25,15 @@ public:
 	//~Begin UPCGSettings
 #if WITH_EDITOR
 	PCGEX_NODE_INFOS(BuildConvexHull, "Cluster : Convex Hull 3D", "Create a 3D Convex Hull triangulation for each input dataset.");
-	virtual FLinearColor GetNodeTitleColor() const override { return GetDefault<UPCGExGlobalSettings>()->NodeColorClusterGen; }
+	virtual FLinearColor GetNodeTitleColor() const override { return GetDefault<UPCGExGlobalSettings>()->ColorClusterGenerator; }
 #endif
 	virtual TArray<FPCGPinProperties> OutputPinProperties() const override;
 
 protected:
 	virtual FPCGElementPtr CreateElement() const override;
 	//~End UPCGSettings
+
+	virtual PCGExData::EIOInit GetMainDataInitializationPolicy() const override;
 
 	//~Begin UPCGExPointsProcessorSettings
 public:
@@ -49,6 +51,9 @@ private:
 struct FPCGExBuildConvexHullContext final : FPCGExPointsProcessorContext
 {
 	friend class FPCGExBuildConvexHullElement;
+
+protected:
+	PCGEX_ELEMENT_BATCH_POINT_DECL
 };
 
 class FPCGExBuildConvexHullElement final : public FPCGExPointsProcessorElement
@@ -60,7 +65,7 @@ protected:
 	virtual bool ExecuteInternal(FPCGContext* InContext) const override;
 };
 
-namespace PCGExConvexHull
+namespace PCGExBuildConvexHull
 {
 	class FProcessor final : public PCGExPointsMT::TProcessor<FPCGExBuildConvexHullContext, UPCGExBuildConvexHullSettings>
 	{

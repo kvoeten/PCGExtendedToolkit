@@ -4,12 +4,17 @@
 #include "Transform/PCGExNormalize.h"
 
 #include "Data/PCGExData.h"
+#include "Data/PCGExPointIO.h"
 #include "Data/PCGExProxyData.h"
+#include "Data/PCGExProxyDataHelpers.h"
+#include "Details/PCGExDetailsSettings.h"
 #include "Sampling/PCGExSampling.h"
 
 
 #define LOCTEXT_NAMESPACE "PCGExNormalizeElement"
 #define PCGEX_NAMESPACE Normalize
+
+PCGEX_SETTING_VALUE_IMPL(UPCGExNormalizeSettings, Transform, FTransform, TransformInput, TransformAttribute, TransformConstant)
 
 UPCGExNormalizeSettings::UPCGExNormalizeSettings(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
@@ -19,19 +24,22 @@ UPCGExNormalizeSettings::UPCGExNormalizeSettings(const FObjectInitializer& Objec
 }
 
 PCGEX_INITIALIZE_ELEMENT(Normalize)
+PCGEX_ELEMENT_BATCH_POINT_IMPL(Normalize)
 
 TArray<FPCGPinProperties> UPCGExNormalizeSettings::InputPinProperties() const
 {
 	TArray<FPCGPinProperties> PinProperties = Super::InputPinProperties();
-	PCGEX_PIN_POINTS(PCGExTransform::SourceDeformersBoundsLabel, "Point data that will be used as unified bounds for all inputs", Normal, {})
+	PCGEX_PIN_POINTS(PCGEx::SourceBoundsLabel, "Point data that will be used as unified bounds for all inputs", Normal)
 	return PinProperties;
 }
 
 bool UPCGExNormalizeSettings::IsPinUsedByNodeExecution(const UPCGPin* InPin) const
 {
-	if (InPin->Properties.Label == PCGExTransform::SourceDeformersBoundsLabel) { return InPin->EdgeCount() > 0; }
+	if (InPin->Properties.Label == PCGEx::SourceBoundsLabel) { return InPin->EdgeCount() > 0; }
 	return Super::IsPinUsedByNodeExecution(InPin);
 }
+
+PCGExData::EIOInit UPCGExNormalizeSettings::GetMainDataInitializationPolicy() const { return PCGExData::EIOInit::Duplicate; }
 
 bool FPCGExNormalizeElement::Boot(FPCGExContext* InContext) const
 {
@@ -39,7 +47,7 @@ bool FPCGExNormalizeElement::Boot(FPCGExContext* InContext) const
 
 	PCGEX_CONTEXT_AND_SETTINGS(Normalize)
 
-	TArray<FPCGTaggedData> UnifiedBounds = Context->InputData.GetSpatialInputsByPin(PCGExTransform::SourceDeformersBoundsLabel);
+	TArray<FPCGTaggedData> UnifiedBounds = Context->InputData.GetSpatialInputsByPin(PCGEx::SourceBoundsLabel);
 	for (int i = 0; i < UnifiedBounds.Num(); ++i)
 	{
 		if (const UPCGBasePointData* PointData = Cast<UPCGBasePointData>(UnifiedBounds[i].Data))
@@ -60,9 +68,9 @@ bool FPCGExNormalizeElement::ExecuteInternal(FPCGContext* InContext) const
 	PCGEX_EXECUTION_CHECK
 	PCGEX_ON_INITIAL_EXECUTION
 	{
-		if (!Context->StartBatchProcessingPoints<PCGExPointsMT::TBatch<PCGExNormalize::FProcessor>>(
+		if (!Context->StartBatchProcessingPoints(
 			[&](const TSharedPtr<PCGExData::FPointIO>& Entry) { return true; },
-			[&](const TSharedPtr<PCGExPointsMT::TBatch<PCGExNormalize::FProcessor>>& NewBatch)
+			[&](const TSharedPtr<PCGExPointsMT::IBatch>& NewBatch)
 			{
 				NewBatch->bSkipCompletion = true;
 			}))

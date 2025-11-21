@@ -3,6 +3,10 @@
 
 #include "Transform/Tensors/PCGExTensor.h"
 
+#include "PCGExMathBounds.h"
+#include "PCGExHelpers.h"
+#include "Data/PCGExData.h"
+#include "Details/PCGExDetailsSettings.h"
 #include "Transform/Tensors/PCGExTensorFactoryProvider.h"
 
 PCGExTensor::FTensorSample FPCGExTensorSamplingMutationsDetails::Mutate(const FTransform& InProbe, PCGExTensor::FTensorSample InSample) const
@@ -50,6 +54,9 @@ FPCGExTensorConfigBase::FPCGExTensorConfigBase(const bool SupportAttributes, con
 	WeightAttribute.Update(TEXT("Steepness"));
 }
 
+PCGEX_SETTING_VALUE_IMPL(FPCGExTensorConfigBase, Weight, double, WeightInput, WeightAttribute, Weight);
+PCGEX_SETTING_VALUE_IMPL(FPCGExTensorConfigBase, Potency, double, PotencyInput, PotencyAttribute, Potency);
+
 void FPCGExTensorConfigBase::Init()
 {
 	PCGEX_MAKE_SHARED(CurvePaths, TSet<FSoftObjectPath>)
@@ -73,10 +80,10 @@ namespace PCGExTensor
 {
 	bool FEffectorsArray::Init(FPCGExContext* InContext, const UPCGExTensorPointFactoryData* InFactory)
 	{
-		TSharedPtr<PCGExDetails::TSettingValue<double>> PotencyValue = InFactory->BaseConfig.GetValueSettingPotency(InFactory->bQuietMissingInputError);
+		TSharedPtr<PCGExDetails::TSettingValue<double>> PotencyValue = InFactory->BaseConfig.GetValueSettingPotency();
 		if (!PotencyValue->Init(InFactory->InputDataFacade, false)) { return false; }
 
-		TSharedPtr<PCGExDetails::TSettingValue<double>> WeightValue = InFactory->BaseConfig.GetValueSettingWeight(InFactory->bQuietMissingInputError);
+		TSharedPtr<PCGExDetails::TSettingValue<double>> WeightValue = InFactory->BaseConfig.GetValueSettingWeight();
 		if (!WeightValue->Init(InFactory->InputDataFacade, false)) { return false; }
 
 		const UPCGBasePointData* InPoints = InFactory->InputDataFacade->GetIn();

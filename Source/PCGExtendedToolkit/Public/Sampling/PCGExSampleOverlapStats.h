@@ -5,11 +5,8 @@
 
 #include "CoreMinimal.h"
 
-#include "PCGExPointsProcessor.h"
-#include "PCGExSampling.h"
-
-
 #include "Misc/PCGExDiscardByOverlap.h"
+#include "PCGExSampling.h"
 
 #include "PCGExSampleOverlapStats.generated.h"
 
@@ -35,12 +32,14 @@ public:
 	//~Begin UPCGSettings
 #if WITH_EDITOR
 	PCGEX_NODE_INFOS(SampleOverlapStats, "Sample : Overlap Stats", "Sample & write per-point overlap stats between entire point data.");
-	virtual FLinearColor GetNodeTitleColor() const override { return GetDefault<UPCGExGlobalSettings>()->NodeColorMisc; }
+	virtual FLinearColor GetNodeTitleColor() const override { return GetDefault<UPCGExGlobalSettings>()->ColorMisc; }
 #endif
 
 protected:
 	virtual FPCGElementPtr CreateElement() const override;
 	//~End UPCGSettings
+
+	virtual PCGExData::EIOInit GetMainDataInitializationPolicy() const override;
 
 	//~Begin UPCGExPointsProcessorSettings
 public:
@@ -140,6 +139,9 @@ struct FPCGExSampleOverlapStatsContext final : FPCGExPointsProcessorContext
 
 	double SharedOverlapSubCountMax = 0;
 	double SharedOverlapCountMax = 0;
+
+protected:
+	PCGEX_ELEMENT_BATCH_POINT_DECL
 };
 
 class FPCGExSampleOverlapStatsElement final : public FPCGExPointsProcessorElement

@@ -21,6 +21,8 @@ protected:
 	virtual FPCGElementPtr CreateElement() const override;
 	//~End UPCGSettings
 
+	virtual PCGExData::EIOInit GetMainDataInitializationPolicy() const override;
+
 public:
 	/** Controls the order in which points will be ordered. */
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta = (PCG_Overridable))
@@ -42,7 +44,7 @@ public:
 #if WITH_EDITOR
 	PCGEX_NODE_INFOS(SortPointsStatic, "Sort Points (Static)", "Sort the source points according to specific rules.");
 	virtual EPCGSettingsType GetType() const override { return EPCGSettingsType::Generic; }
-	virtual FLinearColor GetNodeTitleColor() const override { return GetDefault<UPCGExGlobalSettings>()->WantsColor(GetDefault<UPCGExGlobalSettings>()->NodeColorMiscWrite); }
+	virtual FLinearColor GetNodeTitleColor() const override { return GetDefault<UPCGExGlobalSettings>()->WantsColor(GetDefault<UPCGExGlobalSettings>()->ColorMiscWrite); }
 #endif
 
 	//~Begin UObject interface
@@ -62,15 +64,25 @@ private:
 	friend class FPCGExSortPointsBaseElement;
 };
 
+struct FPCGExSortPointsContext final : FPCGExPointsProcessorContext
+{
+	friend class FPCGExSortPointsElement;
+
+protected:
+	PCGEX_ELEMENT_BATCH_POINT_DECL
+};
+
 class FPCGExSortPointsBaseElement final : public FPCGExPointsProcessorElement
 {
 protected:
+	PCGEX_ELEMENT_CREATE_CONTEXT(SortPoints)
+
 	virtual bool ExecuteInternal(FPCGContext* Context) const override;
 };
 
 namespace PCGExSortPoints
 {
-	class FProcessor final : public PCGExPointsMT::TProcessor<FPCGExPointsProcessorContext, UPCGExSortPointsBaseSettings>
+	class FProcessor final : public PCGExPointsMT::TProcessor<FPCGExSortPointsContext, UPCGExSortPointsBaseSettings>
 	{
 		TSharedPtr<PCGExSorting::FPointSorter> Sorter;
 

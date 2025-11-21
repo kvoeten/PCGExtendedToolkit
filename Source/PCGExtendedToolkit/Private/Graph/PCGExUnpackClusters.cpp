@@ -3,6 +3,10 @@
 
 #include "Graph/PCGExUnpackClusters.h"
 
+#include "Data/PCGExDataHelpers.h"
+#include "Data/PCGExDataTag.h"
+#include "Data/PCGExPointIO.h"
+
 
 #define LOCTEXT_NAMESPACE "PCGExUnpackClusters"
 #define PCGEX_NAMESPACE UnpackClusters
@@ -10,14 +14,14 @@
 TArray<FPCGPinProperties> UPCGExUnpackClustersSettings::InputPinProperties() const
 {
 	TArray<FPCGPinProperties> PinProperties;
-	PCGEX_PIN_POINTS(PCGExGraph::SourcePackedClustersLabel, "Packed clusters", Required, {})
+	PCGEX_PIN_POINTS(PCGExGraph::SourcePackedClustersLabel, "Packed clusters", Required)
 	return PinProperties;
 }
 
 TArray<FPCGPinProperties> UPCGExUnpackClustersSettings::OutputPinProperties() const
 {
 	TArray<FPCGPinProperties> PinProperties = Super::OutputPinProperties();
-	PCGEX_PIN_POINTS(PCGExGraph::OutputEdgesLabel, "Edges associated with the main output points", Required, {})
+	PCGEX_PIN_POINTS(PCGExGraph::OutputEdgesLabel, "Edges associated with the main output points", Required)
 	return PinProperties;
 }
 

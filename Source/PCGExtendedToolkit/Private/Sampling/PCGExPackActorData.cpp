@@ -5,6 +5,8 @@
 
 #include "PCGComponent.h"
 #include "PCGExPointsProcessor.h"
+#include "PCGParamData.h"
+#include "Data/PCGExPointIO.h"
 #include "Elements/PCGExecuteBlueprint.h"
 #include "Engine/AssetManager.h"
 
@@ -54,6 +56,12 @@ void UPCGExCustomActorDataPacker::AddComponent(
 	bool InWeldSimulatedBodies,
 	UActorComponent*& OutComponent)
 {
+	if (!IsInGameThread())
+	{
+		UE_LOG(LogPCGEx, Error, TEXT("AddComponent can only be used on the game thread. Enable `bExecuteOnMainThread` on your packer!"));
+		return;
+	}
+
 	if (!IsValid(InActor))
 	{
 		UE_LOG(LogPCGEx, Error, TEXT("AddComponent target actor is NULL"));
@@ -67,14 +75,17 @@ void UPCGExCustomActorDataPacker::AddComponent(
 	}
 
 	const EObjectFlags InObjectFlags = (bIsPreviewMode ? RF_Transient : RF_NoFlags);
-	TObjectPtr<UActorComponent> NewSettings = Context->ManagedObjects->New<UActorComponent>(
+	OutComponent = Context->ManagedObjects->New<UActorComponent>(
 		InActor, ComponentClass,
 		UniqueNameGenerator->Get(TEXT("PCGComponent_") + ComponentClass->GetName()), InObjectFlags);
-	OutComponent = NewSettings;
+
+	if (!OutComponent)
+	{
+		UE_LOG(LogPCGEx, Error, TEXT("AddComponent could not instantiate component, something went wrong."));
+		return;
+	}
 
 	{
-		FWriteScopeLock WriteScopeLock(ComponentLock);
-
 		FComponentInfos NewInfos = FComponentInfos(
 			OutComponent,
 			InLocationRule,
@@ -82,26 +93,7 @@ void UPCGExCustomActorDataPacker::AddComponent(
 			InScaleRule,
 			InWeldSimulatedBodies);
 
-		if (TSharedPtr<TArray<FComponentInfos>>* ComponentsForActor = ComponentsMap.Find(InActor))
-		{
-			(*ComponentsForActor)->Add(NewInfos);
-		}
-		else
-		{
-			PCGEX_MAKE_SHARED(NewComponentsForActor, TArray<FComponentInfos>)
-			ComponentsMap.Add(InActor, NewComponentsForActor);
-			NewComponentsForActor->Add(NewInfos);
-		}
-	}
-}
-
-void UPCGExCustomActorDataPacker::AttachComponents()
-{
-	FWriteScopeLock WriteScopeLock(ComponentLock);
-	for (const TPair<AActor*, TSharedPtr<TArray<FComponentInfos>>>& Pair : ComponentsMap)
-	{
-		const TArray<FComponentInfos>& Infos = *Pair.Value.Get();
-		for (const FComponentInfos& In : Infos) { Context->AttachManagedComponent(Pair.Key, In.Component, In.AttachmentTransformRules); }
+		Context->AttachManagedComponent(InActor, NewInfos.Component, NewInfos.AttachmentTransformRules);
 	}
 }
 
@@ -134,7 +126,7 @@ void UPCGExCustomActorDataPacker::PreloadObjectPaths(const FName& InAttributeNam
 
 	if (!Identity)
 	{
-		PCGE_LOG_C(Error, GraphAndLog, Context, FTEXT("Specified preload attribute does not exists."));
+		PCGE_LOG_C(Error, GraphAndLog, Context, FText::Format(FTEXT("Preload attribute \"{0}\" does not exist."), FText::FromName(InAttributeName)));
 		return;
 	}
 
@@ -216,18 +208,22 @@ UPCGExPackActorDataSettings::UPCGExPackActorDataSettings(
 TArray<FPCGPinProperties> UPCGExPackActorDataSettings::InputPinProperties() const
 {
 	TArray<FPCGPinProperties> PinProperties = Super::InputPinProperties();
-	PCGEX_PIN_OPERATION_OVERRIDES(PCGExPackActorDatas::SourceOverridesPacker)
+	PCGEX_PIN_OPERATION_OVERRIDES(PCGExPackActorData::SourceOverridesPacker)
 	return PinProperties;
 }
 
 TArray<FPCGPinProperties> UPCGExPackActorDataSettings::OutputPinProperties() const
 {
 	TArray<FPCGPinProperties> PinProperties = Super::OutputPinProperties();
-	PCGEX_PIN_PARAMS(TEXT("AttributeSet"), "Same as point, but contains only added data.", Advanced, {})
+	PCGEX_PIN_PARAMS(TEXT("AttributeSet"), "Same as point, but contains only added data.", Advanced)
 	return PinProperties;
 }
 
 PCGEX_INITIALIZE_ELEMENT(PackActorData)
+
+PCGExData::EIOInit UPCGExPackActorDataSettings::GetMainDataInitializationPolicy() const { return PCGExData::EIOInit::Duplicate; }
+
+PCGEX_ELEMENT_BATCH_POINT_IMPL(PackActorData)
 
 FName UPCGExPackActorDataSettings::GetMainInputPin() const
 {
@@ -248,7 +244,7 @@ bool FPCGExPackActorDataElement::Boot(FPCGExContext* InContext) const
 
 	InContext->EDITOR_TrackClass(Settings->Packer->GetClass());
 
-	PCGEX_OPERATION_BIND(Packer, UPCGExCustomActorDataPacker, PCGExPackActorDatas::SourceOverridesPacker)
+	PCGEX_OPERATION_BIND(Packer, UPCGExCustomActorDataPacker, PCGExPackActorData::SourceOverridesPacker)
 	PCGEX_VALIDATE_NAME_CONSUMABLE(Settings->ActorReferenceAttribute)
 
 	//Context->OutputParams.Init(nullptr, Context->MainPoints->Num());
@@ -264,9 +260,9 @@ bool FPCGExPackActorDataElement::ExecuteInternal(FPCGContext* InContext) const
 	PCGEX_EXECUTION_CHECK
 	PCGEX_ON_INITIAL_EXECUTION
 	{
-		if (!Context->StartBatchProcessingPoints<PCGExPointsMT::TBatch<PCGExPackActorDatas::FProcessor>>(
+		if (!Context->StartBatchProcessingPoints(
 			[&](const TSharedPtr<PCGExData::FPointIO>& Entry) { return true; },
-			[&](const TSharedPtr<PCGExPointsMT::TBatch<PCGExPackActorDatas::FProcessor>>& NewBatch)
+			[&](const TSharedPtr<PCGExPointsMT::IBatch>& NewBatch)
 			{
 				NewBatch->PrimaryInstancedFactory = Context->Packer;
 				NewBatch->bRequiresWriteStep = true;
@@ -278,7 +274,6 @@ bool FPCGExPackActorDataElement::ExecuteInternal(FPCGContext* InContext) const
 
 	PCGEX_POINTS_BATCH_PROCESSING(PCGExCommon::State_Done)
 
-	Context->MainBatch->Output();
 	Context->MainPoints->StageOutputs();
 
 	/*
@@ -293,7 +288,7 @@ bool FPCGExPackActorDataElement::ExecuteInternal(FPCGContext* InContext) const
 	return Context->TryComplete();
 }
 
-namespace PCGExPackActorDatas
+namespace PCGExPackActorData
 {
 	FProcessor::~FProcessor()
 	{
@@ -301,7 +296,7 @@ namespace PCGExPackActorDatas
 
 	bool FProcessor::Process(const TSharedPtr<PCGExMT::FTaskManager>& InAsyncManager)
 	{
-		TRACE_CPUPROFILER_EVENT_SCOPE(PCGExPackActorDatas::Process);
+		TRACE_CPUPROFILER_EVENT_SCOPE(PCGExPackActorData::Process);
 
 		if (!IProcessor::Process(InAsyncManager)) { return false; }
 
@@ -396,21 +391,44 @@ namespace PCGExPackActorDatas
 	void FProcessor::StartProcessing()
 	{
 		Packer->bIsProcessing = true;
-		StartParallelLoopForPoints();
+		if (Settings->Packer->bExecuteOnMainThread)
+		{
+			GetPoints(PointDataFacade->GetOutFullScope(), PointsForProcessing);
+
+			MainThreadLoop = MakeShared<PCGExMT::FScopeLoopOnMainThread>(PointDataFacade->GetNum());
+			MainThreadLoop->OnIterationCallback =
+				[&](const int32 Index, const PCGExMT::FScope& Scope)
+				{
+					AActor* ActorRef = Packer->InputActors[Index];
+					if (!ActorRef)
+					{
+						PointMask[Index] = 0;
+						return;
+					}
+
+					FPCGPoint& Point = PointsForProcessing[Index];
+					Packer->ProcessEntry(ActorRef, Point, Index, Point);
+				};
+
+			PCGEX_ASYNC_HANDLE_CHKD_VOID(AsyncManager, MainThreadLoop)
+		}
+		else
+		{
+			StartParallelLoopForPoints();
+		}
 	}
 
 	void FProcessor::ProcessPoints(const PCGExMT::FScope& Scope)
 	{
 		TRACE_CPUPROFILER_EVENT_SCOPE(PCGEx::PackActorData::ProcessPoints);
 
-		UPCGBasePointData* OutPointData = PointDataFacade->GetOut();
+		TArray<FPCGPoint> LocalPointsForProcessing;
+		GetPoints(PointDataFacade->GetOutScope(Scope), LocalPointsForProcessing);
 
-		TArray<FPCGPoint> PointsForProcessing;
-		GetPoints(PointDataFacade->GetOutScope(Scope), PointsForProcessing);
-
-		int i = 0;
+		int i = -1;
 		PCGEX_SCOPE_LOOP(Index)
 		{
+			i++;
 			AActor* ActorRef = Packer->InputActors[Index];
 			if (!ActorRef)
 			{
@@ -418,15 +436,21 @@ namespace PCGExPackActorDatas
 				continue;
 			}
 
-			FPCGPoint& Point = PointsForProcessing[i++];
+			FPCGPoint& Point = LocalPointsForProcessing[i];
 			Packer->ProcessEntry(ActorRef, Point, Index, Point);
 		}
 
-		PointDataFacade->Source->SetPoints(Scope.Start, PointsForProcessing, EPCGPointNativeProperties::All);
+		PointDataFacade->Source->SetPoints(Scope.Start, LocalPointsForProcessing, EPCGPointNativeProperties::All);
 	}
 
 	void FProcessor::CompleteWork()
 	{
+		if (Settings->Packer->bExecuteOnMainThread)
+		{
+			PointDataFacade->Source->SetPoints(0, PointsForProcessing, EPCGPointNativeProperties::All);
+			PointsForProcessing.Empty();
+		}
+
 		Attributes.Reserve(PointDataFacade->Buffers.Num());
 		for (const TSharedPtr<PCGExData::IBuffer>& Buffer : PointDataFacade->Buffers)
 		{
@@ -469,12 +493,6 @@ namespace PCGExPackActorDatas
 			}
 		}
 		*/
-	}
-
-	void FProcessor::Output()
-	{
-		TProcessor<FPCGExPackActorDataContext, UPCGExPackActorDataSettings>::Output();
-		if (Packer) { Packer->AttachComponents(); }
 	}
 }
 

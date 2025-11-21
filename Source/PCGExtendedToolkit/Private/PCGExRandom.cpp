@@ -4,8 +4,8 @@
 #include "PCGExRandom.h"
 
 #include "PCGComponent.h"
-#include "PCGExMath.h"
 #include "PCGSettings.h"
+#include "Helpers/PCGHelpers.h"
 
 namespace PCGExRandom
 {
@@ -19,22 +19,22 @@ namespace PCGExRandom
 
 		if (bHasLocalFlag)
 		{
-			Seed = ComputeSeed(Seed, Local);
+			Seed = PCGHelpers::ComputeSeed(Seed, Local);
 		}
 
 		if (bHasSettingsFlag || bHasComponentFlag)
 		{
 			if (Settings && Component)
 			{
-				Seed = ComputeSeed(Seed, Settings->Seed, Component->Seed);
+				Seed = PCGHelpers::ComputeSeed(Seed, Settings->Seed, Component->Seed);
 			}
 			else if (Settings)
 			{
-				Seed = ComputeSeed(Seed, Settings->Seed);
+				Seed = PCGHelpers::ComputeSeed(Seed, Settings->Seed);
 			}
 			else if (Component)
 			{
-				Seed = ComputeSeed(Seed, Component->Seed);
+				Seed = PCGHelpers::ComputeSeed(Seed, Component->Seed);
 			}
 		}
 
@@ -47,9 +47,9 @@ namespace PCGExRandom
 
 		int Seed = BaseSeed + Local;
 
-		if (Settings && Component) { Seed = ComputeSeed(Seed, Settings->Seed, Component->Seed); }
-		else if (Settings) { Seed = ComputeSeed(Seed, Settings->Seed); }
-		else if (Component) { Seed = ComputeSeed(Seed, Component->Seed); }
+		if (Settings && Component) { Seed = PCGHelpers::ComputeSeed(Seed, Settings->Seed, Component->Seed); }
+		else if (Settings) { Seed = PCGHelpers::ComputeSeed(Seed, Settings->Seed); }
+		else if (Component) { Seed = PCGHelpers::ComputeSeed(Seed, Component->Seed); }
 
 		return Seed;
 	}
@@ -61,8 +61,8 @@ namespace PCGExRandom
 
 	int ComputeSpatialSeed(const FVector& Origin, const FVector& Offset)
 	{
-		return static_cast<int>(PCGExMath::Remap(
-			FMath::PerlinNoise3D(PCGExMath::Tile(Origin * 0.001 + Offset, FVector(-1), FVector(1))),
-			-1, 1, MIN_int32, MAX_int32));
+		return PCGHelpers::ComputeSeed(
+			PCGHelpers::ComputeSeedFromPosition(Origin),
+			PCGHelpers::ComputeSeedFromPosition(Offset));
 	}
 }

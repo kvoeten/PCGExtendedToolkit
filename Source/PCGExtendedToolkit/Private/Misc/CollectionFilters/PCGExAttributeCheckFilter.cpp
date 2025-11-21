@@ -3,6 +3,10 @@
 
 #include "Misc/CollectionFilters/PCGExAttributeCheckFilter.h"
 
+#include "PCGExHelpers.h"
+#include "Data/PCGExAttributeHelpers.h"
+#include "Data/PCGExPointIO.h"
+
 #define LOCTEXT_NAMESPACE "PCGExCompareFilterDefinition"
 #define PCGEX_NAMESPACE CompareFilterDefinition
 

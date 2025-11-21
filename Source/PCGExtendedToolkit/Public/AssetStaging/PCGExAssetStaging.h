@@ -7,16 +7,35 @@
 #include "PCGExGlobalSettings.h"
 
 #include "PCGExPointsProcessor.h"
-#include "Collections/PCGExMeshCollection.h"
 #include "Transform/PCGExFitting.h"
-#include "PCGExStaging.h"
 #include "Data/PCGExPointFilter.h"
+#include "Details/PCGExDetailsStaging.h"
 
 #include "PCGExAssetStaging.generated.h"
 
+struct FPCGExAssetCollectionEntry;
+
+namespace PCGExMeshCollection
+{
+	class FMicroCache;
+}
+
+namespace PCGExStaging
+{
+	class FPickPacker;
+	
+	template<typename C, typename E>
+	class TDistributionHelper;
+
+	template<typename T>
+	class TMicroDistributionHelper;
+	
+	class FSocketHelper;
+}
+
 namespace PCGExMT
 {
-	template<typename T>
+	template <typename T>
 	class TScopedNumericValue;
 }
 
@@ -39,10 +58,12 @@ public:
 		AssetStaging, "Asset Staging", "Data staging from PCGEx Asset Collections.",
 		FName(TEXT("[ ") + ( CollectionSource == EPCGExCollectionSource::Asset ? AssetCollection.GetAssetName() : TEXT("Attribute Set to Collection")) + TEXT(" ]")));
 	virtual EPCGSettingsType GetType() const override { return EPCGSettingsType::Metadata; }
-	virtual FLinearColor GetNodeTitleColor() const override { return GetDefault<UPCGExGlobalSettings>()->WantsColor(GetDefault<UPCGExGlobalSettings>()->NodeColorMiscAdd); }
+	virtual FLinearColor GetNodeTitleColor() const override { return GetDefault<UPCGExGlobalSettings>()->WantsColor(GetDefault<UPCGExGlobalSettings>()->ColorMiscAdd); }
+	virtual bool CanDynamicallyTrackKeys() const override { return true; }
 #endif
 
 protected:
+	virtual PCGExData::EIOInit GetMainDataInitializationPolicy() const override;
 	virtual FPCGElementPtr CreateElement() const override;
 	virtual TArray<FPCGPinProperties> InputPinProperties() const override;
 	virtual TArray<FPCGPinProperties> OutputPinProperties() const override;
@@ -67,9 +88,13 @@ public:
 	FName AssetPathAttributeName = "AssetPath";
 
 	/** Distribution details */
-	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta=(PCG_Overridable, DisplayName="Distribution", ShowOnlyInnerProperties))
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta=(PCG_Overridable, DisplayName="Distribution"))
 	FPCGExAssetDistributionDetails DistributionSettings;
 
+	/** Distribution details that are specific to the picked entry -- what it picks depends on the type of collection being staged. For Mesh Collections, this let you control how materials are picked. */
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta=(PCG_Overridable, DisplayName="Distribution (Entry)"))
+	FPCGExMicroCacheDistributionDetails EntryDistributionSettings;
+	
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta=(PCG_Overridable))
 	FPCGExScaleToFitDetails ScaleToFit;
 
@@ -98,7 +123,7 @@ public:
 	//** If enabled, will output mesh material picks. */
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = "Settings|Additional Outputs", meta=(PCG_Overridable, EditCondition="OutputMode != EPCGExStagingOutputMode::CollectionMap"))
 	bool bOutputMaterialPicks = false;
-
+	
 	//** If > 0 will create dummy attributes for missing material indices up to a maximum; in order to create a full, fixed-length list of valid (yet null) attributes for the static mesh spawner material overrides. Otherwise, will only create attribute for valid indices. */
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = "Settings|Additional Outputs", meta=(PCG_Overridable, DisplayName=" ├─ Fixed Max Index", EditCondition="bOutputMaterialPicks && OutputMode != EPCGExStagingOutputMode::CollectionMap", ClampMin="0"))
 	int32 MaxMaterialPicks = 0;
@@ -106,6 +131,14 @@ public:
 	/** Prefix to be used for material slot picks.*/
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = "Settings|Additional Outputs", meta=(PCG_Overridable, DisplayName=" └─ Prefix", EditCondition="bOutputMaterialPicks && OutputMode != EPCGExStagingOutputMode::CollectionMap"))
 	FName MaterialAttributePrefix = "Mat";
+
+	/** */
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = "Settings|Additional Outputs", meta=(PCG_Overridable, InlineEditConditionToggle))
+	bool bDoOutputSockets = false;
+
+	/** */
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = "Settings|Additional Outputs", meta=(PCG_NotOverridable, DisplayName="Output Sockets", EditCondition="bDoOutputSockets"))
+	FPCGExSocketOutputDetails OutputSocketDetails;
 
 	/** */
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = "Warnings and Errors")
@@ -122,6 +155,12 @@ struct FPCGExAssetStagingContext final : FPCGExPointsProcessorContext
 	bool bPickMaterials = false;
 
 	TSharedPtr<PCGExStaging::FPickPacker> CollectionPickDatasetPacker;
+
+	FPCGExSocketOutputDetails OutputSocketDetails;
+	TSharedPtr<PCGExData::FPointIOCollection> SocketsCollection;
+
+protected:
+	PCGEX_ELEMENT_BATCH_POINT_DECL
 };
 
 class FPCGExAssetStagingElement final : public FPCGExPointsProcessorElement
@@ -155,7 +194,9 @@ namespace PCGExAssetStaging
 		FPCGExFittingDetailsHandler FittingHandler;
 		FPCGExFittingVariationsDetails Variations;
 
-		TUniquePtr<PCGExAssetCollection::TDistributionHelper<UPCGExAssetCollection, FPCGExAssetCollectionEntry>> Helper;
+		TSharedPtr<PCGExStaging::TDistributionHelper<UPCGExAssetCollection, FPCGExAssetCollectionEntry>> Helper;
+		TSharedPtr<PCGExStaging::TMicroDistributionHelper<PCGExMeshCollection::FMicroCache>> MicroHelper;
+		TSharedPtr<PCGExStaging::FSocketHelper> SocketHelper;
 
 		TSharedPtr<PCGExData::TBuffer<int32>> WeightWriter;
 		TSharedPtr<PCGExData::TBuffer<double>> NormalizedWeightWriter;
@@ -186,9 +227,7 @@ namespace PCGExAssetStaging
 		virtual void ProcessPoints(const PCGExMT::FScope& Scope) override;
 
 		virtual void CompleteWork() override;
-
 		virtual void ProcessRange(const PCGExMT::FScope& Scope) override;
-
 		virtual void OnRangeProcessingComplete() override;
 
 		virtual void Write() override;

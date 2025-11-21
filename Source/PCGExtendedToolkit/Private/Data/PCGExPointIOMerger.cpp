@@ -5,7 +5,8 @@
 #include "Data/PCGExPointIOMerger.h"
 
 #include "Data/PCGExDataFilter.h"
-#include "Paths/PCGExShiftPath.h"
+#include "Data/PCGExDataTag.h"
+#include "Paths/PCGExPathShift.h"
 
 
 PCGExPointIOMerger::FIdentityRef::FIdentityRef()

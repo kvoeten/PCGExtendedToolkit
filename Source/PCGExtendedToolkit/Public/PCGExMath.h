@@ -7,55 +7,53 @@
 #include "CoreMinimal.h"
 #include "UObject/Object.h"
 #include "PCGEx.h"
+#include "Details/PCGExDetailsAxis.h"
 #include "PCGExMath.generated.h"
 
-#define MIN_dbl_neg MAX_dbl *-1
+namespace PCGExData
+{
+	struct FProxyPoint;
+	class FFacade;
+	struct FConstPoint;
+
+	template <typename T>
+	class TBuffer;
+}
 
 UENUM()
-enum class EPCGExMeanMeasure : uint8
+enum class EPCGExIndexSafety : uint8
 {
-	Relative = 0 UMETA(DisplayName = "Relative", ToolTip="Input value will be normalized between 0..1, or used as a factor. (what it means exactly depends on context. See node-specific documentation.)"),
-	Discrete = 1 UMETA(DisplayName = "Discrete", ToolTip="Raw value will be used, or used as absolute. (what it means exactly depends on context. See node-specific documentation.)"),
+	Ignore = 0 UMETA(DisplayName = "Ignore", Tooltip="Out of bounds indices are ignored.(0,1,2,-1,-1,-1,...)"),
+	Tile   = 1 UMETA(DisplayName = "Tile", Tooltip="Out of bounds indices are tiled. (0,1,2,0,1,2...)"),
+	Clamp  = 2 UMETA(DisplayName = "Clamp", Tooltip="Out of bounds indices are clamped. (0,1,2,2,2,2...)"),
+	Yoyo   = 3 UMETA(DisplayName = "Yoyo", Tooltip="Out of bounds indices are mirrored and back. (0,1,2,1,0,1...)"),
 };
 
 UENUM()
-enum class EPCGExMeanMethod : uint8
+enum class EPCGExTruncateMode : uint8
 {
-	Average = 0 UMETA(DisplayName = "Average", ToolTip="Average"),
-	Median  = 1 UMETA(DisplayName = "Median", ToolTip="Median"),
-	ModeMin = 2 UMETA(DisplayName = "Mode (Highest)", ToolTip="Mode length (~= highest most common value)"),
-	ModeMax = 3 UMETA(DisplayName = "Mode (Lowest)", ToolTip="Mode length (~= lowest most common value)"),
-	Central = 4 UMETA(DisplayName = "Central", ToolTip="Central uses the middle value between Min/Max input values."),
-	Fixed   = 5 UMETA(DisplayName = "Fixed", ToolTip="Fixed threshold"),
+	None  = 0 UMETA(DisplayName = "None", ToolTip="None", ActionIcon="Unchanged"),
+	Round = 1 UMETA(DisplayName = "Round", ToolTip="Round", ActionIcon="Round"),
+	Ceil  = 2 UMETA(DisplayName = "Ceil", ToolTip="Ceil", ActionIcon="Ceil"),
+	Floor = 3 UMETA(DisplayName = "Floor", ToolTip="Floor", ActionIcon="Floor"),
 };
 
-UENUM()
-enum class EPCGExPointBoundsSource : uint8
+UENUM(meta=(Bitflags, UseEnumValuesAsMaskValuesInEditor="true"))
+enum class EPCGExIntersectionStrictness : uint8
 {
-	ScaledBounds  = 0 UMETA(DisplayName = "Scaled Bounds", ToolTip="Scaled Bounds"),
-	DensityBounds = 1 UMETA(DisplayName = "Density Bounds", ToolTip="Density Bounds (scaled + steepness)"),
-	Bounds        = 2 UMETA(DisplayName = "Bounds", ToolTip="Unscaled Bounds (why?)"),
-	Center        = 3 UMETA(DisplayName = "Center", ToolTip="A tiny size 1 box.")
+	Loose  = 0 UMETA(DisplayName = "Loose", ToolTip="Consider intersections only through segment/segment distance."),
+	MainA  = 1 << 0 UMETA(DisplayName = "Strict on Main A", ToolTip="Intersections located on main segment' start point are considered invalid."),
+	MainB  = 1 << 1 UMETA(DisplayName = "Strict on Main B", ToolTip="Intersections located on main segment' end point are considered invalid."),
+	OtherA = 1 << 2 UMETA(DisplayName = "Strict on Other A", ToolTip="Intersections located on end segment' start point are considered invalid."),
+	OtherB = 1 << 3 UMETA(DisplayName = "Strict on Other B", ToolTip="Intersections located on end segment' end point are considered invalid."),
+	Strict = MainA | MainB | OtherA | OtherB
 };
+
+ENUM_CLASS_FLAGS(EPCGExIntersectionStrictness)
+using EPCGExIntersectionStrictnessBitmask = TEnumAsByte<EPCGExIntersectionStrictness>;
 
 namespace PCGExMath
 {
-	enum class EIntersectionTestMode : uint8
-	{
-		Loose = 0,
-		Strict,
-		StrictOnSelfA,
-		StrictOnSelfB,
-		StrictOnOtherA,
-		StrictOnOtherB,
-		LooseOnSelf,
-		LooseOnSelfA,
-		LooseOnSelfB,
-		LooseOnOther,
-		LooseOnOtherA,
-		LooseOnOtherB,
-	};
-
 	struct PCGEXTENDEDTOOLKIT_API FClosestPosition
 	{
 		bool bValid = false;
@@ -96,12 +94,36 @@ namespace PCGExMath
 		double Dot(const FSegment& InSegment) const { return FVector::DotProduct(Direction, InSegment.Direction); }
 		FVector Lerp(const double InLerp) const { return FMath::Lerp(A, B, InLerp); }
 
-		bool FindIntersection(const FVector& A2, const FVector& B2, double SquaredTolerance, FVector& OutSelf, FVector& OutOther, const EIntersectionTestMode Mode = EIntersectionTestMode::Strict) const;
-		bool FindIntersection(const FSegment& S, double SquaredTolerance, FVector& OutSelf, FVector& OutOther, const EIntersectionTestMode Mode = EIntersectionTestMode::Strict) const;
+		bool FindIntersection(const FVector& A2, const FVector& B2, const double SquaredTolerance, FVector& OutSelf, FVector& OutOther, const uint8 Strictness) const;
+		bool FindIntersection(const FSegment& S, const double SquaredTolerance, FVector& OutSelf, FVector& OutOther, const uint8 Strictness) const;
 	};
 
+	PCGEXTENDEDTOOLKIT_API
+	double TruncateDbl(const double Value, const EPCGExTruncateMode Mode);
 
 #pragma region basics
+
+	FORCEINLINE static double FastRand01(uint32& Seed)
+	{
+		Seed = Seed * 1664525u + 1013904223u;
+		return (Seed & 0x00FFFFFF) / static_cast<double>(0x01000000);
+	}
+
+	FORCEINLINE static FVector RandomPointInSphere(const FVector& Center, const double Radius, uint32& Seed)
+	{
+		for (int i = 0; i < 10; ++i)
+		{
+			const float x = (FastRand01(Seed) * 2.0f - 1.0f);
+			const float y = (FastRand01(Seed) * 2.0f - 1.0f);
+			const float z = (FastRand01(Seed) * 2.0f - 1.0f);
+
+			FVector V(x, y, z);
+
+			if (V.SizeSquared() <= 1.0f) { return Center + V * Radius; }
+		}
+
+		return Center;
+	}
 
 	FORCEINLINE static double DegreesToDot(const double AngleInDegrees)
 	{
@@ -279,39 +301,6 @@ namespace PCGExMath
 		for (int i = 0; i < Values.Num(); i++) { Values[i] = Remap(Values[i], Min, Max, 0, 1) * Range; }
 	}
 
-	template <typename T>
-	FORCEINLINE static T GetAverage(const TArray<T>& Values)
-	{
-		T Sum = 0;
-		for (const T Value : Values) { Sum += Value; }
-		return Div(Sum, Values.Num());
-	}
-
-	template <typename T>
-	FORCEINLINE static T GetMedian(const TArray<T>& Values)
-	{
-		TArray<T> SortedValues;
-		SortedValues.Reserve(Values.Num());
-		SortedValues.Append(Values);
-		SortedValues.Sort();
-
-		T Median = T{};
-
-		if (SortedValues.IsEmpty()) { Median = 0; }
-		else if (SortedValues.Num() == 1) { Median = SortedValues[0]; }
-		else
-		{
-			int32 MiddleIndex = FMath::Floor(SortedValues.Num() / 2);
-			if (SortedValues.Num() % 2 == 0) { Median = (SortedValues[MiddleIndex] + SortedValues[MiddleIndex + 1]) / 2; }
-			else { Median = SortedValues[MiddleIndex]; }
-		}
-
-		return Median;
-	}
-
-	PCGEXTENDEDTOOLKIT_API
-	double GetMode(const TArray<double>& Values, const bool bHighest, const uint32 Tolerance = 5);
-
 	PCGEXTENDEDTOOLKIT_API
 	FVector SafeLinePlaneIntersection(
 		const FVector& Pt1, const FVector& Pt2,
@@ -329,6 +318,11 @@ namespace PCGExMath
 
 #pragma region Rounding
 
+	FORCEINLINE static void Snap(double& Value, const double Step)
+	{
+		Value = !FMath::IsNearlyZero(Step) ? FMath::RoundToDouble(Value / Step) * Step : Value;
+	}
+	
 	FORCEINLINE static double Round10(const float A)
 	{
 		return FMath::RoundToFloat(A * 10.0f) / 10.0f;
@@ -445,6 +439,9 @@ namespace PCGExMath
 
 	PCGEXTENDEDTOOLKIT_API
 	void Swizzle(FVector& Vector, const EPCGExAxisOrder Order);
+
+	PCGEXTENDEDTOOLKIT_API
+	void Swizzle(FVector& Vector, const int32 (&Order)[3]);
 
 	PCGEXTENDEDTOOLKIT_API
 	FQuat MakeDirection(const EPCGExAxis Dir, const FVector& InForward);

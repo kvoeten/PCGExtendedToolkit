@@ -3,6 +3,7 @@
 
 #include "AssetStaging/PCGExAssetCollectionToSet.h"
 
+
 #include "PCGGraph.h"
 #include "PCGPin.h"
 #include "Collections/PCGExActorCollection.h"
@@ -31,7 +32,7 @@ TArray<FPCGPinProperties> UPCGExAssetCollectionToSetSettings::InputPinProperties
 TArray<FPCGPinProperties> UPCGExAssetCollectionToSetSettings::OutputPinProperties() const
 {
 	TArray<FPCGPinProperties> PinProperties;
-	PCGEX_PIN_PARAM(FName("AttributeSet"), TEXT("Attribute set generated from collection"), Required, {})
+	PCGEX_PIN_PARAM(FName("AttributeSet"), TEXT("Attribute set generated from collection"), Required)
 	return PinProperties;
 }
 
@@ -48,6 +49,12 @@ MACRO(Extents, FVector, FVector::OneVector, E->Staging.Bounds.GetExtent())\
 MACRO(BoundsMin, FVector, FVector::OneVector, E->Staging.Bounds.Min)\
 MACRO(BoundsMax, FVector, FVector::OneVector, E->Staging.Bounds.Max)\
 MACRO(NestingDepth, int32, -1, -1)
+
+bool FPCGExAssetCollectionToSetElement::IsCacheable(const UPCGSettings* InSettings) const
+{
+	const UPCGExAssetCollectionToSetSettings* Settings = static_cast<const UPCGExAssetCollectionToSetSettings*>(InSettings);
+	PCGEX_GET_OPTION_STATE(Settings->CacheData, bDefaultCacheNodeOutput)
+}
 
 bool FPCGExAssetCollectionToSetElement::ExecuteInternal(FPCGContext* Context) const
 {
@@ -71,6 +78,8 @@ bool FPCGExAssetCollectionToSetElement::ExecuteInternal(FPCGContext* Context) co
 		PCGE_LOG(Error, GraphAndLog, FTEXT("Asset collection failed to load."));
 		return OutputToPin();
 	}
+
+	MainCollection->EDITOR_RegisterTrackingKeys(static_cast<FPCGExContext*>(Context));
 
 #define PCGEX_DECLARE_ATT(_NAME, _TYPE, _DEFAULT, _VALUE) bool bOutput##_NAME = Settings->bWrite##_NAME;
 	PCGEX_FOREACH_COL_FIELD(PCGEX_DECLARE_ATT);

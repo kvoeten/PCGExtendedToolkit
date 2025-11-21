@@ -4,20 +4,23 @@
 #include "Transform/PCGExFitting.h"
 
 #include "Data/PCGExData.h"
-#include "PCGExDataMath.h"
-#include "PCGExRandom.h"
+#include "PCGExMathBounds.h"
+#include "AssetStaging/PCGExStaging.h"
+#include "Data/PCGExPointIO.h"
+#include "Helpers/PCGHelpers.h"
 
-void FPCGExScaleToFitDetails::Process(const PCGExData::FConstPoint& InPoint, const FBox& InBounds, FVector& OutScale, FBox& OutBounds) const
+void FPCGExScaleToFitDetails::Process(const PCGExData::FPoint& InPoint, const FBox& InBounds, FVector& OutScale, FBox& OutBounds) const
 {
 	if (ScaleToFitMode == EPCGExFitMode::None) { return; }
 
-	const FVector PtSize = InPoint.GetLocalBounds().GetSize();
-	const FVector ScaledPtSize = InPoint.GetLocalBounds().GetSize() * InPoint.GetTransform().GetScale3D();
-	const FVector StSize = InBounds.GetSize();
+	const FVector TargetSize = InPoint.GetLocalBounds().GetSize();
+	const FVector TargetScale = InPoint.GetTransform().GetScale3D();
+	const FVector TargetSizeScaled = TargetSize * TargetScale;
+	const FVector CandidateSize = InBounds.GetSize();
 
-	const double XFactor = ScaledPtSize.X / StSize.X;
-	const double YFactor = ScaledPtSize.Y / StSize.Y;
-	const double ZFactor = ScaledPtSize.Z / StSize.Z;
+	const double XFactor = TargetSizeScaled.X / CandidateSize.X;
+	const double YFactor = TargetSizeScaled.Y / CandidateSize.Y;
+	const double ZFactor = TargetSizeScaled.Z / CandidateSize.Z;
 
 	const FVector FitMinMax = FVector(
 		FMath::Min3(XFactor, YFactor, ZFactor),
@@ -27,25 +30,28 @@ void FPCGExScaleToFitDetails::Process(const PCGExData::FConstPoint& InPoint, con
 	OutBounds.Min = InBounds.Min;
 	OutBounds.Max = InBounds.Max;
 
-	const FVector InScale = InPoint.GetTransform().GetScale3D();
 
 	if (ScaleToFitMode == EPCGExFitMode::Uniform)
 	{
-		ScaleToFitAxis(ScaleToFit, 0, InScale, PtSize, StSize, FitMinMax, OutScale);
-		ScaleToFitAxis(ScaleToFit, 1, InScale, PtSize, StSize, FitMinMax, OutScale);
-		ScaleToFitAxis(ScaleToFit, 2, InScale, PtSize, StSize, FitMinMax, OutScale);
+		ScaleToFitAxis(ScaleToFit, 0, TargetScale, TargetSize, CandidateSize, FitMinMax, OutScale);
+		ScaleToFitAxis(ScaleToFit, 1, TargetScale, TargetSize, CandidateSize, FitMinMax, OutScale);
+		ScaleToFitAxis(ScaleToFit, 2, TargetScale, TargetSize, CandidateSize, FitMinMax, OutScale);
 	}
 	else
 	{
-		ScaleToFitAxis(ScaleToFitX, 0, InScale, PtSize, StSize, FitMinMax, OutScale);
-		ScaleToFitAxis(ScaleToFitY, 1, InScale, PtSize, StSize, FitMinMax, OutScale);
-		ScaleToFitAxis(ScaleToFitZ, 2, InScale, PtSize, StSize, FitMinMax, OutScale);
+		ScaleToFitAxis(ScaleToFitX, 0, TargetScale, TargetSize, CandidateSize, FitMinMax, OutScale);
+		ScaleToFitAxis(ScaleToFitY, 1, TargetScale, TargetSize, CandidateSize, FitMinMax, OutScale);
+		ScaleToFitAxis(ScaleToFitZ, 2, TargetScale, TargetSize, CandidateSize, FitMinMax, OutScale);
 	}
 }
 
-void FPCGExScaleToFitDetails::ScaleToFitAxis(const EPCGExScaleToFit Fit, const int32 Axis, const FVector& InScale, const FVector& InPtSize, const FVector& InStSize, const FVector& MinMaxFit, FVector& OutScale)
+void FPCGExScaleToFitDetails::ScaleToFitAxis(
+	const EPCGExScaleToFit Fit, const int32 Axis,
+	const FVector& TargetScale, const FVector& TargetSize,
+	const FVector& CandidateSize, const FVector& MinMaxFit,
+	FVector& OutScale)
 {
-	const double Scale = InScale[Axis];
+	const double Scale = TargetScale[Axis];
 	double FinalScale = Scale;
 
 	switch (Fit)
@@ -54,7 +60,7 @@ void FPCGExScaleToFitDetails::ScaleToFitAxis(const EPCGExScaleToFit Fit, const i
 	case EPCGExScaleToFit::None:
 		break;
 	case EPCGExScaleToFit::Fill:
-		FinalScale = ((InPtSize[Axis] * Scale) / InStSize[Axis]);
+		FinalScale = ((TargetSize[Axis] * Scale) / CandidateSize[Axis]);
 		break;
 	case EPCGExScaleToFit::Min:
 		FinalScale = MinMaxFit[0];
@@ -273,6 +279,110 @@ bool FPCGExJustificationDetails::Init(FPCGExContext* InContext, const TSharedRef
 	return true;
 }
 
+void FPCGExFittingVariations::ApplyOffset(const FRandomStream& RandomStream, FTransform& OutTransform) const
+{
+	const FVector BaseLocation = OutTransform.GetLocation();
+	const FQuat BaseRotation = OutTransform.GetRotation();
+
+	FVector RandomOffset = FVector(
+		RandomStream.FRandRange(OffsetMin.X, OffsetMax.X),
+		RandomStream.FRandRange(OffsetMin.Y, OffsetMax.Y),
+		RandomStream.FRandRange(OffsetMin.Z, OffsetMax.Z));
+
+	if (SnapPosition == EPCGExVariationSnapping::SnapOffset)
+	{
+		PCGExMath::Snap(RandomOffset.X, OffsetSnap.X);
+		PCGExMath::Snap(RandomOffset.Y, OffsetSnap.Y);
+		PCGExMath::Snap(RandomOffset.Z, OffsetSnap.Z);
+	}
+
+	FVector OutLocation = bAbsoluteOffset ? BaseLocation + RandomOffset : BaseLocation + BaseRotation.RotateVector(RandomOffset);
+
+	if (SnapPosition == EPCGExVariationSnapping::SnapResult)
+	{
+		PCGExMath::Snap(OutLocation.X, OffsetSnap.X);
+		PCGExMath::Snap(OutLocation.Y, OffsetSnap.Y);
+		PCGExMath::Snap(OutLocation.Z, OffsetSnap.Z);
+	}
+
+	OutTransform.SetLocation(OutLocation);
+}
+
+void FPCGExFittingVariations::ApplyRotation(const FRandomStream& RandomStream, FTransform& OutTransform) const
+{
+	const FQuat BaseRotation = OutTransform.GetRotation();
+
+	FRotator RandRot = FRotator(
+		RandomStream.FRandRange(RotationMin.Pitch, RotationMax.Pitch),
+		RandomStream.FRandRange(RotationMin.Yaw, RotationMax.Yaw),
+		RandomStream.FRandRange(RotationMin.Roll, RotationMax.Roll));
+
+	if (SnapRotation == EPCGExVariationSnapping::SnapOffset)
+	{
+		PCGExMath::Snap(RandRot.Roll, RotationSnap.Roll);
+		PCGExMath::Snap(RandRot.Pitch, RotationSnap.Pitch);
+		PCGExMath::Snap(RandRot.Yaw, RotationSnap.Yaw);
+	}
+
+	FRotator OutRotation = BaseRotation.Rotator();
+
+	if (AbsoluteRotation & static_cast<uint8>(EPCGExAbsoluteRotationFlags::X)) { OutRotation.Roll = RandRot.Roll; }
+	else { OutRotation.Roll += RandRot.Roll; }
+	
+	if (AbsoluteRotation & static_cast<uint8>(EPCGExAbsoluteRotationFlags::Y)) { OutRotation.Pitch = RandRot.Pitch; }
+	else { OutRotation.Pitch += RandRot.Pitch; }
+
+	if (AbsoluteRotation & static_cast<uint8>(EPCGExAbsoluteRotationFlags::Z)) { OutRotation.Yaw = RandRot.Yaw; }
+	else { OutRotation.Yaw += RandRot.Yaw; }
+
+	if (SnapRotation == EPCGExVariationSnapping::SnapResult)
+	{
+		PCGExMath::Snap(OutRotation.Roll, RotationSnap.Roll);
+		PCGExMath::Snap(OutRotation.Pitch, RotationSnap.Pitch);
+		PCGExMath::Snap(OutRotation.Yaw, RotationSnap.Yaw);
+	}
+
+	OutTransform.SetRotation(OutRotation.Quaternion());
+}
+
+void FPCGExFittingVariations::ApplyScale(const FRandomStream& RandomStream, FTransform& OutTransform) const
+{
+	FVector OutScale = OutTransform.GetScale3D();
+	FVector RandomScale;
+	if (bUniformScale)
+	{
+		const double S = RandomStream.FRandRange(ScaleMin.X, ScaleMax.X);
+		RandomScale = FVector(S);
+	}
+	else
+	{
+		RandomScale = FVector(
+			RandomStream.FRandRange(ScaleMin.X, ScaleMax.X),
+			RandomStream.FRandRange(ScaleMin.Y, ScaleMax.Y),
+			RandomStream.FRandRange(ScaleMin.Z, ScaleMax.Z));
+	}
+
+	if (SnapScale == EPCGExVariationSnapping::SnapOffset)
+	{
+		const FVector Snap = bUniformScale ? FVector(ScaleSnap.X) : OffsetSnap;
+		PCGExMath::Snap(RandomScale.X, Snap.X);
+		PCGExMath::Snap(RandomScale.Y, Snap.Y);
+		PCGExMath::Snap(RandomScale.Z, Snap.Z);
+	}
+
+	OutScale *= RandomScale;
+
+	if (SnapScale == EPCGExVariationSnapping::SnapResult)
+	{
+		const FVector Snap = bUniformScale ? FVector(ScaleSnap.X) : OffsetSnap;
+		PCGExMath::Snap(OutScale.X, Snap.X);
+		PCGExMath::Snap(OutScale.Y, Snap.Y);
+		PCGExMath::Snap(OutScale.Z, Snap.Z);
+	}
+
+	OutTransform.SetScale3D(OutScale);
+}
+
 void FPCGExFittingVariationsDetails::Init(const int InSeed)
 {
 	Seed = InSeed;
@@ -280,58 +390,11 @@ void FPCGExFittingVariationsDetails::Init(const int InSeed)
 	bEnabledAfter = (Offset == EPCGExVariationMode::After || Rotation == EPCGExVariationMode::After || Scale == EPCGExVariationMode::After);
 }
 
-void FPCGExFittingVariationsDetails::Apply(const int32 BaseSeed, PCGExData::FProxyPoint& InPoint, const FPCGExFittingVariations& Variations, const EPCGExVariationMode& Step) const
+void FPCGExFittingVariationsDetails::Apply(const FRandomStream& RandomStream, FTransform& OutTransform, const FPCGExFittingVariations& Variations, const EPCGExVariationMode& Step) const
 {
-	FRandomStream RandomSource(PCGExRandom::ComputeSeed(Seed, BaseSeed));
-
-	const FTransform SourceTransform = InPoint.Transform;
-	FTransform FinalTransform = SourceTransform;
-
-	if (Offset == Step)
-	{
-		const FVector RandomOffset = FVector(
-			RandomSource.FRandRange(Variations.OffsetMin.X, Variations.OffsetMax.X),
-			RandomSource.FRandRange(Variations.OffsetMin.Y, Variations.OffsetMax.Y),
-			RandomSource.FRandRange(Variations.OffsetMin.Z, Variations.OffsetMax.Z));
-
-		if (Variations.bAbsoluteOffset)
-		{
-			FinalTransform.SetLocation(SourceTransform.GetLocation() + RandomOffset);
-		}
-		else
-		{
-			const FTransform RotatedTransform(SourceTransform.GetRotation());
-			FinalTransform.SetLocation(SourceTransform.GetLocation() + RotatedTransform.TransformPosition(RandomOffset));
-		}
-	}
-
-	if (Rotation == Step)
-	{
-		FinalTransform.SetRotation(
-			SourceTransform.GetRotation() *
-			FRotator(
-				RandomSource.FRandRange(Variations.RotationMin.Pitch, Variations.RotationMax.Pitch),
-				RandomSource.FRandRange(Variations.RotationMin.Yaw, Variations.RotationMax.Yaw),
-				RandomSource.FRandRange(Variations.RotationMin.Roll, Variations.RotationMax.Roll)).Quaternion());
-	}
-
-	if (Scale == Step)
-	{
-		if (Variations.bUniformScale)
-		{
-			FinalTransform.SetScale3D(SourceTransform.GetScale3D() * FVector(RandomSource.FRandRange(Variations.ScaleMin.X, Variations.ScaleMax.X)));
-		}
-		else
-		{
-			FinalTransform.SetScale3D(
-				SourceTransform.GetScale3D() * FVector(
-					RandomSource.FRandRange(Variations.ScaleMin.X, Variations.ScaleMax.X),
-					RandomSource.FRandRange(Variations.ScaleMin.Y, Variations.ScaleMax.Y),
-					RandomSource.FRandRange(Variations.ScaleMin.Z, Variations.ScaleMax.Z)));
-		}
-	}
-
-	InPoint.Transform = FinalTransform;
+	if (Offset == Step) { Variations.ApplyOffset(RandomStream, OutTransform); }
+	if (Rotation == Step) { Variations.ApplyRotation(RandomStream, OutTransform); }
+	if (Scale == Step) { Variations.ApplyScale(RandomStream, OutTransform); }
 }
 
 bool FPCGExFittingDetailsHandler::Init(FPCGExContext* InContext, const TSharedRef<PCGExData::FFacade>& InTargetFacade)
@@ -350,21 +413,36 @@ void FPCGExFittingDetailsHandler::ComputeTransform(const int32 TargetIndex, FTra
 	if (bWorldSpace) { OutTransform = InTransform; }
 
 	FVector OutScale = InTransform.GetScale3D();
-	const FBox RefBounds = PCGExMath::GetLocalBounds<EPCGExPointBoundsSource::ScaledBounds>(TargetPoint);
-	const FBox& OriginalInBounds = InOutBounds;
-
-	ScaleToFit.Process(TargetPoint, OriginalInBounds, OutScale, InOutBounds);
-
-	//
-
 	FVector OutTranslation = FVector::ZeroVector;
+
+	ScaleToFit.Process(TargetPoint, InOutBounds, OutScale, InOutBounds);
 	Justification.Process(
-		TargetIndex, RefBounds,
+		TargetIndex, PCGExMath::GetLocalBounds<EPCGExPointBoundsSource::ScaledBounds>(TargetPoint),
 		FBox(InOutBounds.Min * OutScale, InOutBounds.Max * OutScale),
 		OutTranslation);
 
 	OutTransform.AddToTranslation(InTransform.GetRotation().RotateVector(OutTranslation));
 	OutTransform.SetScale3D(OutScale);
+}
+
+void FPCGExFittingDetailsHandler::ComputeLocalTransform(const int32 TargetIndex, const FTransform& InLocalXForm, FTransform& OutTransform, FBox& InOutBounds) const
+{
+	check(TargetDataFacade);
+	const PCGExData::FConstPoint& TargetPoint = TargetDataFacade->Source->GetInPoint(TargetIndex);
+
+	FVector OutScale = OutTransform.GetScale3D();
+	FVector OutTranslation = FVector::ZeroVector;
+
+	ScaleToFit.Process(TargetPoint, InOutBounds.TransformBy(InLocalXForm), OutScale, InOutBounds);
+	Justification.Process(
+		TargetIndex, PCGExMath::GetLocalBounds<EPCGExPointBoundsSource::ScaledBounds>(TargetPoint),
+		FBox(InOutBounds.Min * OutScale, InOutBounds.Max * OutScale),
+		OutTranslation);
+
+	//OutTransform = OutTransform * InLocalXForm.Inverse(); 
+	OutTransform.SetScale3D(OutScale);
+	OutTransform.AddToTranslation(OutTranslation);
+	OutTransform.SetRotation(InLocalXForm.GetRotation() * OutTransform.GetRotation());
 }
 
 bool FPCGExFittingDetailsHandler::WillChangeBounds() const

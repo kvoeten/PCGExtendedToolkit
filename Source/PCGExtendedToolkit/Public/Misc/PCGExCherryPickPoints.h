@@ -30,7 +30,7 @@ public:
 	//~Begin UPCGSettings
 #if WITH_EDITOR
 	PCGEX_NODE_INFOS(CherryPickPoints, "Cherry Pick Points", "Filter points by indices, either read from local attributes or using external sources.");
-	virtual FLinearColor GetNodeTitleColor() const override { return GetDefault<UPCGExGlobalSettings>()->NodeColorMiscRemove; }
+	virtual FLinearColor GetNodeTitleColor() const override { return GetDefault<UPCGExGlobalSettings>()->ColorMiscRemove; }
 #endif
 
 	/** Whether to invert the picking (picked indices will be discarded instead or kept) */
@@ -56,6 +56,9 @@ struct FPCGExCherryPickPointsContext final : FPCGExPointsProcessorContext
 {
 	friend class FPCGExCherryPickPointsElement;
 	TArray<TObjectPtr<const UPCGExPickerFactoryData>> PickerFactories;
+
+protected:
+	PCGEX_ELEMENT_BATCH_POINT_DECL
 };
 
 class FPCGExCherryPickPointsElement final : public FPCGExPointsProcessorElement

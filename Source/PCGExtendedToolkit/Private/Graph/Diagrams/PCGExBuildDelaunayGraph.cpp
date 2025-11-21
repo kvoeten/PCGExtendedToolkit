@@ -4,10 +4,13 @@
 #include "Graph/Diagrams/PCGExBuildDelaunayGraph.h"
 
 
+#include "Data/PCGExData.h"
+#include "Data/PCGExPointIO.h"
 #include "Elements/Metadata/PCGMetadataElementCommon.h"
 #include "Geometry/PCGExGeoDelaunay.h"
 #include "Graph/PCGExCluster.h"
 #include "Graph/Data/PCGExClusterData.h"
+#include "Paths/PCGExPaths.h"
 
 #define LOCTEXT_NAMESPACE "PCGExGraph"
 #define PCGEX_NAMESPACE BuildDelaunayGraph
@@ -15,12 +18,13 @@
 TArray<FPCGPinProperties> UPCGExBuildDelaunayGraphSettings::OutputPinProperties() const
 {
 	TArray<FPCGPinProperties> PinProperties = Super::OutputPinProperties();
-	PCGEX_PIN_POINTS(PCGExGraph::OutputEdgesLabel, "Point data representing edges.", Required, {})
-	if (bOutputSites) { PCGEX_PIN_POINTS(PCGExGraph::OutputSitesLabel, "Complete delaunay sites.", Required, {}) }
+	PCGEX_PIN_POINTS(PCGExGraph::OutputEdgesLabel, "Point data representing edges.", Required)
+	if (bOutputSites) { PCGEX_PIN_POINTS(PCGExGraph::OutputSitesLabel, "Complete delaunay sites.", Required) }
 	return PinProperties;
 }
 
 PCGEX_INITIALIZE_ELEMENT(BuildDelaunayGraph)
+PCGEX_ELEMENT_BATCH_POINT_IMPL(BuildDelaunayGraph)
 
 bool FPCGExBuildDelaunayGraphElement::Boot(FPCGExContext* InContext) const
 {
@@ -51,7 +55,7 @@ bool FPCGExBuildDelaunayGraphElement::ExecuteInternal(
 	{
 		PCGEX_ON_INVALILD_INPUTS(FTEXT("Some inputs have less than 4 points and won't be processed."))
 
-		if (!Context->StartBatchProcessingPoints<PCGExPointsMT::TBatch<PCGExBuildDelaunay::FProcessor>>(
+		if (!Context->StartBatchProcessingPoints(
 			[&](const TSharedPtr<PCGExData::FPointIO>& Entry)
 			{
 				if (Entry->GetNum() < 4)
@@ -61,7 +65,7 @@ bool FPCGExBuildDelaunayGraphElement::ExecuteInternal(
 				}
 				return true;
 			},
-			[&](const TSharedPtr<PCGExPointsMT::TBatch<PCGExBuildDelaunay::FProcessor>>& NewBatch)
+			[&](const TSharedPtr<PCGExPointsMT::IBatch>& NewBatch)
 			{
 				NewBatch->bRequiresWriteStep = true;
 			}))
@@ -83,11 +87,11 @@ bool FPCGExBuildDelaunayGraphElement::ExecuteInternal(
 	return Context->TryComplete();
 }
 
-namespace PCGExBuildDelaunay
+namespace PCGExBuildDelaunayGraph
 {
 	bool FProcessor::Process(const TSharedPtr<PCGExMT::FTaskManager>& InAsyncManager)
 	{
-		TRACE_CPUPROFILER_EVENT_SCOPE(PCGExBuildDelaunay::Process);
+		TRACE_CPUPROFILER_EVENT_SCOPE(PCGExBuildDelaunayGraph::Process);
 
 		if (!IProcessor::Process(InAsyncManager)) { return false; }
 
@@ -104,7 +108,10 @@ namespace PCGExBuildDelaunay
 
 		if (!bProcessed)
 		{
-			PCGE_LOG_C(Warning, GraphAndLog, ExecutionContext, FTEXT("Some inputs generated invalid results. Are points coplanar? If so, use Delaunay 2D instead."));
+			if (!Context->bQuietInvalidInputWarning)
+			{
+				PCGE_LOG_C(Warning, GraphAndLog, ExecutionContext, FTEXT("Some inputs generated invalid results. Are points coplanar? If so, use Delaunay 2D instead."));
+			}
 			return false;
 		}
 

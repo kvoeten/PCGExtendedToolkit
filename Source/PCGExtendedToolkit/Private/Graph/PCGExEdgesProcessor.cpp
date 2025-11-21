@@ -2,7 +2,13 @@
 // Released under the MIT license https://opensource.org/license/MIT/
 
 #include "Graph/PCGExEdgesProcessor.h"
+
+
+#include "Data/PCGExData.h"
+#include "Data/PCGExPointFilter.h"
+#include "Data/PCGExPointIO.h"
 #include "Graph/PCGExClusterMT.h"
+#include "Graph/Pathfinding/Heuristics/PCGExHeuristicsFactoryProvider.h"
 
 #define LOCTEXT_NAMESPACE "PCGExGraphSettings"
 
@@ -40,22 +46,22 @@ TArray<FPCGPinProperties> UPCGExEdgesProcessorSettings::InputPinProperties() con
 
 	if (!IsInputless())
 	{
-		if (GetMainAcceptMultipleData()) { PCGEX_PIN_POINTS(GetMainInputPin(), "The point data to be processed.", Required, {}) }
-		else { PCGEX_PIN_POINT(GetMainInputPin(), "The point data to be processed.", Required, {}) }
+		if (GetMainAcceptMultipleData()) { PCGEX_PIN_POINTS(GetMainInputPin(), "The point data to be processed.", Required) }
+		else { PCGEX_PIN_POINT(GetMainInputPin(), "The point data to be processed.", Required) }
 	}
 
-	PCGEX_PIN_POINTS(PCGExGraph::SourceEdgesLabel, "Edges associated with the main input points", Required, {})
+	PCGEX_PIN_POINTS(PCGExGraph::SourceEdgesLabel, "Edges associated with the main input points", Required)
 
 	if (SupportsPointFilters())
 	{
-		if (RequiresPointFilters()) { PCGEX_PIN_FACTORIES(GetPointFilterPin(), GetPointFilterTooltip(), Required, {}) }
-		else { PCGEX_PIN_FACTORIES(GetPointFilterPin(), GetPointFilterTooltip(), Normal, {}) }
+		if (RequiresPointFilters()) { PCGEX_PIN_FILTERS(GetPointFilterPin(), GetPointFilterTooltip(), Required) }
+		else { PCGEX_PIN_FILTERS(GetPointFilterPin(), GetPointFilterTooltip(), Normal) }
 	}
 
 	if (SupportsEdgeSorting())
 	{
-		if (RequiresEdgeSorting()) { PCGEX_PIN_FACTORIES(PCGExGraph::SourceEdgeSortingRules, "Plug sorting rules here. Order is defined by each rule' priority value, in ascending order.", Required, {}) }
-		else { PCGEX_PIN_FACTORIES(PCGExGraph::SourceEdgeSortingRules, "Plug sorting rules here. Order is defined by each rule' priority value, in ascending order.", Normal, {}) }
+		if (RequiresEdgeSorting()) { PCGEX_PIN_FACTORIES(PCGExGraph::SourceEdgeSortingRules, "Plug sorting rules here. Order is defined by each rule' priority value, in ascending order.", Required, FPCGExDataTypeInfoSortRule::AsId()) }
+		else { PCGEX_PIN_FACTORIES(PCGExGraph::SourceEdgeSortingRules, "Plug sorting rules here. Order is defined by each rule' priority value, in ascending order.", Normal, FPCGExDataTypeInfoSortRule::AsId()) }
 	}
 	return PinProperties;
 }
@@ -63,7 +69,7 @@ TArray<FPCGPinProperties> UPCGExEdgesProcessorSettings::InputPinProperties() con
 TArray<FPCGPinProperties> UPCGExEdgesProcessorSettings::OutputPinProperties() const
 {
 	TArray<FPCGPinProperties> PinProperties = Super::OutputPinProperties();
-	PCGEX_PIN_POINTS(PCGExGraph::OutputEdgesLabel, "Edges associated with the main output points", Required, {})
+	PCGEX_PIN_POINTS(PCGExGraph::OutputEdgesLabel, "Edges associated with the main output points", Required)
 	return PinProperties;
 }
 
@@ -108,6 +114,11 @@ bool FPCGExEdgesProcessorContext::AdvancePointsIO(const bool bCleanupKeys)
 void FPCGExEdgesProcessorContext::OutputBatches() const
 {
 	for (const TSharedPtr<PCGExClusterMT::IBatch>& Batch : Batches) { Batch->Output(); }
+}
+
+TSharedPtr<PCGExClusterMT::IBatch> FPCGExEdgesProcessorContext::CreateEdgeBatchInstance(const TSharedRef<PCGExData::FPointIO>& InVtx, TArrayView<TSharedRef<PCGExData::FPointIO>> InEdges) const
+{
+	return nullptr;
 }
 
 bool FPCGExEdgesProcessorContext::ProcessClusters(const PCGExCommon::ContextState NextStateId, const bool bIsNextStateAsync)
@@ -214,6 +225,70 @@ bool FPCGExEdgesProcessorContext::CompileGraphBuilders(const bool bOutputToConte
 	return true;
 }
 
+bool FPCGExEdgesProcessorContext::StartProcessingClusters(FBatchProcessingValidateEntries&& ValidateEntries, FBatchProcessingInitEdgeBatch&& InitBatch, const bool bInlined)
+{
+	ResumeExecution();
+
+	Batches.Empty();
+
+	bClusterBatchInlined = bInlined;
+	CurrentBatchIndex = -1;
+
+	bBatchProcessingEnabled = false;
+	bClusterWantsHeuristics = true;
+	bSkipClusterBatchCompletionStep = false;
+	bDoClusterBatchWritingStep = false;
+
+	Batches.Reserve(MainPoints->Pairs.Num());
+
+	EdgesDataFacades.Reserve(MainEdges->Pairs.Num());
+	for (const TSharedPtr<PCGExData::FPointIO>& EdgeIO : MainEdges->Pairs)
+	{
+		TSharedPtr<PCGExData::FFacade> EdgeFacade = MakeShared<PCGExData::FFacade>(EdgeIO.ToSharedRef());
+		EdgesDataFacades.Add(EdgeFacade.ToSharedRef());
+	}
+
+	while (AdvancePointsIO(false))
+	{
+		if (!TaggedEdges)
+		{
+			PCGE_LOG_C(Warning, GraphAndLog, this, FTEXT("Some input points have no bound edges."));
+			continue;
+		}
+
+		if (!ValidateEntries(TaggedEdges)) { continue; }
+
+		const TSharedPtr<PCGExClusterMT::IBatch> NewBatch = CreateEdgeBatchInstance(CurrentIO.ToSharedRef(), TaggedEdges->Entries);
+		InitBatch(NewBatch);
+
+		if (NewBatch->bRequiresWriteStep) { bDoClusterBatchWritingStep = true; }
+		if (NewBatch->bSkipCompletion) { bSkipClusterBatchCompletionStep = true; }
+		if (NewBatch->RequiresGraphBuilder()) { NewBatch->GraphBuilderDetails = GraphBuilderDetails; }
+
+		if (NewBatch->WantsHeuristics())
+		{
+			bClusterWantsHeuristics = true;
+			if (!bHasValidHeuristics)
+			{
+				PCGEX_LOG_MISSING_INPUT(this, FTEXT("Missing Heuristics."))
+				return false;
+			}
+			NewBatch->HeuristicsFactories = &HeuristicsFactories;
+		}
+
+		NewBatch->EdgesDataFacades = &EdgesDataFacades;
+
+		Batches.Add(NewBatch);
+		if (!bClusterBatchInlined) { PCGExClusterMT::ScheduleBatch(GetAsyncManager(), NewBatch, bScopedIndexLookupBuild); }
+	}
+
+	if (Batches.IsEmpty()) { return false; }
+
+	bBatchProcessingEnabled = true;
+	if (!bClusterBatchInlined) { SetAsyncState(PCGExClusterMT::MTState_ClusterProcessing); }
+	return true;
+}
+
 void FPCGExEdgesProcessorContext::ClusterProcessing_InitialProcessingDone()
 {
 }
@@ -302,17 +377,16 @@ bool FPCGExEdgesProcessorElement::Boot(FPCGExContext* InContext) const
 	if (!Context->ClusterDataLibrary->Build(Context->MainPoints, Context->MainEdges))
 	{
 		Context->ClusterDataLibrary->PrintLogs(Context);
-		if (!Settings->bQuietMissingInputError) { PCGE_LOG(Error, GraphAndLog, FTEXT("Could not find any valid vtx/edge pairs.")); }
+		PCGEX_LOG_MISSING_INPUT(Context, FTEXT("Could not find any valid vtx/edge pairs."))
 		return false;
 	}
 
 	if (Settings->SupportsEdgeSorting())
 	{
 		Context->EdgeSortingRules = PCGExSorting::GetSortingRules(Context, PCGExGraph::SourceEdgeSortingRules);
-
 		if (Settings->RequiresEdgeSorting() && Context->EdgeSortingRules.IsEmpty())
 		{
-			PCGE_LOG(Error, GraphAndLog, FTEXT("Missing valid sorting rules."));
+			PCGEX_LOG_MISSING_INPUT(Context, FTEXT("Missing valid sorting rules."))
 			return false;
 		}
 	}

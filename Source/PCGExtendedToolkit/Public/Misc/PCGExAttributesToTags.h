@@ -16,8 +16,9 @@
 UENUM()
 enum class EPCGExAttributeToTagsAction : uint8
 {
-	AddTags   = 0 UMETA(DisplayName = "Add Tags", ToolTip="Add tags to the collection"),
-	Attribute = 1 UMETA(DisplayName = "Create attribute", ToolTip="Output an attribute set with the tag values"),
+	AddTags   = 0 UMETA(DisplayName = "Hoist to Tags", ToolTip="Hoist element attribute value as data tags"),
+	Attribute = 1 UMETA(DisplayName = "Hoist to Attribute Set", ToolTip="Output to a new attribute set"),
+	Data      = 2 UMETA(DisplayName = "Hoist to @Data", ToolTip="Hoist element attribute values to @Data domain"),
 };
 
 UENUM()
@@ -47,9 +48,10 @@ class UPCGExAttributesToTagsSettings : public UPCGExPointsProcessorSettings
 public:
 	//~Begin UPCGSettings
 #if WITH_EDITOR
-	PCGEX_NODE_INFOS(AttributesToTags, "Attributes to Tags", "Use point attributes or set to tag the data.");
+	PCGEX_NODE_INFOS(AttributesToTags, "Hoist Attributes", "Hoist element values to tags or data domain");
 	virtual EPCGSettingsType GetType() const override { return EPCGSettingsType::Metadata; }
-	virtual FLinearColor GetNodeTitleColor() const override { return GetDefault<UPCGExGlobalSettings>()->WantsColor(GetDefault<UPCGExGlobalSettings>()->NodeColorMiscWrite); }
+	virtual FLinearColor GetNodeTitleColor() const override { return GetDefault<UPCGExGlobalSettings>()->WantsColor(GetDefault<UPCGExGlobalSettings>()->ColorMiscWrite); }
+	virtual bool HasDynamicPins() const override { return Action != EPCGExAttributeToTagsAction::Attribute; }
 #endif
 
 	virtual bool GetIsMainTransactional() const override;
@@ -97,6 +99,9 @@ struct FPCGExAttributesToTagsContext final : FPCGExPointsProcessorContext
 	TArray<FPCGAttributePropertyInputSelector> Attributes;
 	TArray<TSharedPtr<PCGExData::FFacade>> SourceDataFacades;
 	TArray<FPCGExAttributeToTagDetails> Details;
+
+protected:
+	PCGEX_ELEMENT_BATCH_POINT_DECL
 };
 
 class FPCGExAttributesToTagsElement final : public FPCGExPointsProcessorElement

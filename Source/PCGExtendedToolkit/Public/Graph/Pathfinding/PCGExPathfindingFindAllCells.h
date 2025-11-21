@@ -27,7 +27,7 @@ public:
 	//~Begin UPCGSettings
 #if WITH_EDITOR
 	PCGEX_NODE_INFOS(FindAllCells, "Pathfinding : Find All Cells", "Attempts to find the contours of all cluster cells.");
-	virtual FLinearColor GetNodeTitleColor() const override { return GetDefault<UPCGExGlobalSettings>()->NodeColorPathfinding; }
+	virtual FLinearColor GetNodeTitleColor() const override { return GetDefault<UPCGExGlobalSettings>()->ColorPathfinding; }
 #endif
 
 protected:
@@ -76,10 +76,13 @@ struct FPCGExFindAllCellsContext final : FPCGExEdgesProcessorContext
 	TSharedPtr<PCGExTopology::FHoles> Holes;
 	TSharedPtr<PCGExData::FFacade> HolesFacade;
 
-	TSharedPtr<PCGExData::FPointIOCollection> Paths;
+	TSharedPtr<PCGExData::FPointIOCollection> OutputPaths;
 	TSharedPtr<PCGExData::FPointIO> Seeds;
 
 	mutable FRWLock SeedOutputLock;
+
+protected:
+	PCGEX_ELEMENT_BATCH_EDGE_DECL
 };
 
 class FPCGExFindAllCellsElement final : public FPCGExEdgesProcessorElement
@@ -97,12 +100,15 @@ namespace PCGExFindAllCells
 	{
 		int32 NumAttempts = 0;
 		int32 LastBinary = -1;
-		int32 OutputPathsNum = 0;
 
 	protected:
 		TSharedPtr<PCGExTopology::FHoles> Holes;
 		bool bBuildExpandedNodes = false;
 		TSharedPtr<PCGExTopology::FCell> WrapperCell;
+
+		TSharedPtr<PCGExMT::TScopedArray<TSharedPtr<PCGExTopology::FCell>>> ScopedValidCells;
+		TArray<TSharedPtr<PCGExTopology::FCell>> ValidCells;
+		TArray<TSharedPtr<PCGExData::FPointIO>> CellsIO;
 
 	public:
 		TSharedPtr<PCGExTopology::FCellConstraints> CellsConstraints;
@@ -115,12 +121,15 @@ namespace PCGExFindAllCells
 		virtual ~FProcessor() override;
 
 		virtual bool Process(const TSharedPtr<PCGExMT::FTaskManager>& InAsyncManager) override;
+		virtual void PrepareLoopScopesForEdges(const TArray<PCGExMT::FScope>& Loops) override;
 		virtual void ProcessEdges(const PCGExMT::FScope& Scope) override;
-		bool FindCell(const PCGExCluster::FNode& Node, const PCGExGraph::FEdge& Edge, const bool bSkipBinary = true);
-		void ProcessCell(const TSharedPtr<PCGExTopology::FCell>& InCell);
+		bool FindCell(const PCGExCluster::FNode& Node, const PCGExGraph::FEdge& Edge, TArray<TSharedPtr<PCGExTopology::FCell>>& Scope, const bool bSkipBinary = true);
+		void ProcessCell(const TSharedPtr<PCGExTopology::FCell>& InCell, const TSharedPtr<PCGExData::FPointIO>& PathIO);
 		void EnsureRoamingClosedLoopProcessing();
+
 		virtual void OnEdgesProcessingComplete() override;
-		virtual void CompleteWork() override;
+		virtual void ProcessRange(const PCGExMT::FScope& Scope) override;
+
 		virtual void Cleanup() override;
 	};
 }

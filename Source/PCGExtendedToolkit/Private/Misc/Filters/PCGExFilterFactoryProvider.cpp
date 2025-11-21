@@ -3,6 +3,7 @@
 
 #include "Misc/Filters/PCGExFilterFactoryProvider.h"
 
+#include "PCGExHelpers.h"
 #include "Data/PCGExPointFilter.h"
 #include "Misc/Filters/PCGExConstantFilter.h"
 
@@ -13,10 +14,15 @@
 FString UPCGExFilterProviderSettings::GetDisplayName() const { return TEXT(""); }
 #endif
 
+UPCGExFilterProviderSettings::UPCGExFilterProviderSettings()
+{
+	Priority = GetDefaultPriority();
+}
+
 UPCGExFactoryData* UPCGExFilterProviderSettings::CreateFactory(FPCGExContext* InContext, UPCGExFactoryData* InFactory) const
 {
-	UPCGExFilterFactoryData* NewFactory = Cast<UPCGExFilterFactoryData>(InFactory);
-	NewFactory->MissingDataHandling = MissingDataHandling;
+	UPCGExPointFilterFactoryData* NewFactory = Cast<UPCGExPointFilterFactoryData>(InFactory);
+	NewFactory->MissingDataPolicy = MissingDataPolicy;
 	NewFactory->Priority = Priority;
 
 	return Super::CreateFactory(InContext, NewFactory);
@@ -24,13 +30,13 @@ UPCGExFactoryData* UPCGExFilterProviderSettings::CreateFactory(FPCGExContext* In
 
 bool UPCGExFilterProviderSettings::ShouldCancel(FPCGExFactoryProviderContext* InContext, PCGExFactories::EPreparationResult InResult) const
 {
-	if (MissingDataHandling == EPCGExFilterNoDataFallback::Error) { return Super::ShouldCancel(InContext, InResult); }
+	if (MissingDataPolicy == EPCGExFilterNoDataFallback::Error) { return Super::ShouldCancel(InContext, InResult); }
 
 	UPCGExConstantFilterFactory* NewFactory = InContext->ManagedObjects->New<UPCGExConstantFilterFactory>();
 
 	NewFactory->Priority = Priority;
 	NewFactory->Config.bInvert = false;
-	NewFactory->Config.Value = MissingDataHandling == EPCGExFilterNoDataFallback::Pass;
+	NewFactory->Config.Value = MissingDataPolicy == EPCGExFilterNoDataFallback::Pass;
 
 	if (InContext->OutFactory) { InContext->ManagedObjects->Destroy(InContext->OutFactory); }
 	InContext->OutFactory = NewFactory;

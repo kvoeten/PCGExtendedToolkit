@@ -11,10 +11,7 @@
 #include "PCGExPointsProcessor.h"
 #include "PCGExSampleNearestPath.h"
 #include "PCGExSampling.h"
-#include "Data/Blending/PCGExUnionOpsManager.h"
-
-#include "Paths/PCGExPaths.h"
-
+#include "Data/Matching/PCGExMatching.h"
 
 #include "PCGExSampleInsidePath.generated.h"
 
@@ -31,7 +28,7 @@ enum class EPCGExSampleInsidePathOutput : uint8
 	Split       = 2 UMETA(DisplayName = "Split", Tooltip="Split between two pins")
 };
 
-class UPCGExFilterFactoryData;
+class UPCGExPointFilterFactoryData;
 
 UCLASS(MinimalAPI, BlueprintType, ClassGroup = (Procedural), Category="PCGEx|Sampling", meta=(PCGExNodeLibraryDoc="sampling/nearest-spline-2"))
 class UPCGExSampleInsidePathSettings : public UPCGExPointsProcessorSettings
@@ -44,7 +41,7 @@ public:
 	//~Begin UPCGSettings
 #if WITH_EDITOR
 	PCGEX_NODE_INFOS(SampleInsidePath, "Sample : Inside Path", "Sample the points inside the paths.");
-	virtual FLinearColor GetNodeTitleColor() const override { return GetDefault<UPCGExGlobalSettings>()->NodeColorSampler; }
+	virtual FLinearColor GetNodeTitleColor() const override { return GetDefault<UPCGExGlobalSettings>()->ColorSampling; }
 #endif
 
 protected:
@@ -57,6 +54,8 @@ protected:
 	virtual bool IsPinUsedByNodeExecution(const UPCGPin* InPin) const override;
 	virtual FPCGElementPtr CreateElement() const override;
 	//~End UPCGSettings
+
+	virtual PCGExData::EIOInit GetMainDataInitializationPolicy() const override;
 
 public:
 	/** If enabled, allows you to filter out which targets get sampled by which data */
@@ -77,17 +76,21 @@ public:
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = "Settings|Sampling", meta=(PCG_Overridable))
 	EPCGExSampleMethod SampleMethod = EPCGExSampleMethod::WithinRange;
 
+	/** Sort direction */
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = "Settings|Sampling", meta = (PCG_Overridable, DisplayName=" └─ Sort direction", EditCondition="SampleMethod == EPCGExSampleMethod::BestCandidate", EditConditionHides))
+	EPCGExSortDirection SortDirection = EPCGExSortDirection::Ascending;
+
 	/** If enabled, will always sample points if they lie inside, even if further away from the edges than the specified max range. */
-	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = "Settings|Sampling", meta=(PCG_NotOverridable))
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = "Settings|Sampling", meta=(PCG_Overridable))
 	bool bAlwaysSampleWhenInside = true;
 
 	/** If enabled, will only sample paths if the point lies inside */
-	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = "Settings|Sampling", meta=(PCG_NotOverridable))
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = "Settings|Sampling", meta=(PCG_Overridable))
 	bool bOnlySampleWhenInside = true;
 
-	/** Sort direction */
-	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = "Settings|Sampling", meta = (PCG_Overridable, EditCondition="SampleMethod == EPCGExSampleMethod::BestCandidate", EditConditionHides))
-	EPCGExSortDirection SortDirection = EPCGExSortDirection::Ascending;
+	/** If non-zero, will apply an offset (inset) to the data used for inclusion testing. */
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = "Settings|Sampling", meta=(PCG_Overridable))
+	double InclusionOffset = 0;
 
 #pragma region Sampling Range
 
@@ -103,7 +106,7 @@ public:
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = "Settings|Sampling", meta=(PCG_Overridable, EditCondition="RangeMinInput == EPCGExInputValueType::Constant", EditConditionHides, ClampMin=0))
 	double RangeMin = 0;
 
-	PCGEX_SETTING_VALUE_GET(RangeMin, double, RangeMinInput, RangeMinAttribute, RangeMin)
+	PCGEX_SETTING_VALUE_DECL(RangeMin, double)
 
 	/** Type of Range Min */
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = "Settings|Sampling", meta=(PCG_Overridable))
@@ -117,7 +120,7 @@ public:
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = "Settings|Sampling", meta=(PCG_Overridable, EditCondition="RangeMaxInput == EPCGExInputValueType::Constant", ClampMin=0))
 	double RangeMax = 300;
 
-	PCGEX_SETTING_VALUE_GET(RangeMax, double, RangeMaxInput, RangeMaxAttribute, RangeMax)
+	PCGEX_SETTING_VALUE_DECL(RangeMax, double)
 
 	/** If the value is greater than 0, will do a rough vertical check as part of the projected inclusion. 0 is infinite. */
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = "Settings|Sampling", meta=(PCG_NotOverridable, ClampMin=0))
@@ -222,7 +225,8 @@ struct FPCGExSampleInsidePathContext final : FPCGExPointsProcessorContext
 
 	PCGEX_FOREACH_FIELD_INSIDEPATH(PCGEX_OUTPUT_DECL_TOGGLE)
 
-	virtual void RegisterAssetDependencies() override;
+protected:
+	PCGEX_ELEMENT_BATCH_POINT_DECL
 };
 
 class FPCGExSampleInsidePathElement final : public FPCGExPointsProcessorElement
@@ -231,10 +235,7 @@ protected:
 	PCGEX_ELEMENT_CREATE_CONTEXT(SampleInsidePath)
 
 	virtual bool Boot(FPCGExContext* InContext) const override;
-	virtual void PostLoadAssetsDependencies(FPCGExContext* InContext) const override;
 	virtual bool ExecuteInternal(FPCGContext* Context) const override;
-
-	virtual bool CanExecuteOnlyOnMainThread(FPCGContext* Context) const override;
 };
 
 namespace PCGExSampleInsidePath

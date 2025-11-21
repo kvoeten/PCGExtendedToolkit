@@ -4,27 +4,37 @@
 #include "Graph/States/PCGExClusterStates.h"
 
 
+#include "PCGParamData.h"
+#include "Details/PCGExVersion.h"
 #include "Graph/PCGExCluster.h"
 #include "Graph/Filters/PCGExClusterFilter.h"
+
+PCG_DEFINE_TYPE_INFO(FPCGExDataTypeInfoClusterState, UPCGExClusterStateFactoryData)
 
 TSharedPtr<PCGExPointFilter::IFilter> UPCGExClusterStateFactoryData::CreateFilter() const
 {
 	PCGEX_MAKE_SHARED(NewState, PCGExClusterStates::FState, this)
 	NewState->Config = Config;
-	NewState->BaseConfig = &NewState->Config;
+	NewState->BaseConfig = NewState->Config;
 	return NewState;
-}
-
-void UPCGExClusterStateFactoryData::RegisterBuffersDependencies(FPCGExContext* InContext, PCGExData::FFacadePreloader& FacadePreloader) const
-{
-	Super::RegisterBuffersDependencies(InContext, FacadePreloader);
-	PCGExPointFilter::RegisterBuffersDependencies(InContext, FilterFactories, FacadePreloader);
 }
 
 void UPCGExClusterStateFactoryData::BeginDestroy()
 {
 	Super::BeginDestroy();
 }
+
+#if WITH_EDITOR
+void UPCGExClusterStateFactoryProviderSettings::ApplyDeprecation(UPCGNode* InOutNode)
+{
+	PCGEX_UPDATE_TO_DATA_VERSION(1, 71, 2)
+	{
+		Config.ApplyDeprecation();
+	}
+
+	Super::ApplyDeprecation(InOutNode);
+}
+#endif
 
 namespace PCGExClusterStates
 {
@@ -43,7 +53,7 @@ namespace PCGExClusterStates
 		return true;
 	}
 
-	bool FState::InitInternalManager(FPCGExContext* InContext, const TArray<TObjectPtr<const UPCGExFilterFactoryData>>& InFactories)
+	bool FState::InitInternalManager(FPCGExContext* InContext, const TArray<TObjectPtr<const UPCGExPointFilterFactoryData>>& InFactories)
 	{
 		return Manager->Init(InContext, InFactories);
 	}
@@ -82,6 +92,27 @@ namespace PCGExClusterStates
 		FlagsCache = InFlags;
 	}
 
+	bool FStateManager::Test(const int32 Index)
+	{
+		int64& Flags = *(FlagsCache->GetData() + Index);
+		for (const TSharedPtr<FState>& State : States) { State->ProcessFlags(State->Test(Index), Flags); }
+		return true;
+	}
+
+	bool FStateManager::Test(const PCGExCluster::FNode& Node)
+	{
+		int64& Flags = *(FlagsCache->GetData() + Node.PointIndex);
+		for (const TSharedPtr<FState>& State : States) { State->ProcessFlags(State->Test(Node), Flags); }
+		return true;
+	}
+
+	bool FStateManager::Test(const PCGExGraph::FEdge& Edge)
+	{
+		int64& Flags = *(FlagsCache->GetData() + Edge.PointIndex);
+		for (const TSharedPtr<FState>& State : States) { State->ProcessFlags(State->Test(Edge), Flags); }
+		return true;
+	}
+
 	void FStateManager::PostInitFilter(FPCGExContext* InContext, const TSharedPtr<PCGExPointFilter::IFilter>& InFilter)
 	{
 		const TSharedPtr<FState>& State = StaticCastSharedPtr<FState>(InFilter);
@@ -93,64 +124,19 @@ namespace PCGExClusterStates
 	}
 }
 
-
-TArray<FPCGPinProperties> UPCGExClusterStateFactoryProviderSettings::InputPinProperties() const
-{
-	TArray<FPCGPinProperties> PinProperties;
-	PCGEX_PIN_FACTORIES(PCGExPointFilter::SourceFiltersLabel, TEXT("Filters used to check whether this state is true or not. Accepts regular point filters & cluster filters."), Required, {})
-	return PinProperties;
-}
-
-TArray<FPCGPinProperties> UPCGExClusterStateFactoryProviderSettings::OutputPinProperties() const
-{
-	TArray<FPCGPinProperties> PinProperties = Super::OutputPinProperties();
-	if (Config.bOnTestPass) { PCGEX_PIN_PARAMS(PCGExNodeFlags::OutputOnPassBitmaskLabel, TEXT("On Pass Bitmask. Note that based on the selected operation, this value may not be useful."), Advanced, {}) }
-	if (Config.bOnTestFail) { PCGEX_PIN_PARAMS(PCGExNodeFlags::OutputOnFailBitmaskLabel, TEXT("On Fail Bitmask. Note that based on the selected operation, this value may not be useful."), Advanced, {}) }
-	return PinProperties;
-}
-
 UPCGExFactoryData* UPCGExClusterStateFactoryProviderSettings::CreateFactory(FPCGExContext* InContext, UPCGExFactoryData* InFactory) const
 {
 	UPCGExClusterStateFactoryData* NewFactory = InContext->ManagedObjects->New<UPCGExClusterStateFactoryData>();
-	NewFactory->Priority = Priority;
+	
+	NewFactory->BaseConfig = Config;
 	NewFactory->Config = Config;
 
 	Super::CreateFactory(InContext, NewFactory);
 
-	if (!GetInputFactories(
-		InContext, PCGExPointFilter::SourceFiltersLabel, NewFactory->FilterFactories,
-		PCGExFactories::ClusterNodeFilters, !bQuietMissingInputError))
-	{
-		InContext->ManagedObjects->Destroy(NewFactory);
-		return nullptr;
-	}
-
-	if (Config.bOnTestPass)
-	{
-		UPCGParamData* Bitmask = InContext->ManagedObjects->New<UPCGParamData>();
-		Bitmask->Metadata->CreateAttribute<int64>(FName("OnPassBitmask"), Config.PassStateFlags.Get(), false, true);
-		Bitmask->Metadata->AddEntry();
-		FPCGTaggedData& OutData = InContext->OutputData.TaggedData.Emplace_GetRef();
-		OutData.Pin = PCGExNodeFlags::OutputOnPassBitmaskLabel;
-		OutData.Data = Bitmask;
-	}
-
-	if (Config.bOnTestFail)
-	{
-		UPCGParamData* Bitmask = InContext->ManagedObjects->New<UPCGParamData>();
-		Bitmask->Metadata->CreateAttribute<int64>(FName("OnFailBitmask"), Config.FailStateFlags.Get(), false, true);
-		Bitmask->Metadata->AddEntry();
-		FPCGTaggedData& OutData = InContext->OutputData.TaggedData.Emplace_GetRef();
-		OutData.Pin = PCGExNodeFlags::OutputOnFailBitmaskLabel;
-		OutData.Data = Bitmask;
-	}
-
 	return NewFactory;
 }
 
-#if WITH_EDITOR
-FString UPCGExClusterStateFactoryProviderSettings::GetDisplayName() const
+TSet<PCGExFactories::EType> UPCGExClusterStateFactoryProviderSettings::GetInternalFilterTypes() const
 {
-	return Name.ToString();
+	return PCGExFactories::ClusterNodeFilters;
 }
-#endif

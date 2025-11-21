@@ -4,26 +4,26 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "PCGExCompare.h"
-#include "PCGExDetailsData.h"
-
-#include "PCGExFilterFactoryProvider.h"
 #include "UObject/Object.h"
-
+#include "PCGExCompare.h"
+#include "PCGExFilterFactoryProvider.h"
+#include "PCGExMath.h"
 #include "Data/PCGExPointFilter.h"
-#include "PCGExPointsProcessor.h"
-
 
 #include "PCGExNumericSelfCompareFilter.generated.h"
+
+namespace PCGEx
+{
+	template <typename T>
+	class TAttributeBroadcaster;
+}
 
 USTRUCT(BlueprintType)
 struct FPCGExNumericSelfCompareFilterConfig
 {
 	GENERATED_BODY()
 
-	FPCGExNumericSelfCompareFilterConfig()
-	{
-	}
+	FPCGExNumericSelfCompareFilterConfig() = default;
 
 	/** Operand A for testing -- Will be translated to `double` under the hood. */
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta=(PCG_Overridable))
@@ -33,7 +33,7 @@ struct FPCGExNumericSelfCompareFilterConfig
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta=(PCG_Overridable))
 	EPCGExComparison Comparison = EPCGExComparison::NearlyEqual;
 
-	/** Rounding mode for relative measures */
+	/** Near-equality tolerance */
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta=(PCG_Overridable, EditCondition="Comparison == EPCGExComparison::NearlyEqual || Comparison == EPCGExComparison::NearlyNotEqual", EditConditionHides))
 	double Tolerance = DBL_COMPARE_TOLERANCE;
 
@@ -57,7 +57,7 @@ struct FPCGExNumericSelfCompareFilterConfig
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta=(PCG_Overridable))
 	EPCGExIndexSafety IndexSafety = EPCGExIndexSafety::Clamp;
 
-	PCGEX_SETTING_VALUE_GET(Index, int32, CompareAgainst, IndexAttribute, IndexConstant)
+	PCGEX_SETTING_VALUE_DECL(Index, int32)
 
 	/** How to deal with invalid indices */
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta=(PCG_Overridable))
@@ -69,7 +69,7 @@ struct FPCGExNumericSelfCompareFilterConfig
  * 
  */
 UCLASS(MinimalAPI, BlueprintType, ClassGroup = (Procedural), Category="PCGEx|Filter")
-class UPCGExNumericSelfCompareFilterFactory : public UPCGExFilterFactoryData
+class UPCGExNumericSelfCompareFilterFactory : public UPCGExPointFilterFactoryData
 {
 	GENERATED_BODY()
 
@@ -78,6 +78,7 @@ public:
 	FPCGExNumericSelfCompareFilterConfig Config;
 
 	virtual TSharedPtr<PCGExPointFilter::IFilter> CreateFilter() const override;
+	virtual void RegisterBuffersDependencies(FPCGExContext* InContext, PCGExData::FFacadePreloader& FacadePreloader) const override;
 	virtual bool RegisterConsumableAttributesWithData(FPCGExContext* InContext, const UPCGData* InData) const override;
 };
 

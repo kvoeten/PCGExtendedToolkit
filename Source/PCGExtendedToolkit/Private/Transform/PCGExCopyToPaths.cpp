@@ -4,6 +4,10 @@
 #include "Transform/PCGExCopyToPaths.h"
 
 
+#include "Data/PCGExDataTag.h"
+#include "Data/PCGExPointIO.h"
+#include "Data/Matching/PCGExMatchRuleFactoryProvider.h"
+
 #include "Helpers/PCGHelpers.h"
 #include "Paths/PCGExPaths.h"
 
@@ -12,13 +16,14 @@
 #define PCGEX_NAMESPACE CopyToPaths
 
 PCGEX_INITIALIZE_ELEMENT(CopyToPaths)
+PCGEX_ELEMENT_BATCH_POINT_IMPL_ADV(CopyToPaths)
 
 TArray<FPCGPinProperties> UPCGExCopyToPathsSettings::InputPinProperties() const
 {
 	TArray<FPCGPinProperties> PinProperties = Super::InputPinProperties();
-	PCGEX_PIN_ANY(PCGEx::SourceTargetsLabel, "Paths or splines to deform along", Required, {})
+	PCGEX_PIN_ANY(PCGEx::SourceTargetsLabel, "Paths or splines to deform along", Required)
 	PCGExMatching::DeclareMatchingRulesInputs(DataMatching, PinProperties);
-	PCGEX_PIN_POINTS(PCGExTransform::SourceDeformersBoundsLabel, "Point data that will be used as unified bounds for all inputs", Normal, {})
+	PCGEX_PIN_POINTS(PCGEx::SourceBoundsLabel, "Point data that will be used as unified bounds for all inputs", Normal)
 	return PinProperties;
 }
 
@@ -31,7 +36,7 @@ TArray<FPCGPinProperties> UPCGExCopyToPathsSettings::OutputPinProperties() const
 
 bool UPCGExCopyToPathsSettings::IsPinUsedByNodeExecution(const UPCGPin* InPin) const
 {
-	if (InPin->Properties.Label == PCGExTransform::SourceDeformersBoundsLabel) { return InPin->EdgeCount() > 0; }
+	if (InPin->Properties.Label == PCGEx::SourceBoundsLabel) { return InPin->EdgeCount() > 0; }
 	return Super::IsPinUsedByNodeExecution(InPin);
 }
 
@@ -46,7 +51,7 @@ bool FPCGExCopyToPathsElement::Boot(FPCGExContext* InContext) const
 
 	if (!Context->Tangents.Init(Context, Settings->Tangents)) { return false; }
 
-	TArray<FPCGTaggedData> UnifiedBounds = Context->InputData.GetSpatialInputsByPin(PCGExTransform::SourceDeformersBoundsLabel);
+	TArray<FPCGTaggedData> UnifiedBounds = Context->InputData.GetSpatialInputsByPin(PCGEx::SourceBoundsLabel);
 	for (int i = 0; i < UnifiedBounds.Num(); ++i)
 	{
 		if (const UPCGBasePointData* PointData = Cast<UPCGBasePointData>(UnifiedBounds[i].Data))
@@ -128,7 +133,7 @@ bool FPCGExCopyToPathsElement::ExecuteInternal(FPCGContext* InContext) const
 	PCGEX_ON_INITIAL_EXECUTION
 	{
 		PCGEX_ON_INVALILD_INPUTS(FTEXT("Some input have less than 2 points and will be ignored."))
-		if (!Context->StartBatchProcessingPoints<PCGExCopyToPaths::FBatch>(
+		if (!Context->StartBatchProcessingPoints(
 			[&](const TSharedPtr<PCGExData::FPointIO>& Entry)
 			{
 				if (Entry->GetNum() < 2)
@@ -138,7 +143,7 @@ bool FPCGExCopyToPathsElement::ExecuteInternal(FPCGContext* InContext) const
 				}
 				return true;
 			},
-			[&](const TSharedPtr<PCGExCopyToPaths::FBatch>& NewBatch)
+			[&](const TSharedPtr<PCGExPointsMT::IBatch>& NewBatch)
 			{
 			}))
 		{
@@ -374,7 +379,7 @@ namespace PCGExCopyToPaths
 			CustomPointType = PathFacade->GetBroadcaster<int32>(Settings->PointTypeAttribute, true);
 			if (!CustomPointType)
 			{
-				PCGE_LOG_C(Warning, GraphAndLog, Context, FTEXT("Missing custom point type attribute"));
+				PCGEX_LOG_INVALID_ATTR_C(Context, Point Type, Settings->PointTypeAttribute)
 				return;
 			}
 		}

@@ -5,7 +5,6 @@
 
 #include "CoreMinimal.h"
 #include "PCGExCompare.h"
-#include "PCGExDetailsData.h"
 #include "UObject/Object.h"
 
 #include "PCGExFactoryProvider.h"
@@ -16,7 +15,7 @@
 
 ///
 
-class UPCGExFilterFactoryData;
+class UPCGExPointFilterFactoryData;
 
 USTRUCT(BlueprintType)
 struct FPCGExEdgeMatchConfig
@@ -69,14 +68,14 @@ class FPCGExVtxPropertyEdgeMatch : public FPCGExVtxPropertyOperation
 public:
 	FPCGExEdgeMatchConfig Config;
 
-	TArray<TObjectPtr<const UPCGExFilterFactoryData>>* FilterFactories = nullptr;
+	TArray<TObjectPtr<const UPCGExPointFilterFactoryData>>* FilterFactories = nullptr;
 
 	virtual bool PrepareForCluster(
 		FPCGExContext* InContext,
 		TSharedPtr<PCGExCluster::FCluster> InCluster,
 		const TSharedPtr<PCGExData::FFacade>& InVtxDataFacade,
 		const TSharedPtr<PCGExData::FFacade>& InEdgeDataFacade) override;
-	virtual void ProcessNode(PCGExCluster::FNode& Node, const TArray<PCGExCluster::FAdjacencyData>& Adjacency) override;
+	virtual void ProcessNode(PCGExCluster::FNode& Node, const TArray<PCGExCluster::FAdjacencyData>& Adjacency, const PCGExGeo::FBestFitPlane& BFP) override;
 
 protected:
 	TSharedPtr<PCGExDetails::TSettingValue<FVector>> DirCache;

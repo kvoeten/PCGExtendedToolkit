@@ -18,7 +18,7 @@ public:
 #if WITH_EDITOR
 	PCGEX_NODE_INFOS(FindPointOnBoundsClusters, "Cluster : Find point on Bounds", "Find the closest vtx or edge on each cluster' bounds.");
 	virtual EPCGSettingsType GetType() const override { return EPCGSettingsType::Spatial; }
-	virtual FLinearColor GetNodeTitleColor() const override { return GetDefault<UPCGExGlobalSettings>()->WantsColor(GetDefault<UPCGExGlobalSettings>()->NodeColorCluster); }
+	virtual FLinearColor GetNodeTitleColor() const override { return GetDefault<UPCGExGlobalSettings>()->WantsColor(GetDefault<UPCGExGlobalSettings>()->ColorClusterOp); }
 #endif
 
 protected:
@@ -29,7 +29,7 @@ protected:
 public:
 	virtual TArray<FPCGPinProperties> OutputPinProperties() const override;
 	virtual PCGExData::EIOInit GetMainOutputInitMode() const override;
-	virtual FName GetMainOutputPin() const override { return PCGEx::OutputPointsLabel; }
+	virtual FName GetMainOutputPin() const override { return PCGPinConstants::DefaultOutputLabel; }
 	//~End UPCGExPointsProcessorSettings
 
 	virtual PCGExData::EIOInit GetEdgeOutputInitMode() const override;
@@ -42,9 +42,30 @@ public:
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta=(PCG_Overridable))
 	EPCGExPointOnBoundsOutputMode OutputMode = EPCGExPointOnBoundsOutputMode::Merged;
 
-	/** UVW position of the target within bounds. */
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta=(PCG_NotOverridable, InlineEditConditionToggle))
+	bool bBestFitBounds = false;
+
+	/** Whether to use best fit plane bounds, and which axis ordering should be used. */
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta=(PCG_NotOverridable, DisplayName="Use Best Fit bounds axis", EditCondition="bBestFitBounds"))
+	EPCGExAxisOrder AxisOrder = EPCGExAxisOrder::YXZ;
+
+	/** Type of UVW value source */
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta=(PCG_Overridable))
+	EPCGExInputValueType UVWInput = EPCGExInputValueType::Constant;
+
+	/** Fetch the UVW value from a @Data attribute.*/
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta = (PCG_Overridable, DisplayName="UVW (Attr)", EditCondition="UVWInput != EPCGExInputValueType::Constant", EditConditionHides))
+	FPCGAttributePropertyInputSelector LocalUVW;
+
+	/** Cluster element source */
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta=(PCG_NotOverridable, DisplayName=" └─ Element", EditCondition="UVWInput != EPCGExInputValueType::Constant", EditConditionHides))
+	EPCGExClusterElement ClusterElement = EPCGExClusterElement::Edge;
+
+	/** UVW position of the target within bounds. */
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta=(PCG_Overridable, DisplayName="UVW", EditCondition="UVWInput == EPCGExInputValueType::Constant", EditConditionHides))
 	FVector UVW = FVector(-1, -1, 0);
+
+	PCGEX_SETTING_DATA_VALUE_DECL(UVW, FVector)
 
 	/** Offset to apply to the closest point, away from the bounds center. */
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta=(PCG_Overridable))
@@ -74,6 +95,9 @@ struct FPCGExFindPointOnBoundsClustersContext final : FPCGExEdgesProcessorContex
 	TSharedPtr<PCGEx::FAttributesInfos> MergedAttributesInfos;
 
 	virtual void ClusterProcessing_InitialProcessingDone() override;
+
+protected:
+	PCGEX_ELEMENT_BATCH_EDGE_DECL
 };
 
 class FPCGExFindPointOnBoundsClustersElement final : public FPCGExEdgesProcessorElement

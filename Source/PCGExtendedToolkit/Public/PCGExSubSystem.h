@@ -12,6 +12,13 @@
 
 #define PCGEX_SUBSYSTEM UPCGExSubSystem* PCGExSubsystem = UPCGExSubSystem::GetSubsystemForCurrentWorld(); check(PCGExSubsystem)
 
+class UPCGExConstantFilterFactory;
+
+namespace PCGExPointFilter
+{
+	class IFilter;
+}
+
 class UPCGExGridIDTracker;
 
 UENUM()
@@ -104,7 +111,12 @@ public:
 
 #pragma endregion
 
+	FORCEINLINE double GetEndTime() const { return EndTime; }
+
+	TSharedPtr<PCGExPointFilter::IFilter> GetConstantFilter(const bool bValue) const;
+
 protected:
+	double EndTime = 0.0;
 	TArray<int32> IndexBuffer;
 	bool bWantsTick = false;
 
@@ -113,5 +125,15 @@ protected:
 	TArray<FTickAction> BeginTickActions;
 	TSet<PCGEx::FPolledEvent> PolledEvents;
 
+	const IConsoleVariable* CVarEditorTimePerFrame = nullptr;
+	const IConsoleVariable* CVarTimePerFrame = nullptr;
+	double GetTickBudgetInSeconds();
+
 	void ExecuteBeginTickActions();
+
+	UPROPERTY()
+	TObjectPtr<UPCGExConstantFilterFactory> ConstantFilterFactory_TRUE;
+
+	UPROPERTY()
+	TObjectPtr<UPCGExConstantFilterFactory> ConstantFilterFactory_FALSE;
 };

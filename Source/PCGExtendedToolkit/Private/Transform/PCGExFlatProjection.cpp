@@ -3,11 +3,19 @@
 
 #include "Transform/PCGExFlatProjection.h"
 
+#include "Data/PCGExData.h"
+#include "Data/PCGExPointIO.h"
+#include "Sampling/PCGExSampling.h"
+
 
 #define LOCTEXT_NAMESPACE "PCGExFlatProjectionElement"
 #define PCGEX_NAMESPACE FlatProjection
 
 PCGEX_INITIALIZE_ELEMENT(FlatProjection)
+
+PCGExData::EIOInit UPCGExFlatProjectionSettings::GetMainDataInitializationPolicy() const { return PCGExData::EIOInit::Duplicate; }
+
+PCGEX_ELEMENT_BATCH_POINT_IMPL(FlatProjection)
 
 bool FPCGExFlatProjectionElement::Boot(FPCGExContext* InContext) const
 {
@@ -15,11 +23,27 @@ bool FPCGExFlatProjectionElement::Boot(FPCGExContext* InContext) const
 
 	PCGEX_CONTEXT_AND_SETTINGS(FlatProjection)
 
+	if (Settings->bRestorePreviousProjection)
+	{
+#define PCGEX_REGISTER_FLAG(_COMPONENT, _ARRAY) \
+if ((Settings->_COMPONENT & static_cast<uint8>(EPCGExApplySampledComponentFlags::X)) != 0){ Context->_ARRAY.Add(0); Context->AppliedComponents++; } \
+if ((Settings->_COMPONENT & static_cast<uint8>(EPCGExApplySampledComponentFlags::Y)) != 0){ Context->_ARRAY.Add(1); Context->AppliedComponents++; } \
+if ((Settings->_COMPONENT & static_cast<uint8>(EPCGExApplySampledComponentFlags::Z)) != 0){ Context->_ARRAY.Add(2); Context->AppliedComponents++; }
+
+		PCGEX_REGISTER_FLAG(TransformPosition, TrPosComponents)
+		PCGEX_REGISTER_FLAG(TransformRotation, TrRotComponents)
+		PCGEX_REGISTER_FLAG(TransformScale, TrScaComponents)
+
+#undef PCGEX_REGISTER_FLAG
+	}
+
+
 	if (Settings->bSaveAttributeForRestore || Settings->bRestorePreviousProjection)
 	{
 		PCGEX_VALIDATE_NAME(Settings->AttributePrefix)
 		Context->CachedTransformAttributeName = PCGEx::MakePCGExAttributeName(Settings->AttributePrefix.ToString(), TEXT("T"));
 	}
+
 
 	return true;
 }
@@ -32,31 +56,26 @@ bool FPCGExFlatProjectionElement::ExecuteInternal(FPCGContext* InContext) const
 	PCGEX_EXECUTION_CHECK
 	PCGEX_ON_INITIAL_EXECUTION
 	{
-		bool bHasInvalidEntries = false;
+		PCGEX_ON_INVALILD_INPUTS(FTEXT("Some points are missing the required attributes."))
 
-		if (!Context->StartBatchProcessingPoints<PCGExPointsMT::TBatch<PCGExFlatProjection::FProcessor>>(
+		if (!Context->StartBatchProcessingPoints(
 			[&](const TSharedPtr<PCGExData::FPointIO>& Entry)
 			{
 				if (Settings->bRestorePreviousProjection)
 				{
 					if (!Entry->GetIn()->Metadata->HasAttribute(Context->CachedTransformAttributeName))
 					{
-						bHasInvalidEntries = true;
+						bHasInvalidInputs = true;
 						return false;
 					}
 				}
 				return true;
 			},
-			[&](const TSharedPtr<PCGExPointsMT::TBatch<PCGExFlatProjection::FProcessor>>& NewBatch)
+			[&](const TSharedPtr<PCGExPointsMT::IBatch>& NewBatch)
 			{
 			}))
 		{
 			return Context->CancelExecution(TEXT("Could not find any points to process."));
-		}
-
-		if (bHasInvalidEntries)
-		{
-			PCGE_LOG(Warning, GraphAndLog, FTEXT("Some points are missing the required attributes."));
 		}
 	}
 
@@ -112,7 +131,26 @@ namespace PCGExFlatProjection
 
 		if (bInverseExistingProjection)
 		{
-			PCGEX_SCOPE_LOOP(Index) { OutTransforms[Index] = TransformReader->Read(Index); }
+			PCGEX_SCOPE_LOOP(Index)
+			{
+				const FTransform& CurrentTr = OutTransforms[Index];
+
+				const FTransform& RestoreTr = TransformReader->Read(Index);
+				FVector OutRotation = CurrentTr.GetRotation().Euler();
+				FVector OutPosition = CurrentTr.GetLocation();
+				FVector OutScale = CurrentTr.GetScale3D();
+
+				const FVector InTrRot = RestoreTr.GetRotation().Euler();
+				for (const int32 C : Context->TrRotComponents) { OutRotation[C] = InTrRot[C]; }
+
+				FVector InTrPos = RestoreTr.GetLocation();
+				for (const int32 C : Context->TrPosComponents) { OutPosition[C] = InTrPos[C]; }
+
+				FVector InTrSca = RestoreTr.GetScale3D();
+				for (const int32 C : Context->TrScaComponents) { OutScale[C] = InTrSca[C]; }
+
+				OutTransforms[Index] = FTransform(FQuat::MakeFromEuler(OutRotation), OutPosition, OutScale);
+			}
 		}
 		else if (bWriteAttribute)
 		{

@@ -4,7 +4,6 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "PCGExCompare.h"
 #include "PCGExFilterFactoryProvider.h"
 #include "UObject/Object.h"
 
@@ -38,7 +37,7 @@ struct PCGEXTENDEDTOOLKIT_API FPCGExPickerFilterConfig
  * 
  */
 UCLASS(MinimalAPI, BlueprintType, ClassGroup = (Procedural), Category="PCGEx|Filter")
-class UPCGExPickerFilterFactory : public UPCGExFilterFactoryData
+class UPCGExPickerFilterFactory : public UPCGExPointFilterFactoryData
 {
 	GENERATED_BODY()
 

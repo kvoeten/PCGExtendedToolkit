@@ -2,8 +2,24 @@
 // Released under the MIT license https://opensource.org/license/MIT/
 
 #include "Data/PCGExDataForward.h"
+
+#include "Data/PCGExAttributeHelpers.h"
 #include "Data/PCGExData.h"
-#include "Data/PCGExPointData.h"
+#include "Data/PCGExDataHelpers.h"
+#include "Data/PCGExDataTag.h"
+#include "Data/PCGExPointIO.h"
+
+void FPCGExForwardDetails::Filter(TArray<PCGEx::FAttributeIdentity>& Identities) const
+{
+	for (int i = 0; i < Identities.Num(); i++)
+	{
+		if (!Test(Identities[i].Identifier.Name.ToString()))
+		{
+			Identities.RemoveAt(i);
+			i--;
+		}
+	}
+}
 
 TSharedPtr<PCGExData::FDataForwardHandler> FPCGExForwardDetails::GetHandler(const TSharedPtr<PCGExData::FFacade>& InSourceDataFacade, const bool bForwardToDataDomain) const
 {
@@ -25,19 +41,21 @@ TSharedPtr<PCGExData::FDataForwardHandler> FPCGExForwardDetails::TryGetHandler(c
 	return bEnabled ? GetHandler(InSourceDataFacade, InTargetDataFacade, bForwardToDataDomain) : nullptr;
 }
 
-bool FPCGExAttributeToTagDetails::Init(const FPCGContext* InContext, const TSharedPtr<PCGExData::FFacade>& InSourceFacade)
+bool FPCGExAttributeToTagDetails::Init(const FPCGExContext* InContext, const TSharedPtr<PCGExData::FFacade>& InSourceFacade)
 {
 	PCGExHelpers::AppendUniqueSelectorsFromCommaSeparatedList(CommaSeparatedAttributeSelectors, Attributes);
 
+	Getters.Reserve(Attributes.Num());
 	for (FPCGAttributePropertyInputSelector& Selector : Attributes)
 	{
-		if (const TSharedPtr<PCGEx::TAttributeBroadcaster<FString>>& Getter = Getters.Add_GetRef(MakeShared<PCGEx::TAttributeBroadcaster<FString>>());
-			!Getter->Prepare(Selector, InSourceFacade->Source))
+		const TSharedPtr<PCGEx::IAttributeBroadcaster>& Getter = PCGEx::MakeBroadcaster(Selector, InSourceFacade->Source, true);
+		if (!Getter)
 		{
-			PCGE_LOG_C(Error, GraphAndLog, InContext, FTEXT("Missing specified Tag attribute."));
-			Getters.Empty();
-			return false;
+			PCGEX_LOG_INVALID_SELECTOR_C(InContext, Tag, Selector)
+			continue;
 		}
+
+		Getters.Add(Getter);
 	}
 
 	SourceDataFacade = InSourceFacade;
@@ -50,12 +68,28 @@ void FPCGExAttributeToTagDetails::Tag(const PCGExData::FConstPoint& TagSource, T
 
 	if (!Getters.IsEmpty())
 	{
-		for (const TSharedPtr<PCGEx::TAttributeBroadcaster<FString>>& Getter : Getters)
+		for (const TSharedPtr<PCGEx::IAttributeBroadcaster>& Getter : Getters)
 		{
-			FString Tag = Getter->FetchSingle(TagSource, TEXT(""));
-			if (Tag.IsEmpty()) { continue; }
-			if (bPrefixWithAttributeName) { Tag = Getter->GetName() + ":" + Tag; }
-			InTags.Add(Tag);
+			FString Value = TEXT("");
+			FString Prefix = TEXT("");
+
+			PCGEx::ExecuteWithRightType(
+				Getter->GetMetadataType(), [&](auto DummyValue)
+				{
+					using T = decltype(DummyValue);
+					TSharedPtr<PCGEx::TAttributeBroadcaster<T>> TypedGetter = StaticCastSharedPtr<PCGEx::TAttributeBroadcaster<T>>(Getter);
+					if (!TypedGetter) { return; }
+
+					Prefix = TypedGetter->GetName().ToString();
+
+					T TypedValue = T{};
+					if (TypedGetter->TryFetchSingle(TagSource, TypedValue)) { Value = PCGEx::Convert<T, FString>(TypedValue); }
+				});
+
+			if (Value.IsEmpty()) { continue; }
+
+			if (bPrefixWithAttributeName) { Value = Prefix + ":" + Value; }
+			InTags.Add(Value);
 		}
 	}
 }
@@ -73,18 +107,27 @@ void FPCGExAttributeToTagDetails::Tag(const PCGExData::FConstPoint& TagSource, U
 	{
 		if (PCGEx::IsWritableAttributeName(FName(IndexTagPrefix)))
 		{
-			InMetadata->FindOrCreateAttribute<FString>(FName(IndexTagPrefix), IndexTagPrefix + ":" + FString::Printf(TEXT("%d"), TagSource.Index));
+			const FPCGAttributeIdentifier Identifier = FPCGAttributeIdentifier(FName(IndexTagPrefix), PCGMetadataDomainID::Data);
+			InMetadata->DeleteAttribute(Identifier);
+			InMetadata->FindOrCreateAttribute<int32>(Identifier, TagSource.Index);
 		}
 	}
 
 	if (!Getters.IsEmpty())
 	{
-		for (const TSharedPtr<PCGEx::TAttributeBroadcaster<FString>>& Getter : Getters)
+		for (const TSharedPtr<PCGEx::IAttributeBroadcaster>& Getter : Getters)
 		{
-			FString Tag = Getter->FetchSingle(TagSource, TEXT(""));
-			if (Tag.IsEmpty()) { continue; }
-			if (bPrefixWithAttributeName) { Tag = Getter->GetName() + ":" + Tag; }
-			InMetadata->FindOrCreateAttribute<FString>(FName(Getter->GetName()), Tag);
+			PCGEx::ExecuteWithRightType(
+				Getter->GetMetadataType(), [&](auto DummyValue)
+				{
+					using T = decltype(DummyValue);
+					TSharedPtr<PCGEx::TAttributeBroadcaster<T>> TypedGetter = StaticCastSharedPtr<PCGEx::TAttributeBroadcaster<T>>(Getter);
+					if (!TypedGetter) { return; }
+
+					const FPCGAttributeIdentifier Identifier = FPCGAttributeIdentifier(Getter->GetName(), PCGMetadataDomainID::Data);
+					InMetadata->DeleteAttribute(Identifier);
+					InMetadata->FindOrCreateAttribute<T>(Identifier, TypedGetter->FetchSingle(TagSource, T{}));
+				});
 		}
 	}
 }

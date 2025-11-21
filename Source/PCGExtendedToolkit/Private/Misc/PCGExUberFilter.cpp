@@ -5,7 +5,10 @@
 #include "Misc/PCGExUberFilter.h"
 
 #include "Data/PCGExData.h"
+#include "Data/PCGExDataTag.h"
 #include "Data/PCGExPointFilter.h"
+#include "Data/PCGExPointIO.h"
+#include "Details/PCGExVersion.h"
 #include "Misc/Pickers/PCGExPicker.h"
 #include "Misc/Pickers/PCGExPickerFactoryProvider.h"
 
@@ -14,17 +17,37 @@
 #define PCGEX_NAMESPACE UberFilter
 
 #if WITH_EDITOR
+void UPCGExUberFilterSettings::ApplyDeprecation(UPCGNode* InOutNode)
+{
+	PCGEX_UPDATE_TO_DATA_VERSION(1, 70, 11)
+	{
+		if (!ResultAttributeName_DEPRECATED.IsNone()) { ResultDetails.ResultAttributeName = ResultAttributeName_DEPRECATED; }
+	}
+
+	PCGEX_UPDATE_TO_DATA_VERSION(1, 71, 2)
+	{
+		ResultDetails.ApplyDeprecation();
+	}
+	
+	Super::ApplyDeprecation(InOutNode);
+}
+#endif
+
 bool UPCGExUberFilterSettings::IsPinUsedByNodeExecution(const UPCGPin* InPin) const
 {
 	if (InPin->Properties.Label == PCGExPicker::SourcePickersLabel) { return InPin->EdgeCount() > 0; }
 	return Super::IsPinUsedByNodeExecution(InPin);
 }
-#endif
+
+bool UPCGExUberFilterSettings::OutputPinsCanBeDeactivated() const
+{
+	return Mode != EPCGExUberFilterMode::Write;
+}
 
 TArray<FPCGPinProperties> UPCGExUberFilterSettings::InputPinProperties() const
 {
 	TArray<FPCGPinProperties> PinProperties = Super::InputPinProperties();
-	PCGEX_PIN_PARAMS(PCGExPicker::SourcePickersLabel, "A precise selection of point that will be tested, as opposed to all of them.", Normal, {})
+	PCGEX_PIN_FACTORIES(PCGExPicker::SourcePickersLabel, "A precise selection of point that will be tested, as opposed to all of them.", Normal, FPCGExDataTypeInfoPicker::AsId())
 	return PinProperties;
 }
 
@@ -33,12 +56,13 @@ TArray<FPCGPinProperties> UPCGExUberFilterSettings::OutputPinProperties() const
 	if (Mode == EPCGExUberFilterMode::Write) { return Super::OutputPinProperties(); }
 
 	TArray<FPCGPinProperties> PinProperties;
-	PCGEX_PIN_POINTS(PCGExPointFilter::OutputInsideFiltersLabel, "Points that passed the filters.", Required, {})
-	if (bOutputDiscardedElements) { PCGEX_PIN_POINTS(PCGExPointFilter::OutputOutsideFiltersLabel, "Points that didn't pass the filters.", Required, {}) }
+	PCGEX_PIN_POINTS(PCGExPointFilter::OutputInsideFiltersLabel, "Points that passed the filters.", Required)
+	if (bOutputDiscardedElements) { PCGEX_PIN_POINTS(PCGExPointFilter::OutputOutsideFiltersLabel, "Points that didn't pass the filters.", Required) }
 	return PinProperties;
 }
 
 PCGEX_INITIALIZE_ELEMENT(UberFilter)
+PCGEX_ELEMENT_BATCH_POINT_IMPL(UberFilter)
 
 FName UPCGExUberFilterSettings::GetMainOutputPin() const
 {
@@ -52,12 +76,13 @@ bool FPCGExUberFilterElement::Boot(FPCGExContext* InContext) const
 
 	PCGEX_CONTEXT_AND_SETTINGS(UberFilter)
 
-	PCGExFactories::GetInputFactories(Context, PCGExPicker::SourcePickersLabel, Context->PickerFactories, {PCGExFactories::EType::IndexPicker}, false);
+	PCGExFactories::GetInputFactories(
+		Context, PCGExPicker::SourcePickersLabel, Context->PickerFactories,
+		{PCGExFactories::EType::IndexPicker}, false);
 
 	if (Settings->Mode == EPCGExUberFilterMode::Write)
 	{
-		PCGEX_VALIDATE_NAME(Settings->ResultAttributeName)
-		return true;
+		return Settings->ResultDetails.Validate(Context);
 	}
 
 	Context->Inside = MakeShared<PCGExData::FPointIOCollection>(Context);
@@ -85,9 +110,9 @@ bool FPCGExUberFilterElement::ExecuteInternal(FPCGContext* InContext) const
 			Context->Outside->Pairs.Init(nullptr, Context->NumPairs);
 		}
 
-		if (!Context->StartBatchProcessingPoints<PCGExPointsMT::TBatch<PCGExUberFilter::FProcessor>>(
+		if (!Context->StartBatchProcessingPoints(
 			[&](const TSharedPtr<PCGExData::FPointIO>& Entry) { return true; },
-			[&](const TSharedPtr<PCGExPointsMT::TBatch<PCGExUberFilter::FProcessor>>& NewBatch)
+			[&](const TSharedPtr<PCGExPointsMT::IBatch>& NewBatch)
 			{
 			}))
 		{
@@ -106,8 +131,9 @@ bool FPCGExUberFilterElement::ExecuteInternal(FPCGContext* InContext) const
 		Context->Inside->PruneNullEntries(true);
 		Context->Outside->PruneNullEntries(true);
 
-		Context->Inside->StageOutputs();
-		Context->Outside->StageOutputs();
+		uint64& Mask = Context->OutputData.InactiveOutputPinBitmask;
+		if (!Context->Inside->StageOutputs()) { Mask |= 1ULL << 0; }
+		if (!Context->Outside->StageOutputs()) { Mask |= 1ULL << 1; }
 	}
 
 	return Context->TryComplete();
@@ -134,7 +160,8 @@ namespace PCGExUberFilter
 
 		if (Settings->Mode == EPCGExUberFilterMode::Write)
 		{
-			Results = PointDataFacade->GetWritable<bool>(Settings->ResultAttributeName, false, true, PCGExData::EBufferInit::New);
+			Results = Settings->ResultDetails;
+			Results.Init(PointDataFacade);
 		}
 		else
 		{
@@ -148,7 +175,7 @@ namespace PCGExUberFilter
 
 	void FProcessor::PrepareLoopScopesForPoints(const TArray<PCGExMT::FScope>& Loops)
 	{
-		if (!Results)
+		if (!Results.bEnabled)
 		{
 			const int32 MaxRange = PCGExMT::FScope::GetMaxRange(Loops);
 
@@ -180,7 +207,7 @@ namespace PCGExUberFilter
 			PCGEX_SCOPE_LOOP(Index) { PointFilterCache[Index] = !PointFilterCache[Index]; }
 		}
 
-		if (!Results)
+		if (!Results.bEnabled)
 		{
 			TArray<int32>& IndicesInsideRef = IndicesInside->Get_Ref(Scope);
 			TArray<int32>& IndicesOutsideRef = IndicesOutside->Get_Ref(Scope);
@@ -200,13 +227,11 @@ namespace PCGExUberFilter
 		{
 			PCGEX_SCOPE_LOOP(Index)
 			{
-				const int8 bPass = PointFilterCache[Index];
-
-				if (bPass) { FPlatformAtomics::InterlockedAdd(&NumInside, 1); }
+				if (PointFilterCache[Index]) { FPlatformAtomics::InterlockedAdd(&NumInside, 1); }
 				else { FPlatformAtomics::InterlockedAdd(&NumOutside, 1); }
-
-				Results->SetValue(Index, bPass ? true : false);
 			}
+
+			Results.Write(Scope, PointFilterCache);
 		}
 	}
 

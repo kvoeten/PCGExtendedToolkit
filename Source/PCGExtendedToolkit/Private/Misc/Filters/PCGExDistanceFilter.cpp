@@ -3,9 +3,15 @@
 
 #include "Misc/Filters/PCGExDistanceFilter.h"
 
+#include "PCGExHelpers.h"
+#include "Data/PCGExPointIO.h"
+#include "Details/PCGExDetailsSettings.h"
+
 
 #define LOCTEXT_NAMESPACE "PCGExCompareFilterDefinition"
 #define PCGEX_NAMESPACE CompareFilterDefinition
+
+PCGEX_SETTING_VALUE_IMPL(FPCGExDistanceFilterConfig, DistanceThreshold, double, CompareAgainst, DistanceThreshold, DistanceThresholdConstant)
 
 bool UPCGExDistanceFilterFactory::SupportsProxyEvaluation() const
 {
@@ -15,6 +21,12 @@ bool UPCGExDistanceFilterFactory::SupportsProxyEvaluation() const
 TSharedPtr<PCGExPointFilter::IFilter> UPCGExDistanceFilterFactory::CreateFilter() const
 {
 	return MakeShared<PCGExPointFilter::FDistanceFilter>(this);
+}
+
+void UPCGExDistanceFilterFactory::RegisterBuffersDependencies(FPCGExContext* InContext, PCGExData::FFacadePreloader& FacadePreloader) const
+{
+	Super::RegisterBuffersDependencies(InContext, FacadePreloader);
+	if (Config.CompareAgainst == EPCGExInputValueType::Attribute) { FacadePreloader.Register<double>(InContext, Config.DistanceThreshold); }
 }
 
 bool UPCGExDistanceFilterFactory::RegisterConsumableAttributesWithData(FPCGExContext* InContext, const UPCGData* InData) const
@@ -58,7 +70,7 @@ bool PCGExPointFilter::FDistanceFilter::Init(FPCGExContext* InContext, const TSh
 		return true;
 	}
 
-	DistanceThresholdGetter = TypedFilterFactory->Config.GetValueSettingDistanceThreshold();
+	DistanceThresholdGetter = TypedFilterFactory->Config.GetValueSettingDistanceThreshold(PCGEX_QUIET_HANDLING);
 	if (!DistanceThresholdGetter->Init(InPointDataFacade)) { return false; }
 
 	InTransforms = InPointDataFacade->GetIn()->GetConstTransformValueRange();
@@ -101,7 +113,7 @@ bool PCGExPointFilter::FDistanceFilter::Test(const TSharedPtr<PCGExData::FPointI
 TArray<FPCGPinProperties> UPCGExDistanceFilterProviderSettings::InputPinProperties() const
 {
 	TArray<FPCGPinProperties> PinProperties = Super::InputPinProperties();
-	PCGEX_PIN_POINTS(PCGEx::SourceTargetsLabel, TEXT("Target points to read operand B from"), Required, {})
+	PCGEX_PIN_POINTS(PCGEx::SourceTargetsLabel, TEXT("Target points to read operand B from"), Required)
 	return PinProperties;
 }
 

@@ -4,10 +4,15 @@
 #include "Paths/PCGExBlendPath.h"
 
 
+#include "Data/PCGExPointIO.h"
+#include "Data/Blending/PCGExBlendOpsManager.h"
+#include "Details/PCGExDetailsSettings.h"
 #include "Paths/SubPoints/DataBlending/PCGExSubPointsBlendInterpolate.h"
 
 #define LOCTEXT_NAMESPACE "PCGExBlendPathElement"
 #define PCGEX_NAMESPACE BlendPath
+
+PCGEX_SETTING_VALUE_IMPL(UPCGExBlendPathSettings, Lerp, double, LerpInput, LerpAttribute, LerpConstant)
 
 UPCGExBlendPathSettings::UPCGExBlendPathSettings(
 	const FObjectInitializer& ObjectInitializer)
@@ -25,6 +30,10 @@ TArray<FPCGPinProperties> UPCGExBlendPathSettings::InputPinProperties() const
 
 PCGEX_INITIALIZE_ELEMENT(BlendPath)
 
+PCGExData::EIOInit UPCGExBlendPathSettings::GetMainDataInitializationPolicy() const { return PCGExData::EIOInit::Duplicate; }
+
+PCGEX_ELEMENT_BATCH_POINT_IMPL(BlendPath)
+
 bool FPCGExBlendPathElement::Boot(FPCGExContext* InContext) const
 {
 	if (!FPCGExPathProcessorElement::Boot(InContext)) { return false; }
@@ -33,7 +42,7 @@ bool FPCGExBlendPathElement::Boot(FPCGExContext* InContext) const
 
 	if (!PCGExFactories::GetInputFactories<UPCGExBlendOpFactory>(
 		Context, PCGExDataBlending::SourceBlendingLabel, Context->BlendingFactories,
-		{PCGExFactories::EType::Blending}, true))
+		{PCGExFactories::EType::Blending}))
 	{
 		return false;
 	}
@@ -53,13 +62,13 @@ bool FPCGExBlendPathElement::ExecuteInternal(FPCGContext* InContext) const
 
 		// TODO : Skip completion
 
-		if (!Context->StartBatchProcessingPoints<PCGExPointsMT::TBatch<PCGExBlendPath::FProcessor>>(
+		if (!Context->StartBatchProcessingPoints(
 			[&](const TSharedPtr<PCGExData::FPointIO>& Entry)
 			{
 				PCGEX_SKIP_INVALID_PATH_ENTRY
 				return true;
 			},
-			[&](const TSharedPtr<PCGExPointsMT::TBatch<PCGExBlendPath::FProcessor>>& NewBatch)
+			[&](const TSharedPtr<PCGExPointsMT::IBatch>& NewBatch)
 			{
 			}))
 		{
@@ -69,7 +78,7 @@ bool FPCGExBlendPathElement::ExecuteInternal(FPCGContext* InContext) const
 
 	PCGEX_POINTS_BATCH_PROCESSING(PCGExCommon::State_Done)
 
-	Context->MainPoints->StageOutputs();
+	PCGEX_OUTPUT_VALID_PATHS(MainPoints)
 
 	return Context->TryComplete();
 }

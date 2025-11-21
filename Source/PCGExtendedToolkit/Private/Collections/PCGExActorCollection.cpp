@@ -36,17 +36,17 @@ void FPCGExActorCollectionEntry::EDITOR_Sanitize()
 void FPCGExActorCollectionEntry::UpdateStaging(const UPCGExAssetCollection* OwningCollection, const int32 InInternalIndex, const bool bRecursive)
 {
 	ClearManagedSockets();
-	
+
 	if (bIsSubCollection)
 	{
 		Super::UpdateStaging(OwningCollection, InInternalIndex, bRecursive);
 		return;
 	}
-	
+
 	Staging.Path = Actor ? Actor->GetPathName() : FSoftObjectPath();
 
 	// TODO : Implement socket from tagged components
-	
+
 	PCGExAssetCollection::UpdateStagingBounds(Staging, Actor, bOnlyCollidingComponents, bIncludeFromChildActors);
 
 	Super::UpdateStaging(OwningCollection, InInternalIndex, bRecursive);
@@ -115,3 +115,9 @@ void UPCGExActorCollection::EDITOR_AddBrowserSelectionInternal(const TArray<FAss
 	}
 }
 #endif
+
+void UPCGExActorCollection::EDITOR_RegisterTrackingKeys(FPCGExContext* Context) const
+{
+	Super::EDITOR_RegisterTrackingKeys(Context);
+	for (const FPCGExActorCollectionEntry& Entry : Entries) { if (Entry.bIsSubCollection && Entry.SubCollection) { Entry.SubCollection->EDITOR_RegisterTrackingKeys(Context); } }
+}

@@ -35,8 +35,8 @@ class UPCGExFindContoursSettings : public UPCGExEdgesProcessorSettings
 public:
 	//~Begin UPCGSettings
 #if WITH_EDITOR
-	PCGEX_NODE_INFOS(FindContours, "Pathfinding : Find Contours", "Attempts to find a closed contour of connected edges around seed points.");
-	virtual FLinearColor GetNodeTitleColor() const override { return GetDefault<UPCGExGlobalSettings>()->NodeColorPathfinding; }
+	PCGEX_NODE_INFOS(FindContours, "Pathfinding : Find Cells", "Attempts to find a closed cell of connected edges around seed points.");
+	virtual FLinearColor GetNodeTitleColor() const override { return GetDefault<UPCGExGlobalSettings>()->ColorPathfinding; }
 #endif
 
 protected:
@@ -99,7 +99,7 @@ struct FPCGExFindContoursContext final : FPCGExEdgesProcessorContext
 
 	TSharedPtr<PCGExData::FFacade> SeedsDataFacade;
 
-	TSharedPtr<PCGExData::FPointIOCollection> Paths;
+	TSharedPtr<PCGExData::FPointIOCollection> OutputPaths;
 	TSharedPtr<PCGExData::FPointIO> GoodSeeds;
 	TSharedPtr<PCGExData::FPointIO> BadSeeds;
 
@@ -107,6 +107,9 @@ struct FPCGExFindContoursContext final : FPCGExEdgesProcessorContext
 
 	FPCGExAttributeToTagDetails SeedAttributesToPathTags;
 	TSharedPtr<PCGExData::FDataForwardHandler> SeedForwardHandler;
+
+protected:
+	PCGEX_ELEMENT_BATCH_EDGE_DECL
 };
 
 class FPCGExFindContoursElement final : public FPCGExEdgesProcessorElement
@@ -129,8 +132,11 @@ namespace PCGExFindContours
 		int32 WrapperSeed = -1;
 
 		bool bBuildExpandedNodes = false;
-		int32 OutputPathNum = 0;
 		TSharedPtr<PCGExTopology::FCell> WrapperCell;
+
+		TSharedPtr<PCGExMT::TScopedArray<TSharedPtr<PCGExTopology::FCell>>> ScopedValidCells;
+		TArray<TSharedPtr<PCGExTopology::FCell>> ValidCells;
+		TArray<TSharedPtr<PCGExData::FPointIO>> CellsIOIndices;
 
 	public:
 		TSharedPtr<PCGExTopology::FCellConstraints> CellsConstraints;
@@ -143,10 +149,13 @@ namespace PCGExFindContours
 		virtual ~FProcessor() override;
 
 		virtual bool Process(const TSharedPtr<PCGExMT::FTaskManager>& InAsyncManager) override;
-		virtual void ProcessRange(const PCGExMT::FScope& Scope) override;
 
-		void ProcessCell(const int32 SeedIndex, const TSharedPtr<PCGExTopology::FCell>& InCell);
-		virtual void CompleteWork() override;
+		virtual void PrepareLoopScopesForRanges(const TArray<PCGExMT::FScope>& Loops) override;
+		virtual void ProcessRange(const PCGExMT::FScope& Scope) override;
+		virtual void OnRangeProcessingComplete() override;
+
+		void ProcessCell(const TSharedPtr<PCGExTopology::FCell>& InCell, const TSharedPtr<PCGExData::FPointIO>& PathIO);
+
 		virtual void Cleanup() override;
 	};
 }

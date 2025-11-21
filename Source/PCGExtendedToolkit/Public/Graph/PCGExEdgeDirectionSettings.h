@@ -6,7 +6,6 @@
 #include "CoreMinimal.h"
 #include "PCGExEdge.h"
 #include "PCGExGraph.h"
-#include "PCGExHelpers.h"
 #include "PCGExSorting.h"
 
 #include "PCGExEdgeDirectionSettings.generated.h"
@@ -46,12 +45,14 @@ struct PCGEXTENDEDTOOLKIT_API FPCGExEdgeDirectionSettings
 	bool Init(
 		FPCGExContext* InContext,
 		const TSharedRef<PCGExData::FFacade>& InVtxDataFacade,
-		const TArray<FPCGExSortRuleConfig>* InSortingRules = nullptr);
+		const TArray<FPCGExSortRuleConfig>* InSortingRules = nullptr,
+		const bool bQuiet = false);
 
 	bool InitFromParent(
 		FPCGExContext* InContext,
 		const FPCGExEdgeDirectionSettings& ParentSettings,
-		const TSharedRef<PCGExData::FFacade>& InEdgeDataFacade);
+		const TSharedRef<PCGExData::FFacade>& InEdgeDataFacade,
+		const bool bQuiet = false);
 
 	bool RequiresSortingRules() const { return DirectionMethod == EPCGExEdgeDirectionMethod::EndpointsSort; }
 	bool RequiresEndpointsMetadata() const { return DirectionMethod == EPCGExEdgeDirectionMethod::EndpointsSort; }

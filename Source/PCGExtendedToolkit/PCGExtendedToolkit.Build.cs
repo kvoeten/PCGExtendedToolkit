@@ -8,6 +8,7 @@ public class PCGExtendedToolkit : ModuleRules
 	public PCGExtendedToolkit(ReadOnlyTargetRules Target) : base(Target)
 	{
 		PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;
+		bUseUnity = true;
 
 		PublicIncludePaths.AddRange(
 			new string[]
@@ -30,6 +31,7 @@ public class PCGExtendedToolkit : ModuleRules
 				"Core",
 				"CoreUObject",
 				"Engine",
+				"GeometryScriptingCore",
 				"PCG",
 				"PCGGeometryScriptInterop"
 			}
@@ -39,7 +41,6 @@ public class PCGExtendedToolkit : ModuleRules
 		PrivateDependencyModuleNames.AddRange(
 			new string[]
 			{
-				"GeometryScriptingCore",
 				"RenderCore",
 				"RHI",
 				"GeometryCore",
@@ -50,7 +51,8 @@ public class PCGExtendedToolkit : ModuleRules
 				"Slate",
 				"SlateCore",
 				"GameplayTags",
-				"PropertyPath"
+				"PropertyPath",
+				"DeveloperSettings"
 			}
 		);
 

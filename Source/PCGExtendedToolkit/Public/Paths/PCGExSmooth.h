@@ -5,14 +5,22 @@
 
 #include "CoreMinimal.h"
 #include "PCGExPathProcessor.h"
-
-#include "PCGExPointsProcessor.h"
 #include "Data/PCGExPointFilter.h"
-#include "Data/Blending/PCGExBlendOpsManager.h"
+#include "Data/Blending/PCGExDataBlending.h"
+#include "Details/PCGExSettingsMacros.h"
 
-
-#include "Smoothing/PCGExSmoothingInstancedFactory.h"
 #include "PCGExSmooth.generated.h"
+
+class UPCGExBlendOpFactory;
+class UPCGExSmoothingInstancedFactory;
+class FPCGExSmoothingOperation;
+
+namespace PCGExDataBlending
+{
+	class IBlender;
+	class FBlendOpsManager;
+	class FMetadataBlender;
+}
 
 /**
  * 
@@ -34,8 +42,16 @@ protected:
 	virtual FPCGElementPtr CreateElement() const override;
 	//~End UPCGSettings
 
+	virtual PCGExData::EIOInit GetMainDataInitializationPolicy() const override;
+
 	//~Begin UPCGExPointsProcessorSettings
 public:
+#if WITH_EDITORONLY_DATA
+	// UObject interface
+	virtual void PostInitProperties() override;
+	// End of UObject interface
+#endif
+
 	PCGEX_NODE_POINT_FILTER(PCGExPointFilter::SourcePointFiltersLabel, "Filters which points get smoothed.", PCGExFactories::PointFilters, false)
 	//~End UPCGExPointsProcessorSettings
 
@@ -60,7 +76,7 @@ public:
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta=(PCG_Overridable, DisplayName="Influence", ClampMin=-1, ClampMax=1, EditCondition="InfluenceInput == EPCGExInputValueType::Constant", EditConditionHides))
 	double InfluenceConstant = 1.0;
 
-	PCGEX_SETTING_VALUE_GET(Influence, double, InfluenceInput, InfluenceAttribute, InfluenceConstant)
+	PCGEX_SETTING_VALUE_DECL(Influence, double)
 
 	/** Fetch the smoothing from a local attribute.*/
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta = (PCG_Overridable))
@@ -74,7 +90,7 @@ public:
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta=(PCG_Overridable, DisplayName="Smoothing", ClampMin=1, EditCondition="SmoothingAmountType == EPCGExInputValueType::Constant", EditConditionHides))
 	double SmoothingAmountConstant = 5;
 
-	PCGEX_SETTING_VALUE_GET(SmoothingAmount, double, SmoothingAmountType, SmoothingAmountAttribute, SmoothingAmountConstant)
+	PCGEX_SETTING_VALUE_DECL(SmoothingAmount, double)
 
 	/** Static multiplier for the local smoothing amount. */
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta=(PCG_Overridable, ClampMin=0.001))
@@ -96,6 +112,9 @@ struct FPCGExSmoothContext final : FPCGExPathProcessorContext
 	TArray<TObjectPtr<const UPCGExBlendOpFactory>> BlendingFactories;
 
 	UPCGExSmoothingInstancedFactory* SmoothingMethod = nullptr;
+
+protected:
+	PCGEX_ELEMENT_BATCH_POINT_DECL
 };
 
 class FPCGExSmoothElement final : public FPCGExPathProcessorElement

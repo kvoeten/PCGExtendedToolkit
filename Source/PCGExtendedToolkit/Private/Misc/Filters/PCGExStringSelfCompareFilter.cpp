@@ -3,9 +3,18 @@
 
 #include "Misc/Filters/PCGExStringSelfCompareFilter.h"
 
+#include "PCGExHelpers.h"
+#include "PCGExMath.h"
+#include "Data/PCGExAttributeHelpers.h"
+#include "Data/PCGExData.h"
+#include "Data/PCGExPointIO.h"
+#include "Details/PCGExDetailsSettings.h"
+
 
 #define LOCTEXT_NAMESPACE "PCGExCompareFilterDefinition"
 #define PCGEX_NAMESPACE CompareFilterDefinition
+
+PCGEX_SETTING_VALUE_IMPL(FPCGExStringSelfCompareFilterConfig, Index, int32, CompareAgainst, IndexAttribute, IndexConstant)
 
 TSharedPtr<PCGExPointFilter::IFilter> UPCGExStringSelfCompareFilterFactory::CreateFilter() const
 {
@@ -40,11 +49,11 @@ bool PCGExPointFilter::FStringSelfCompareFilter::Init(FPCGExContext* InContext, 
 	OperandA = MakeShared<PCGEx::TAttributeBroadcaster<FString>>();
 	if (!OperandA->Prepare(TypedFilterFactory->Config.OperandA, PointDataFacade->Source))
 	{
-		PCGEX_LOG_INVALID_ATTR_C(InContext, Operand A, TypedFilterFactory->Config.OperandA)
+		PCGEX_LOG_INVALID_ATTR_HANDLED_C(InContext, Operand A, TypedFilterFactory->Config.OperandA)
 		return false;
 	}
 
-	Index = TypedFilterFactory->Config.GetValueSettingIndex();
+	Index = TypedFilterFactory->Config.GetValueSettingIndex(PCGEX_QUIET_HANDLING);
 	if (!Index->Init(PointDataFacade)) { return false; }
 
 	return true;

@@ -1,9 +1,14 @@
 #include "Shapes/Builders/PCGExShapePolygon.h"
 
+#include "PCGExHelpers.h"
+#include "Details/PCGExDetailsSettings.h"
 #include "Paths/PCGExPaths.h"
 
 #define LOCTEXT_NAMESPACE "PCGExCreateBuilderPolygon"
 #define PCGEX_NAMESPACE CreateBuilderPolygon;
+
+PCGEX_SETTING_VALUE_IMPL(FPCGExShapePolygonConfig, NumVertices, int32, NumVerticesInput, NumVerticesAttribute, NumVerticesConstant)
+PCGEX_SETTING_VALUE_IMPL(FPCGExShapePolygonConfig, AddSkeleton, bool, AddSkeletonInput, AddSkeletonAttribute, bAddSkeleton)
 
 bool FPCGExShapePolygonBuilder::PrepareForSeeds(FPCGExContext* InContext, const TSharedRef<PCGExData::FFacade>& InSeedDataFacade)
 {
@@ -12,10 +17,16 @@ bool FPCGExShapePolygonBuilder::PrepareForSeeds(FPCGExContext* InContext, const 
 		return false;
 	}
 	NumVertices = Config.GetValueSettingNumVertices();
-	if (!NumVertices->Init(InSeedDataFacade)) return false;
+	if (!NumVertices->Init(InSeedDataFacade))
+	{
+		return false;
+	}
 
 	HasSkeleton = Config.GetValueSettingAddSkeleton();
-	if (!HasSkeleton->Init(InSeedDataFacade)) return false;
+	if (!HasSkeleton->Init(InSeedDataFacade))
+	{
+		return false;
+	}
 
 	PCGEX_VALIDATE_NAME_C(InContext, Config.AngleAttribute)
 	PCGEX_VALIDATE_NAME_C(InContext, Config.EdgeIndexAttribute)
@@ -162,10 +173,22 @@ void FPCGExShapePolygonBuilder::BuildShape(TSharedPtr<PCGExShapes::FShape> InSha
 	{
 		OutTransforms[WriteIndex] = FTransform(PCGExMath::MakeLookAtTransform(Pt - Target, FVector::UpVector, Config.LookAtAxis).GetRotation(), Pt, FVector::OneVector);
 
-		if (AngleBuffer) AngleBuffer->SetValue(WriteIndex, Angle);
-		if (HullFlagBuffer) HullFlagBuffer->SetValue(WriteIndex, IsOnHull);
-		if (EdgeIndexBuffer) EdgeIndexBuffer->SetValue(WriteIndex, EdgeIndex);
-		if (EdgeAlphaBuffer) EdgeAlphaBuffer->SetValue(WriteIndex, Alpha);
+		if (AngleBuffer)
+		{
+			AngleBuffer->SetValue(WriteIndex, Angle);
+		}
+		if (HullFlagBuffer)
+		{
+			HullFlagBuffer->SetValue(WriteIndex, IsOnHull);
+		}
+		if (EdgeIndexBuffer)
+		{
+			EdgeIndexBuffer->SetValue(WriteIndex, EdgeIndex);
+		}
+		if (EdgeAlphaBuffer)
+		{
+			EdgeAlphaBuffer->SetValue(WriteIndex, Alpha);
+		}
 	};
 
 	for (int32 i = 0; i < Polygon->NumVertices; i++)

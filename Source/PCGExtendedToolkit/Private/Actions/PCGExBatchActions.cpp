@@ -3,9 +3,13 @@
 
 #include "Actions/PCGExBatchActions.h"
 
+
 #include "Elements/Metadata/PCGMetadataElementCommon.h"
 #include "Graph/States/PCGExClusterStates.h"
 #include "Actions/PCGExActionFactoryProvider.h"
+#include "Data/PCGExAttributeHelpers.h"
+#include "Data/PCGExData.h"
+#include "Data/PCGExPointIO.h"
 
 
 #define LOCTEXT_NAMESPACE "PCGExGraph"
@@ -16,12 +20,16 @@ PCGExData::EIOInit UPCGExBatchActionsSettings::GetMainOutputInitMode() const { r
 TArray<FPCGPinProperties> UPCGExBatchActionsSettings::InputPinProperties() const
 {
 	TArray<FPCGPinProperties> PinProperties = Super::InputPinProperties();
-	PCGEX_PIN_FACTORIES(PCGExActions::SourceActionsLabel, "Actions nodes.", Normal, {})
-	PCGEX_PIN_ANY(PCGExActions::SourceDefaultsLabel, "Default values that match attributes when creating new attributes.", Normal, {})
+	PCGEX_PIN_FACTORIES(PCGExActions::SourceActionsLabel, "Actions nodes.", Normal, FPCGExDataTypeInfoAction::AsId())
+	PCGEX_PIN_ANY(PCGExActions::SourceDefaultsLabel, "Default values that match attributes when creating new attributes.", Normal)
 	return PinProperties;
 }
 
 PCGEX_INITIALIZE_ELEMENT(BatchActions)
+
+PCGExData::EIOInit UPCGExBatchActionsSettings::GetMainDataInitializationPolicy() const { return PCGExData::EIOInit::Duplicate; }
+
+PCGEX_ELEMENT_BATCH_POINT_IMPL(BatchActions)
 
 bool FPCGExBatchActionsElement::Boot(FPCGExContext* InContext) const
 {
@@ -33,7 +41,7 @@ bool FPCGExBatchActionsElement::Boot(FPCGExContext* InContext) const
 
 	if (!PCGExFactories::GetInputFactories(
 		Context, PCGExActions::SourceActionsLabel, Context->ActionsFactories,
-		{PCGExFactories::EType::Action}, true))
+		{PCGExFactories::EType::Action}))
 	{
 		// No action factories, early exit.
 		Context->ActionsFactories.Empty();
@@ -77,9 +85,9 @@ bool FPCGExBatchActionsElement::ExecuteInternal(
 	{
 		if (!Context->ActionsFactories.IsEmpty())
 		{
-			if (!Context->StartBatchProcessingPoints<PCGExPointsMT::TBatch<PCGExBatchActions::FProcessor>>(
+			if (!Context->StartBatchProcessingPoints(
 				[&](const TSharedPtr<PCGExData::FPointIO>& Entry) { return true; },
-				[&](const TSharedPtr<PCGExPointsMT::TBatch<PCGExBatchActions::FProcessor>>& NewBatch)
+				[&](const TSharedPtr<PCGExPointsMT::IBatch>& NewBatch)
 				{
 				}))
 			{

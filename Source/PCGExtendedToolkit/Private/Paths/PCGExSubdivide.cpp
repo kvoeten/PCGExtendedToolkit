@@ -4,12 +4,28 @@
 #include "Paths/PCGExSubdivide.h"
 
 #include "PCGExRandom.h"
+#include "PCGParamData.h"
+#include "Data/PCGExPointIO.h"
+#include "Details/PCGExDetailsSettings.h"
 
 
 #include "Paths/SubPoints/DataBlending/PCGExSubPointsBlendInterpolate.h"
 
 #define LOCTEXT_NAMESPACE "PCGExSubdivideElement"
 #define PCGEX_NAMESPACE Subdivide
+
+PCGEX_SETTING_VALUE_IMPL(UPCGExSubdivideSettings, SubdivisionAmount, double, AmountInput, SubdivisionAmount, SubdivideMethod == EPCGExSubdivideMode::Count ? Count : Distance)
+
+#if WITH_EDITORONLY_DATA
+void UPCGExSubdivideSettings::PostInitProperties()
+{
+	if (!HasAnyFlags(RF_ClassDefaultObject) && IsInGameThread())
+	{
+		if (!Blending) { Blending = NewObject<UPCGExSubPointsBlendInterpolate>(this, TEXT("Blending")); }
+	}
+	Super::PostInitProperties();
+}
+#endif
 
 TArray<FPCGPinProperties> UPCGExSubdivideSettings::InputPinProperties() const
 {
@@ -19,6 +35,7 @@ TArray<FPCGPinProperties> UPCGExSubdivideSettings::InputPinProperties() const
 }
 
 PCGEX_INITIALIZE_ELEMENT(Subdivide)
+PCGEX_ELEMENT_BATCH_POINT_IMPL(Subdivide)
 
 bool FPCGExSubdivideElement::Boot(FPCGExContext* InContext) const
 {
@@ -39,13 +56,13 @@ bool FPCGExSubdivideElement::ExecuteInternal(FPCGContext* InContext) const
 {
 	TRACE_CPUPROFILER_EVENT_SCOPE(FPCGExSubdivideElement::Execute);
 
-	PCGEX_CONTEXT(Subdivide)
+	PCGEX_CONTEXT_AND_SETTINGS(Subdivide)
 	PCGEX_EXECUTION_CHECK
 	PCGEX_ON_INITIAL_EXECUTION
 	{
 		PCGEX_ON_INVALILD_INPUTS(FTEXT("Some inputs have less than 2 points and won't be processed."))
 
-		if (!Context->StartBatchProcessingPoints<PCGExPointsMT::TBatch<PCGExSubdivide::FProcessor>>(
+		if (!Context->StartBatchProcessingPoints(
 			[&](const TSharedPtr<PCGExData::FPointIO>& Entry)
 			{
 				if (Entry->GetNum() < 2)
@@ -56,7 +73,7 @@ bool FPCGExSubdivideElement::ExecuteInternal(FPCGContext* InContext) const
 				}
 				return true;
 			},
-			[&](const TSharedPtr<PCGExPointsMT::TBatch<PCGExSubdivide::FProcessor>>& NewBatch)
+			[&](const TSharedPtr<PCGExPointsMT::IBatch>& NewBatch)
 			{
 				NewBatch->bRequiresWriteStep = true;
 			}))
@@ -67,7 +84,7 @@ bool FPCGExSubdivideElement::ExecuteInternal(FPCGContext* InContext) const
 
 	PCGEX_POINTS_BATCH_PROCESSING(PCGExCommon::State_Done)
 
-	Context->MainPoints->StageOutputs();
+	PCGEX_OUTPUT_VALID_PATHS(MainPoints)
 
 	return Context->TryComplete();
 }

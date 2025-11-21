@@ -4,11 +4,12 @@
 
 #include "PCGExCompare.h"
 
-#include "PCGExDetails.h"
+#include "PCGExContext.h"
+#include "PCGExMath.h"
 #include "Data/PCGExData.h"
+#include "Data/PCGExDataPreloader.h"
 #include "Data/PCGExDataTag.h"
-#include "Data/PCGExProxyData.h"
-
+#include "Details/PCGExDetailsSettings.h"
 
 namespace PCGExCompare
 {
@@ -33,25 +34,6 @@ namespace PCGExCompare
 		case EPCGExComparison::NearlyNotEqual:
 			return " !~= ";
 		default: return " ?? ";
-		}
-	}
-
-	FString ToString(const EPCGExBitflagComparison Comparison)
-	{
-		switch (Comparison)
-		{
-		case EPCGExBitflagComparison::MatchPartial:
-			return " Any ";
-		case EPCGExBitflagComparison::MatchFull:
-			return " All ";
-		case EPCGExBitflagComparison::MatchStrict:
-			return " Exactly ";
-		case EPCGExBitflagComparison::NoMatchPartial:
-			return " Not Any ";
-		case EPCGExBitflagComparison::NoMatchFull:
-			return " Not All ";
-		default:
-			return " ?? ";
 		}
 	}
 
@@ -152,24 +134,6 @@ namespace PCGExCompare
 		return Compare(Method, A->AsString(), B);
 	}
 
-	bool Compare(const EPCGExBitflagComparison Method, const int64& Flags, const int64& Mask)
-	{
-		switch (Method)
-		{
-		case EPCGExBitflagComparison::MatchPartial:
-			return ((Flags & Mask) != 0);
-		case EPCGExBitflagComparison::MatchFull:
-			return ((Flags & Mask) == Mask);
-		case EPCGExBitflagComparison::MatchStrict:
-			return (Flags == Mask);
-		case EPCGExBitflagComparison::NoMatchPartial:
-			return ((Flags & Mask) == 0);
-		case EPCGExBitflagComparison::NoMatchFull:
-			return ((Flags & Mask) != Mask);
-		default: return false;
-		}
-	}
-
 	bool HasMatchingTags(const TSharedPtr<PCGExData::FTags>& InTags, const FString& Query, const EPCGExStringMatchMode MatchMode, const bool bStrict)
 	{
 		if (bStrict)
@@ -263,9 +227,11 @@ namespace PCGExCompare
 	}
 }
 
-bool FPCGExVectorHashComparisonDetails::Init(FPCGExContext* InContext, const TSharedRef<PCGExData::FFacade>& InPrimaryDataFacade)
+PCGEX_SETTING_VALUE_IMPL(FPCGExVectorHashComparisonDetails, Tolerance, double, HashToleranceInput, HashToleranceAttribute, HashToleranceConstant);
+
+bool FPCGExVectorHashComparisonDetails::Init(FPCGExContext* InContext, const TSharedRef<PCGExData::FFacade>& InPrimaryDataFacade, const bool bQuiet)
 {
-	Tolerance = GetValueSettingTolerance();
+	Tolerance = GetValueSettingTolerance(bQuiet);
 	if (!Tolerance->Init(InPrimaryDataFacade, false)) { return false; }
 
 	return true;
@@ -290,7 +256,7 @@ bool FPCGExVectorHashComparisonDetails::GetOnlyUseDataDomain() const
 bool FPCGExVectorHashComparisonDetails::Test(const FVector& A, const FVector& B, const int32 PointIndex) const
 {
 	const FVector CWTolerance = GetCWTolerance(PointIndex);
-	return PCGEx::I323(A, CWTolerance) == PCGEx::I323(B, CWTolerance);
+	return PCGEx::GH3(A, CWTolerance) == PCGEx::GH3(B, CWTolerance);
 }
 
 void FPCGExStaticDotComparisonDetails::Init()
@@ -305,9 +271,11 @@ bool FPCGExStaticDotComparisonDetails::Test(const double A) const
 	return PCGExCompare::Compare(Comparison, bUnsignedComparison ? FMath::Abs(A) : (1 + A) * 0.5, DotTolerance, ComparisonTolerance);
 }
 
-bool FPCGExDotComparisonDetails::Init(FPCGExContext* InContext, const TSharedRef<PCGExData::FFacade>& InPrimaryDataCache)
+PCGEX_SETTING_VALUE_IMPL(FPCGExDotComparisonDetails, Threshold, double, ThresholdInput, ThresholdAttribute, Domain == EPCGExAngularDomain::Degrees ? DegreesConstant : DotConstant)
+
+bool FPCGExDotComparisonDetails::Init(FPCGExContext* InContext, const TSharedRef<PCGExData::FFacade>& InPrimaryDataCache, const bool bQuiet)
 {
-	ThresholdGetter = GetValueSettingThreshold();
+	ThresholdGetter = GetValueSettingThreshold(bQuiet);
 	if (!ThresholdGetter->Init(InPrimaryDataCache, false)) { return false; }
 
 	if (Domain == EPCGExAngularDomain::Degrees) { ComparisonTolerance = (1 + PCGExMath::DegreesToDot(180 - DegreesTolerance)) * 0.5; }
@@ -334,6 +302,11 @@ bool FPCGExDotComparisonDetails::Test(const double A, const int32 Index) const
 	return Test(A, GetComparisonThreshold(Index));
 }
 
+void FPCGExDotComparisonDetails::RegisterBuffersDependencies(FPCGExContext* InContext, PCGExData::FFacadePreloader& FacadePreloader) const
+{
+	if (ThresholdInput == EPCGExInputValueType::Attribute) { FacadePreloader.Register<double>(InContext, ThresholdAttribute); }
+}
+
 void FPCGExDotComparisonDetails::RegisterConsumableAttributesWithData(FPCGExContext* InContext, const UPCGData* InData) const
 {
 	FName Consumable = NAME_None;
@@ -358,135 +331,5 @@ FString FPCGExDotComparisonDetails::GetDisplayComparison() const
 	FString Str = PCGExCompare::ToString(Comparison) + (bUnsignedComparison ? TEXT("±") : TEXT("")) + AngleStr;
 	return Str;
 }
+
 #endif
-
-int64 FPCGExBitmask::Get() const
-{
-	int64 Mask = 0;
-
-	if (Mode == EPCGExBitmaskMode::Direct) { return Bitmask; }
-
-	if (Mode == EPCGExBitmaskMode::Individual)
-	{
-		for (const FClampedBit& Bit : Bits) { if (Bit.bValue) { Mask |= (1LL << Bit.BitIndex); } }
-	}
-	else
-	{
-		Mask |= static_cast<int64>(Range_00_08) << 0;
-		Mask |= static_cast<int64>(Range_08_16) << 8;
-		Mask |= static_cast<int64>(Range_16_24) << 16;
-		Mask |= static_cast<int64>(Range_24_32) << 24;
-		Mask |= static_cast<int64>(Range_32_40) << 32;
-		Mask |= static_cast<int64>(Range_40_48) << 40;
-		Mask |= static_cast<int64>(Range_48_56) << 48;
-		Mask |= static_cast<int64>(Range_56_64) << 56;
-	}
-
-	return Mask;
-}
-
-void FPCGExBitmask::DoOperation(const EPCGExBitOp Op, int64& Flags) const
-{
-	const int64 Mask = Get();
-	switch (Op)
-	{
-	case EPCGExBitOp::Set:
-		Flags = Mask;
-		break;
-	case EPCGExBitOp::AND:
-		Flags &= Mask;
-		break;
-	case EPCGExBitOp::OR:
-		Flags |= Mask;
-		break;
-	case EPCGExBitOp::NOT:
-		Flags &= ~Mask;
-		break;
-	case EPCGExBitOp::XOR:
-		Flags ^= Mask;
-		break;
-	default: ;
-	}
-}
-
-int64 FPCGExBitmaskWithOperation::Get() const
-{
-	int64 Mask = 0;
-
-	switch (Mode)
-	{
-	case EPCGExBitmaskMode::Direct:
-		Mask = Bitmask;
-		break;
-	case EPCGExBitmaskMode::Individual:
-		for (const FClampedBitOp& Bit : Bits) { if (Bit.bValue) { Mask |= (1LL << Bit.BitIndex); } }
-		break;
-	case EPCGExBitmaskMode::Composite:
-		Mask |= static_cast<int64>(Range_00_08) << 0;
-		Mask |= static_cast<int64>(Range_08_16) << 8;
-		Mask |= static_cast<int64>(Range_16_24) << 16;
-		Mask |= static_cast<int64>(Range_24_32) << 24;
-		Mask |= static_cast<int64>(Range_32_40) << 32;
-		Mask |= static_cast<int64>(Range_40_48) << 40;
-		Mask |= static_cast<int64>(Range_48_56) << 48;
-		Mask |= static_cast<int64>(Range_56_64) << 56;
-		break;
-	default: ;
-	}
-
-	return Mask;
-}
-
-void FPCGExBitmaskWithOperation::DoOperation(int64& Flags) const
-{
-	if (Mode == EPCGExBitmaskMode::Individual)
-	{
-		for (const FClampedBitOp& BitOp : Bits)
-		{
-			const int64 Bit = BitOp.Get();
-			switch (BitOp.Op)
-			{
-			case EPCGExBitOp::Set:
-				if (BitOp.bValue) { Flags |= Bit; } // Set the bit
-				else { Flags &= Bit; }              // Clear the bit
-				break;
-			case EPCGExBitOp::AND:
-				Flags &= Bit;
-				break;
-			case EPCGExBitOp::OR:
-				Flags |= Bit;
-				break;
-			case EPCGExBitOp::NOT:
-				Flags &= ~Bit;
-				break;
-			case EPCGExBitOp::XOR:
-				Flags ^= Bit;
-				break;
-			default: ;
-			}
-		}
-		return;
-	}
-
-	const int64 Mask = Get();
-
-	switch (Op)
-	{
-	case EPCGExBitOp::Set:
-		Flags = Mask;
-		break;
-	case EPCGExBitOp::AND:
-		Flags &= Mask;
-		break;
-	case EPCGExBitOp::OR:
-		Flags |= Mask;
-		break;
-	case EPCGExBitOp::NOT:
-		Flags &= ~Mask;
-		break;
-	case EPCGExBitOp::XOR:
-		Flags ^= Mask;
-		break;
-	default: ;
-	}
-}

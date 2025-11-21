@@ -3,6 +3,8 @@
 
 #include "Paths/PCGExAttributeRolling.h"
 
+#include "Data/PCGExPointFilter.h"
+#include "Data/PCGExPointIO.h"
 #include "Data/Blending/PCGExBlendOpFactoryProvider.h"
 
 #define LOCTEXT_NAMESPACE "PCGExAttributeRollingElement"
@@ -21,17 +23,17 @@ TArray<FPCGPinProperties> UPCGExAttributeRollingSettings::InputPinProperties() c
 
 	if (RangeControl == EPCGExRollingRangeControl::StartStop)
 	{
-		PCGEX_PIN_FACTORIES(PCGExPointFilter::SourceStartConditionLabel, "...", Required, {})
-		PCGEX_PIN_FACTORIES(PCGExPointFilter::SourceStopConditionLabel, "...", Required, {})
+		PCGEX_PIN_FILTERS(PCGExPointFilter::SourceStartConditionLabel, "...", Required)
+		PCGEX_PIN_FILTERS(PCGExPointFilter::SourceStopConditionLabel, "...", Required)
 	}
 	else
 	{
-		PCGEX_PIN_FACTORIES(PCGExPointFilter::SourceToggleConditionLabel, "...", Normal, {})
+		PCGEX_PIN_FILTERS(PCGExPointFilter::SourceToggleConditionLabel, "...", Normal)
 	}
 
 	if (ValueControl == EPCGExRollingValueControl::Pin)
 	{
-		PCGEX_PIN_FACTORIES(PCGExPointFilter::SourcePinConditionLabel, "...", Required, {})
+		PCGEX_PIN_FILTERS(PCGExPointFilter::SourcePinConditionLabel, "...", Required)
 	}
 
 	PCGExDataBlending::DeclareBlendOpsInputs(PinProperties, EPCGPinStatus::Normal);
@@ -40,6 +42,10 @@ TArray<FPCGPinProperties> UPCGExAttributeRollingSettings::InputPinProperties() c
 }
 
 PCGEX_INITIALIZE_ELEMENT(AttributeRolling)
+
+PCGExData::EIOInit UPCGExAttributeRollingSettings::GetMainDataInitializationPolicy() const { return PCGExData::EIOInit::Duplicate; }
+
+PCGEX_ELEMENT_BATCH_POINT_IMPL(AttributeRolling)
 
 bool FPCGExAttributeRollingElement::Boot(FPCGExContext* InContext) const
 {
@@ -51,32 +57,32 @@ bool FPCGExAttributeRollingElement::Boot(FPCGExContext* InContext) const
 
 	if (Settings->RangeControl == EPCGExRollingRangeControl::StartStop)
 	{
-		if (!PCGExFactories::GetInputFactories<UPCGExFilterFactoryData>(
+		if (!PCGExFactories::GetInputFactories<UPCGExPointFilterFactoryData>(
 			Context, PCGExPointFilter::SourceStartConditionLabel, Context->StartFilterFactories,
-			PCGExFactories::PointFilters, true))
+			PCGExFactories::PointFilters))
 		{
 			return false;
 		}
 
-		if (!PCGExFactories::GetInputFactories<UPCGExFilterFactoryData>(
+		if (!PCGExFactories::GetInputFactories<UPCGExPointFilterFactoryData>(
 			Context, PCGExPointFilter::SourceStopConditionLabel, Context->StopFilterFactories,
-			PCGExFactories::PointFilters, true))
+			PCGExFactories::PointFilters))
 		{
 			return false;
 		}
 	}
 	else
 	{
-		PCGExFactories::GetInputFactories<UPCGExFilterFactoryData>(
+		PCGExFactories::GetInputFactories<UPCGExPointFilterFactoryData>(
 			Context, PCGExPointFilter::SourceToggleConditionLabel, Context->StartFilterFactories,
 			PCGExFactories::PointFilters, false);
 	}
 
 	if (Settings->ValueControl == EPCGExRollingValueControl::Pin)
 	{
-		if (!PCGExFactories::GetInputFactories<UPCGExFilterFactoryData>(
+		if (!PCGExFactories::GetInputFactories<UPCGExPointFilterFactoryData>(
 			Context, PCGExPointFilter::SourcePinConditionLabel, Context->PinFilterFactories,
-			PCGExFactories::PointFilters, true))
+			PCGExFactories::PointFilters))
 		{
 			return false;
 		}
@@ -102,14 +108,14 @@ bool FPCGExAttributeRollingElement::ExecuteInternal(FPCGContext* InContext) cons
 
 		// TODO : Skip completion
 
-		if (!Context->StartBatchProcessingPoints<PCGExPointsMT::TBatch<PCGExAttributeRolling::FProcessor>>(
+		if (!Context->StartBatchProcessingPoints(
 			[&](const TSharedPtr<PCGExData::FPointIO>& Entry)
 			{
 				PCGEX_SKIP_INVALID_PATH_ENTRY
 				Entry->InitializeOutput(PCGExData::EIOInit::Duplicate);
 				return true;
 			},
-			[&](const TSharedPtr<PCGExPointsMT::TBatch<PCGExAttributeRolling::FProcessor>>& NewBatch)
+			[&](const TSharedPtr<PCGExPointsMT::IBatch>& NewBatch)
 			{
 				NewBatch->bPrefetchData = !Context->BlendingFactories.IsEmpty();
 			}))
@@ -121,7 +127,7 @@ bool FPCGExAttributeRollingElement::ExecuteInternal(FPCGContext* InContext) cons
 	PCGEX_POINTS_BATCH_PROCESSING(PCGExCommon::State_Done)
 
 	Context->MainBatch->Output();
-	Context->MainPoints->StageOutputs();
+	PCGEX_OUTPUT_VALID_PATHS(MainPoints)
 
 	return Context->TryComplete();
 }
@@ -210,7 +216,7 @@ namespace PCGExAttributeRolling
 
 		SourceIndex = bRoll ? FirstIndex : -1;
 
-		bDaisyChainProcessRange = true;
+		bForceSingleThreadedProcessRange = true;
 		StartParallelLoopForRange(PointDataFacade->GetNum());
 
 		return true;

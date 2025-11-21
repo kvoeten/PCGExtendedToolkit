@@ -3,12 +3,13 @@
 
 #include "Graph/Filters/Edges/PCGExEdgeLengthFilter.h"
 
-
-#include "PCGExDetailsData.h"
+#include "Details/PCGExDetailsSettings.h"
 #include "Graph/PCGExGraph.h"
 
 #define LOCTEXT_NAMESPACE "PCGExEdgeLengthFilter"
 #define PCGEX_NAMESPACE EdgeLengthFilter
+
+PCGEX_SETTING_VALUE_IMPL(FPCGExEdgeLengthFilterConfig, Threshold, double, ThresholdInput, ThresholdAttribute, ThresholdConstant)
 
 bool UPCGExEdgeLengthFilterFactory::RegisterConsumableAttributesWithData(FPCGExContext* InContext, const UPCGData* InData) const
 {
@@ -31,7 +32,7 @@ namespace PCGExEdgeLength
 	{
 		if (!IFilter::Init(InContext, InCluster, InPointDataFacade, InEdgeDataFacade)) { return false; }
 
-		Threshold = TypedFilterFactory->Config.GetValueSettingThreshold();
+		Threshold = TypedFilterFactory->Config.GetValueSettingThreshold(PCGEX_QUIET_HANDLING);
 		if (!Threshold->Init(PointDataFacade)) { return false; }
 
 		return true;

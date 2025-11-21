@@ -1,8 +1,9 @@
 ﻿// Copyright 2025 Timothé Lapetite and contributors
 // Released under the MIT license https://opensource.org/license/MIT/
 
-#include "Topology/PCGExTopologyEdgesProcessor.h" 
+#include "Topology/PCGExTopologyEdgesProcessor.h"
 
+#include "Graph/Filters/PCGExClusterFilter.h"
 #include "Topology/PCGExTopology.h"
 
 #define LOCTEXT_NAMESPACE "TopologyProcessor"
@@ -14,10 +15,10 @@ PCGExData::EIOInit UPCGExTopologyEdgesProcessorSettings::GetEdgeOutputInitMode()
 TArray<FPCGPinProperties> UPCGExTopologyEdgesProcessorSettings::InputPinProperties() const
 {
 	TArray<FPCGPinProperties> PinProperties = Super::InputPinProperties();
-	PCGEX_PIN_POINT(PCGExTopology::SourceHolesLabel, "Omit cells that contain any points from this dataset", Normal, {})
+	PCGEX_PIN_POINT(PCGExTopology::SourceHolesLabel, "Omit cells that contain any points from this dataset", Normal)
 	if (SupportsEdgeConstraints())
 	{
-		PCGEX_PIN_FACTORIES(PCGExTopology::SourceEdgeConstrainsFiltersLabel, "Constrained edges filters.", Normal, {})
+		PCGEX_PIN_FILTERS(PCGExTopology::SourceEdgeConstrainsFiltersLabel, "Constrained edges filters.", Normal)
 	}
 	return PinProperties;
 }
@@ -27,7 +28,7 @@ TArray<FPCGPinProperties> UPCGExTopologyEdgesProcessorSettings::OutputPinPropert
 	if (OutputMode == EPCGExTopologyOutputMode::Legacy) { return Super::OutputPinProperties(); }
 
 	TArray<FPCGPinProperties> PinProperties;
-	PCGEX_PIN_MESH(FName("Mesh"), "PCG Dynamic Mesh", Normal, {})
+	PCGEX_PIN_MESH(PCGExTopology::OutputMeshLabel, "PCG Dynamic Mesh", Normal)
 	return PinProperties;
 }
 
@@ -69,7 +70,12 @@ bool FPCGExTopologyEdgesProcessorElement::Boot(FPCGExContext* InContext) const
 	}
 
 	PCGExHelpers::AppendUniqueEntriesFromCommaSeparatedList(Settings->CommaSeparatedComponentTags, Context->ComponentTags);
-	GetInputFactories(Context, PCGExTopology::SourceEdgeConstrainsFiltersLabel, Context->EdgeConstraintsFilterFactories, PCGExFactories::ClusterEdgeFilters, false);
+
+	GetInputFactories(
+		Context, PCGExTopology::SourceEdgeConstrainsFiltersLabel, Context->EdgeConstraintsFilterFactories,
+		PCGExFactories::ClusterEdgeFilters, false);
+
+	Context->HashMaps.Init(nullptr, Context->MainPoints->Num());
 	return true;
 }
 

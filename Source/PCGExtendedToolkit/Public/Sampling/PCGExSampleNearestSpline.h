@@ -11,13 +11,9 @@
 #include "PCGExGlobalSettings.h"
 #include "PCGExPointsProcessor.h"
 #include "PCGExSampling.h"
-#include "PCGExScopedContainers.h"
+#include "Data/PCGExPointFilter.h"
 #include "Data/PCGSplineData.h"
-
-
-#include "Misc/PCGExSortPoints.h"
 #include "Misc/Filters/PCGExPolyPathFilterFactory.h"
-
 
 #include "PCGExSampleNearestSpline.generated.h"
 
@@ -35,9 +31,16 @@ MACRO(Angle, double, 0)\
 MACRO(Time, double, 0)\
 MACRO(NumInside, int32, 0)\
 MACRO(NumSamples, int32, 0)\
-MACRO(ClosedLoop, bool, false)
+MACRO(ClosedLoop, bool, false) \
+MACRO(TotalWeight, double, 0)
 
-class UPCGExFilterFactoryData;
+class UPCGExPointFilterFactoryData;
+
+namespace PCGExMT
+{
+	template <typename T>
+	class TScopedNumericValue;
+}
 
 UENUM()
 enum class EPCGExSplineDepthMode : uint8
@@ -112,13 +115,15 @@ public:
 	//~Begin UPCGSettings
 #if WITH_EDITOR
 	PCGEX_NODE_INFOS(SampleNearestSpline, "Sample : Nearest Spline", "Find the closest transform on nearest polylines.");
-	virtual FLinearColor GetNodeTitleColor() const override { return GetDefault<UPCGExGlobalSettings>()->NodeColorSampler; }
+	virtual FLinearColor GetNodeTitleColor() const override { return GetDefault<UPCGExGlobalSettings>()->ColorSampling; }
 #endif
 
 protected:
 	virtual TArray<FPCGPinProperties> InputPinProperties() const override;
 	virtual FPCGElementPtr CreateElement() const override;
 	//~End UPCGSettings
+
+	virtual PCGExData::EIOInit GetMainDataInitializationPolicy() const override;
 
 	//~Begin UPCGExPointsProcessorSettings
 public:
@@ -151,7 +156,7 @@ public:
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = "Settings|Sampling", meta=(PCG_Overridable, EditCondition="RangeMinInput == EPCGExInputValueType::Constant", EditConditionHides, ClampMin=0))
 	double RangeMin = 0;
 
-	PCGEX_SETTING_VALUE_GET(RangeMin, double, RangeMinInput, RangeMinAttribute, RangeMin)
+	PCGEX_SETTING_VALUE_DECL(RangeMin, double)
 
 	/** Type of Range Min */
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = "Settings|Sampling", meta=(PCG_Overridable))
@@ -165,7 +170,7 @@ public:
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = "Settings|Sampling", meta=(PCG_Overridable, EditCondition="RangeMaxInput == EPCGExInputValueType::Constant", ClampMin=0))
 	double RangeMax = 300;
 
-	PCGEX_SETTING_VALUE_GET(RangeMax, double, RangeMaxInput, RangeMaxAttribute, RangeMax)
+	PCGEX_SETTING_VALUE_DECL(RangeMax, double)
 
 #pragma endregion
 
@@ -193,7 +198,7 @@ public:
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = "Settings|Sampling", meta=(PCG_Overridable, DisplayName=" └─ Sample Alpha", EditCondition="bSampleSpecificAlpha && SampleAlphaInput == EPCGExInputValueType::Constant", EditConditionHides))
 	double SampleAlphaConstant = 0.5;
 
-	PCGEX_SETTING_VALUE_GET_BOOL(SampleAlpha, double, bSampleSpecificAlpha, SampleAlphaAttribute, SampleAlphaConstant)
+	PCGEX_SETTING_VALUE_DECL(SampleAlpha, double)
 
 	/** Distance method to be used for source points. */
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = "Settings|Sampling", meta=(PCG_Overridable))
@@ -202,6 +207,10 @@ public:
 	/** Weight method used for blending */
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = "Settings|Weighting", meta=(PCG_Overridable))
 	EPCGExRangeType WeightMethod = EPCGExRangeType::FullRange;
+
+	/** If enabled, will preserve the original point transform as base for weighting. Otherwise, use transform identity. */
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = "Settings|Weighting", meta=(PCG_Overridable))
+	bool bWeightFromOriginalTransform = true;
 
 	/** Whether to use in-editor curve or an external asset. */
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = "Settings|Sampling", meta=(PCG_NotOverridable))
@@ -265,7 +274,7 @@ public:
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = "Settings|Outputs", meta=(PCG_Overridable, DisplayName=" └─ Up Vector", EditCondition="LookAtUpSelection == EPCGExSampleSource::Constant", EditConditionHides))
 	FVector LookAtUpConstant = FVector::UpVector;
 
-	PCGEX_SETTING_VALUE_GET(LookAtUp, FVector, LookAtUpSelection == EPCGExSampleSource::Constant ? EPCGExInputValueType::Constant : EPCGExInputValueType::Attribute, LookAtUpSource, LookAtUpConstant)
+	PCGEX_SETTING_VALUE_DECL(LookAtUp, FVector)
 
 	/** Write the sampled distance. */
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = "Settings|Outputs", meta=(PCG_Overridable, InlineEditConditionToggle))
@@ -387,6 +396,14 @@ public:
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = "Settings|Additional Outputs", meta=(DisplayName="ClosedLoop", PCG_Overridable, EditCondition="bWriteClosedLoop"))
 	FName ClosedLoopAttributeName = FName("ClosedLoop");
 
+	/** Write the whether the sampled spline is closed or not. */
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = "Settings|Additional Outputs", meta=(PCG_Overridable, InlineEditConditionToggle))
+	bool bWriteTotalWeight = false;
+
+	/** Name of the 'double' attribute to write the total weight computed for that point.*/
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = "Settings|Additional Outputs", meta=(DisplayName="Total Weight", PCG_Overridable, EditCondition="bWriteTotalWeight"))
+	FName TotalWeightAttributeName = FName("TotalWeight");
+
 	/** Write the sampled depth. */
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = "Settings|Additional Outputs", meta=(PCG_Overridable, InlineEditConditionToggle))
 	bool bWriteDepth = false;
@@ -461,6 +478,9 @@ struct FPCGExSampleNearestSplineContext final : FPCGExPointsProcessorContext
 	PCGEX_FOREACH_FIELD_NEARESTPOLYLINE(PCGEX_OUTPUT_DECL_TOGGLE)
 
 	virtual void RegisterAssetDependencies() override;
+
+protected:
+	PCGEX_ELEMENT_BATCH_POINT_DECL
 };
 
 class FPCGExSampleNearestSplineElement final : public FPCGExPointsProcessorElement

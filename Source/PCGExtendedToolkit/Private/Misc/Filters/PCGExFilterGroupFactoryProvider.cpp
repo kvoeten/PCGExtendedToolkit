@@ -4,6 +4,7 @@
 
 #include "Misc/Filters/PCGExFilterGroupFactoryProvider.h"
 
+#include "PCGExHelpers.h"
 #include "Data/PCGExPointFilter.h"
 #include "Data/PCGExFilterGroup.h"
 
@@ -22,7 +23,7 @@ TArray<FPCGPreConfiguredSettingsInfo> UPCGExFilterGroupProviderSettings::GetPrec
 	TArray<FPCGPreConfiguredSettingsInfo> Infos;
 
 	const TSet<EPCGExFilterGroupMode> ValuesToSkip = {};
-	return FPCGPreConfiguredSettingsInfo::PopulateFromEnum<EPCGExFilterGroupMode>(ValuesToSkip, FTEXT("PCGEx | Filter {0}"));
+	return FPCGPreConfiguredSettingsInfo::PopulateFromEnum<EPCGExFilterGroupMode>(ValuesToSkip, FTEXT("{0} (Combine Filters)"));
 }
 #endif
 
@@ -35,7 +36,14 @@ void UPCGExFilterGroupProviderSettings::ApplyPreconfiguredSettings(const FPCGPre
 TArray<FPCGPinProperties> UPCGExFilterGroupProviderSettings::InputPinProperties() const
 {
 	TArray<FPCGPinProperties> PinProperties;
-	PCGEX_PIN_FACTORIES(PCGExPointFilter::SourceFiltersLabel, "List of filters that will be processed in either AND or OR mode.", Required, {})
+	PCGEX_PIN_FILTERS(PCGExPointFilter::SourceFiltersLabel, "List of filters that will be processed in either AND or OR mode.", Required)
+	return PinProperties;
+}
+
+TArray<FPCGPinProperties> UPCGExFilterGroupProviderSettings::OutputPinProperties() const
+{
+	TArray<FPCGPinProperties> PinProperties;
+	PCGEX_PIN_FILTERS(GetMainOutputPin(), "Gathered filters.", Required)
 	return PinProperties;
 }
 
@@ -46,16 +54,19 @@ UPCGExFactoryData* UPCGExFilterGroupProviderSettings::CreateFactory(FPCGExContex
 	if (Mode == EPCGExFilterGroupMode::AND) { NewFactory = InContext->ManagedObjects->New<UPCGExFilterGroupFactoryDataAND>(); }
 	else { NewFactory = InContext->ManagedObjects->New<UPCGExFilterGroupFactoryDataOR>(); }
 
-	NewFactory->Priority = Priority;
-	NewFactory->bInvert = bInvert;
-
 	if (!GetInputFactories(
 		InContext, PCGExPointFilter::SourceFiltersLabel, NewFactory->FilterFactories,
-		PCGExFactories::AnyFilters, !bQuietMissingInputError))
+		PCGExFactories::AnyFilters))
 	{
 		InContext->ManagedObjects->Destroy(NewFactory);
 		return nullptr;
 	}
+
+	int32 MaxPriority = Priority;
+	for (const TObjectPtr<const UPCGExPointFilterFactoryData>& Factory : NewFactory->FilterFactories) { MaxPriority = FMath::Max(MaxPriority, Factory->Priority); }
+
+	NewFactory->Priority = MaxPriority;
+	NewFactory->bInvert = bInvert;
 
 	return Super::CreateFactory(InContext, NewFactory);
 }

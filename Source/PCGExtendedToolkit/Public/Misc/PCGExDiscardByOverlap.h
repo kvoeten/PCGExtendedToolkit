@@ -4,11 +4,12 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "PCGExMathMean.h"
 
 #include "PCGExOctree.h"
 #include "PCGExPointsProcessor.h"
 #include "Data/PCGExPointFilter.h"
-
+#include "Data/PCGExPointElements.h"
 
 #include "PCGExDiscardByOverlap.generated.h"
 
@@ -115,7 +116,7 @@ public:
 	//~Begin UPCGSettings
 #if WITH_EDITOR
 	PCGEX_NODE_INFOS(DiscardByOverlap, "Discard By Overlap", "Discard entire datasets based on how they overlap with each other.");
-	virtual FLinearColor GetNodeTitleColor() const override { return GetDefault<UPCGExGlobalSettings>()->NodeColorMiscRemove; }
+	virtual FLinearColor GetNodeTitleColor() const override { return GetDefault<UPCGExGlobalSettings>()->ColorMiscRemove; }
 #endif
 
 protected:
@@ -180,6 +181,9 @@ struct FPCGExDiscardByOverlapContext final : FPCGExPointsProcessorContext
 	void UpdateMaxScores(const TArray<PCGExDiscardByOverlap::FProcessor*>& InStack);
 
 	void Prune();
+
+protected:
+	PCGEX_ELEMENT_BATCH_POINT_DECL
 };
 
 class FPCGExDiscardByOverlapElement final : public FPCGExPointsProcessorElement
@@ -326,8 +330,6 @@ namespace PCGExDiscardByOverlap
 		FORCEINLINE const FBox& GetBounds() const { return Bounds; }
 		FORCEINLINE const TArray<TSharedPtr<FPointBounds>>& GetPointBounds() const { return LocalPointBounds; }
 		FORCEINLINE const FPointBoundsOctree* GetOctree() const { return Octree.Get(); }
-
-		//virtual bool IsTrivial() const override { return false; } // Force non-trivial because this shit is expensive
 
 		FORCEINLINE bool HasOverlaps() const { return !Overlaps.IsEmpty(); }
 

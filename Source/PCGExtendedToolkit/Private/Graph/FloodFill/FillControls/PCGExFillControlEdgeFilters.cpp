@@ -56,7 +56,7 @@ TSharedPtr<FPCGExFillControlOperation> UPCGExFillControlsFactoryEdgeFilters::Cre
 TArray<FPCGPinProperties> UPCGExFillControlsEdgeFiltersProviderSettings::InputPinProperties() const
 {
 	TArray<FPCGPinProperties> PinProperties;
-	PCGEX_PIN_FACTORIES(PCGExPointFilter::SourceEdgeFiltersLabel, TEXT("Filters used on edges."), Required, {})
+	PCGEX_PIN_FILTERS(PCGExPointFilter::SourceEdgeFiltersLabel, TEXT("Filters used on edges."), Required)
 	return PinProperties;
 }
 
@@ -68,7 +68,7 @@ UPCGExFactoryData* UPCGExFillControlsEdgeFiltersProviderSettings::CreateFactory(
 
 	if (!GetInputFactories(
 		InContext, PCGExPointFilter::SourceEdgeFiltersLabel, NewFactory->FilterFactories,
-		PCGExFactories::ClusterEdgeFilters, !bQuietMissingInputError))
+		PCGExFactories::ClusterEdgeFilters))
 	{
 		InContext->ManagedObjects->Destroy(NewFactory);
 		return nullptr;

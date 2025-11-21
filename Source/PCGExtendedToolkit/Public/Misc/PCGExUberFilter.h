@@ -8,10 +8,18 @@
 #include "PCGExPointsProcessor.h"
 #include "PCGExScopedContainers.h"
 #include "Data/PCGExAttributeHelpers.h"
+#include "Data/PCGExPointFilter.h"
+#include "Details/PCGExDetailsFiltering.h"
 #include "Pickers/PCGExPickerFactoryProvider.h"
 
 
 #include "PCGExUberFilter.generated.h"
+
+namespace PCGExData
+{
+	template <typename T>
+	class TBuffer;
+}
 
 UENUM()
 enum class EPCGExUberFilterMode : uint8
@@ -34,11 +42,15 @@ public:
 
 	//~Begin UPCGSettings
 #if WITH_EDITOR
+	virtual void ApplyDeprecation(UPCGNode* InOutNode) override;
+
 	PCGEX_NODE_INFOS(UberFilter, "Uber Filter", "Filter points based on multiple rules & conditions.");
-	virtual FLinearColor GetNodeTitleColor() const override { return GetDefault<UPCGExGlobalSettings>()->WantsColor(GetDefault<UPCGExGlobalSettings>()->NodeColorFilterHub); }
+	virtual FLinearColor GetNodeTitleColor() const override { return GetDefault<UPCGExGlobalSettings>()->WantsColor(GetDefault<UPCGExGlobalSettings>()->ColorFilterHub); }
 	virtual EPCGSettingsType GetType() const override { return EPCGSettingsType::Filter; }
-	virtual bool IsPinUsedByNodeExecution(const UPCGPin* InPin) const override;
 #endif
+
+	virtual bool IsPinUsedByNodeExecution(const UPCGPin* InPin) const override;
+	virtual bool OutputPinsCanBeDeactivated() const override;
 
 protected:
 	virtual TArray<FPCGPinProperties> InputPinProperties() const override;
@@ -56,16 +68,23 @@ public:
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta=(PCG_Overridable))
 	EPCGExUberFilterMode Mode = EPCGExUberFilterMode::Partition;
 
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta=(DisplayName=" └─ Result", PCG_Overridable, EditCondition="Mode == EPCGExUberFilterMode::Write", EditConditionHides))
+	FPCGExFilterResultDetails ResultDetails;
+
+#pragma region DEPRECATED
+
 	/** Name of the attribute to write result to */
-	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta=(DisplayName="PassFilter", PCG_Overridable, EditCondition="Mode == EPCGExUberFilterMode::Write", EditConditionHides))
-	FName ResultAttributeName = FName("PassFilter");
+	UPROPERTY()
+	FName ResultAttributeName_DEPRECATED = NAME_None;
+
+#pragma endregion
 
 	/** Invert the filter result */
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta=(PCG_Overridable))
 	bool bSwap = false;
 
-	/** If enabled, will output discarded elements, otherwise omit creating the data entierely. */
-	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta=(PCG_Overridable))
+	/** If enabled, will output discarded elements, otherwise omit creating the data entirely. */
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Performance, meta=(PCG_Overridable))
 	bool bOutputDiscardedElements = true;
 
 	/** */
@@ -110,6 +129,9 @@ struct FPCGExUberFilterContext final : FPCGExPointsProcessorContext
 	TSharedPtr<PCGExData::FPointIOCollection> Outside;
 
 	int32 NumPairs = 0;
+
+protected:
+	PCGEX_ELEMENT_BATCH_POINT_DECL
 };
 
 class FPCGExUberFilterElement final : public FPCGExPointsProcessorElement
@@ -131,7 +153,7 @@ namespace PCGExUberFilter
 		TSharedPtr<PCGExMT::TScopedArray<int32>> IndicesInside;
 		TSharedPtr<PCGExMT::TScopedArray<int32>> IndicesOutside;
 
-		TSharedPtr<PCGExData::TBuffer<bool>> Results;
+		FPCGExFilterResultDetails Results = FPCGExFilterResultDetails(false, false);
 
 		bool bUsePicks = false;
 		TSet<int32> Picks;

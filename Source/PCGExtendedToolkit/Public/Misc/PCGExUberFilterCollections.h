@@ -5,14 +5,14 @@
 
 #include "CoreMinimal.h"
 #include "PCGExCompare.h"
-
+#include "PCGExMathMean.h"
 
 #include "PCGExPointsProcessor.h"
-#include "Data/PCGExAttributeHelpers.h"
-#include "Pickers/PCGExPickerFactoryProvider.h"
-
+#include "Data/PCGExPointFilter.h"
 
 #include "PCGExUberFilterCollections.generated.h"
+
+class UPCGExPickerFactoryData;
 
 UENUM(BlueprintType)
 enum class EPCGExUberFilterCollectionsMode : uint8
@@ -37,10 +37,13 @@ public:
 	//~Begin UPCGSettings
 #if WITH_EDITOR
 	PCGEX_NODE_INFOS(UberFilterCollections, "Uber Filter (Collection)", "Filter entire collections based on multiple rules & conditions.");
-	virtual FLinearColor GetNodeTitleColor() const override { return GetDefault<UPCGExGlobalSettings>()->WantsColor(GetDefault<UPCGExGlobalSettings>()->NodeColorFilterHub); }
+	virtual FLinearColor GetNodeTitleColor() const override { return GetDefault<UPCGExGlobalSettings>()->WantsColor(GetDefault<UPCGExGlobalSettings>()->ColorFilterHub); }
 	virtual EPCGSettingsType GetType() const override { return EPCGSettingsType::Filter; }
-	virtual bool IsPinUsedByNodeExecution(const UPCGPin* InPin) const override;
 #endif
+
+	virtual bool IsPinUsedByNodeExecution(const UPCGPin* InPin) const override;
+	virtual bool OutputPinsCanBeDeactivated() const override { return true; }
+	virtual bool HasDynamicPins() const override;
 
 protected:
 	virtual TArray<FPCGPinProperties> InputPinProperties() const override;
@@ -51,6 +54,7 @@ protected:
 	//~Begin UPCGExPointsProcessorSettings
 public:
 	virtual FName GetMainOutputPin() const override;
+	virtual bool GetIsMainTransactional() const override;
 	PCGEX_NODE_POINT_FILTER(PCGExPointFilter::SourceFiltersLabel, "Filters", PCGExFactories::PointFilters, true)
 	//~End UPCGExPointsProcessorSettings
 
@@ -97,9 +101,10 @@ struct FPCGExUberFilterCollectionsContext final : FPCGExPointsProcessorContext
 	TSharedPtr<PCGExData::FPointIOCollection> Inside;
 	TSharedPtr<PCGExData::FPointIOCollection> Outside;
 
-	PCGExData::EIOInit DataIOInit = PCGExData::EIOInit::Forward;
-
 	int32 NumPairs = 0;
+
+protected:
+	PCGEX_ELEMENT_BATCH_POINT_DECL
 };
 
 class FPCGExUberFilterCollectionsElement final : public FPCGExPointsProcessorElement

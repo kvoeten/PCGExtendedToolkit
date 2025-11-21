@@ -3,13 +3,20 @@
 
 #include "Paths/PCGExSmooth.h"
 
+#include "PCGParamData.h"
+#include "Data/Blending/PCGExBlendOpsManager.h"
 #include "Data/Blending/PCGExMetadataBlender.h"
+#include "Details/PCGExDetailsSettings.h"
+#include "Paths/PCGExPaths.h"
 
 
 #include "Paths/Smoothing/PCGExMovingAverageSmoothing.h"
 
 #define LOCTEXT_NAMESPACE "PCGExSmoothElement"
 #define PCGEX_NAMESPACE Smooth
+
+PCGEX_SETTING_VALUE_IMPL(UPCGExSmoothSettings, Influence, double, InfluenceInput, InfluenceAttribute, InfluenceConstant)
+PCGEX_SETTING_VALUE_IMPL(UPCGExSmoothSettings, SmoothingAmount, double, SmoothingAmountType, SmoothingAmountAttribute, SmoothingAmountConstant)
 
 TArray<FPCGPinProperties> UPCGExSmoothSettings::InputPinProperties() const
 {
@@ -25,8 +32,22 @@ bool UPCGExSmoothSettings::IsPinUsedByNodeExecution(const UPCGPin* InPin) const
 	return Super::IsPinUsedByNodeExecution(InPin);
 }
 
+#if WITH_EDITORONLY_DATA
+void UPCGExSmoothSettings::PostInitProperties()
+{
+	if (!HasAnyFlags(RF_ClassDefaultObject) && IsInGameThread())
+	{
+		if (!SmoothingMethod) { SmoothingMethod = NewObject<UPCGExMovingAverageSmoothing>(this, TEXT("SmoothingMethod")); }
+	}
+	Super::PostInitProperties();
+}
+#endif
 
 PCGEX_INITIALIZE_ELEMENT(Smooth)
+
+PCGExData::EIOInit UPCGExSmoothSettings::GetMainDataInitializationPolicy() const { return PCGExData::EIOInit::Duplicate; }
+
+PCGEX_ELEMENT_BATCH_POINT_IMPL(Smooth)
 
 bool FPCGExSmoothElement::Boot(FPCGExContext* InContext) const
 {
@@ -55,7 +76,7 @@ bool FPCGExSmoothElement::ExecuteInternal(FPCGContext* InContext) const
 	{
 		PCGEX_ON_INVALILD_INPUTS(FTEXT("Some inputs have less than 2 points and won't be processed."))
 
-		if (!Context->StartBatchProcessingPoints<PCGExPointsMT::TBatch<PCGExSmooth::FProcessor>>(
+		if (!Context->StartBatchProcessingPoints(
 			[&](const TSharedPtr<PCGExData::FPointIO>& Entry)
 			{
 				if (Entry->GetNum() < 2)
@@ -65,7 +86,7 @@ bool FPCGExSmoothElement::ExecuteInternal(FPCGContext* InContext) const
 				}
 				return true;
 			},
-			[&](const TSharedPtr<PCGExPointsMT::TBatch<PCGExSmooth::FProcessor>>& NewBatch)
+			[&](const TSharedPtr<PCGExPointsMT::IBatch>& NewBatch)
 			{
 			}))
 		{
@@ -75,7 +96,7 @@ bool FPCGExSmoothElement::ExecuteInternal(FPCGContext* InContext) const
 
 	PCGEX_POINTS_BATCH_PROCESSING(PCGExCommon::State_Done)
 
-	Context->MainPoints->StageOutputs();
+	PCGEX_OUTPUT_VALID_PATHS(MainPoints)
 
 	return Context->TryComplete();
 }

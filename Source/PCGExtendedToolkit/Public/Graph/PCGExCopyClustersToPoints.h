@@ -9,6 +9,7 @@
 #include "Data/PCGExDataForward.h"
 #include "Data/Matching/PCGExMatching.h"
 #include "Data/Matching/PCGExMatchRuleFactoryProvider.h"
+#include "Transform/PCGExFitting.h"
 
 
 #include "PCGExCopyClustersToPoints.generated.h"
@@ -22,7 +23,7 @@ public:
 	//~Begin UPCGSettings
 #if WITH_EDITOR
 	PCGEX_NODE_INFOS(CopyClustersToPoints, "Cluster : Copy to Points", "Create a copies of the input clusters onto the target points.  NOTE: Does not sanitize input.");
-	virtual FLinearColor GetNodeTitleColor() const override { return GetDefault<UPCGExGlobalSettings>()->NodeColorCluster; }
+	virtual FLinearColor GetNodeTitleColor() const override { return GetDefault<UPCGExGlobalSettings>()->ColorClusterOp; }
 #endif
 
 protected:
@@ -67,6 +68,9 @@ struct FPCGExCopyClustersToPointsContext final : FPCGExEdgesProcessorContext
 
 	FPCGExAttributeToTagDetails TargetsAttributesToClusterTags;
 	TSharedPtr<PCGExData::FDataForwardHandler> TargetsForwardHandler;
+
+protected:
+	PCGEX_ELEMENT_BATCH_EDGE_DECL
 };
 
 class FPCGExCopyClustersToPointsElement final : public FPCGExEdgesProcessorElement
@@ -78,7 +82,7 @@ protected:
 	virtual bool ExecuteInternal(FPCGContext* InContext) const override;
 };
 
-namespace PCGExCopyClusters
+namespace PCGExCopyClustersToPoints
 {
 	class FProcessor final : public PCGExClusterMT::TProcessor<FPCGExCopyClustersToPointsContext, UPCGExCopyClustersToPointsSettings>
 	{
@@ -126,7 +130,7 @@ namespace PCGExCopyClusters
 
 		virtual ~FBatch() override;
 		virtual void Process() override;
-		virtual bool PrepareSingle(const TSharedPtr<FProcessor>& ClusterProcessor) override;
+		virtual bool PrepareSingle(const TSharedPtr<PCGExClusterMT::IProcessor>& InProcessor) override;
 		virtual void CompleteWork() override;
 	};
 }

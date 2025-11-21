@@ -10,12 +10,13 @@
 
 #include "PCGContext.h"
 #include "PCGElement.h"
-#include "PCGExMacros.h"
+#include "Details/PCGExMacros.h"
 #include "PCGModule.h"
 #include "Data/PCGSpatialData.h"
 #include "Engine/AssetManager.h"
 #include "Async/Async.h"
 #include "Data/PCGPointArrayData.h"
+#include "Async/ParallelFor.h"
 
 namespace PCGEx
 {
@@ -48,15 +49,12 @@ namespace PCGEx
 			if (InSelector.GetExtraNames().IsEmpty()) { return FName(InSelector.GetName().ToString()); }
 			return FName(InSelector.GetName().ToString() + TEXT(".") + FString::Join(InSelector.GetExtraNames(), TEXT(".")));
 		}
-		else
+		if (InSelector.GetSelection() == EPCGAttributePropertySelection::Attribute && InSelector.GetName() == "@Last")
 		{
-			if (InSelector.GetSelection() == EPCGAttributePropertySelection::Attribute && InSelector.GetName() == "@Last")
-			{
-				return GetLongNameFromSelector(InSelector.CopyAndFixLast(InData), InData, true);
-			}
-
-			return GetLongNameFromSelector(InSelector, InData, true);
+			return GetLongNameFromSelector(InSelector.CopyAndFixLast(InData), InData, true);
 		}
+
+		return GetLongNameFromSelector(InSelector, InData, true);
 	}
 
 	FPCGAttributeIdentifier GetAttributeIdentifier(const FPCGAttributePropertyInputSelector& InSelector, const UPCGData* InData, const bool bInitialized)
@@ -100,6 +98,14 @@ namespace PCGEx
 		FPCGAttributePropertyInputSelector Selector;
 		Selector.Update(InName.ToString());
 		return FPCGAttributeIdentifier(Selector.GetAttributeName(), StrName.StartsWith(TEXT("@Data.")) ? PCGMetadataDomainID::Data : PCGMetadataDomainID::Elements);
+	}
+
+	FPCGAttributePropertyInputSelector GetSelectorFromIdentifier(const FPCGAttributeIdentifier& InIdentifier)
+	{
+		FPCGAttributePropertyInputSelector Selector;
+		Selector.SetAttributeName(InIdentifier.Name);
+		Selector.SetDomainName(InIdentifier.MetadataDomain.DebugName);
+		return Selector;
 	}
 
 	FPCGExAsyncStateScope::FPCGExAsyncStateScope(FPCGContext* InContext, const bool bDesired)
@@ -425,61 +431,45 @@ namespace PCGEx
 		return false;
 	}
 
+	template <typename T>
+	void ReorderValueRange(TPCGValueRange<T>& InRange, const TArray<int32>& InOrder)
+	{
+		TRACE_CPUPROFILER_EVENT_SCOPE(PCGExHelpers::ReorderValueRange);
+
+		const int32 NumIndices = InOrder.Num();
+		TArray<T> ValuesCopy;
+		PCGEx::InitArray(ValuesCopy, NumIndices);
+		if (NumIndices < 4096)
+		{
+			for (int i = 0; i < NumIndices; i++) { ValuesCopy[i] = MoveTemp(InRange[InOrder[i]]); }
+			for (int i = 0; i < NumIndices; i++) { InRange[i] = MoveTemp(ValuesCopy[i]); }
+		}
+		else
+		{
+			ParallelFor(NumIndices, [&](int32 i) { ValuesCopy[i] = MoveTemp(InRange[InOrder[i]]); });
+			ParallelFor(NumIndices, [&](int32 i) { InRange[i] = MoveTemp(ValuesCopy[i]); });
+		}
+	}
+
+#define PCGEX_TPL(_TYPE, _NAME, ...) \
+template PCGEXTENDEDTOOLKIT_API void ReorderValueRange<_TYPE>(TPCGValueRange<_TYPE>& InRange, const TArray<int32>& InOrder);
+
+	PCGEX_FOREACH_SUPPORTEDTYPES(PCGEX_TPL)
+#undef PCGEX_TPL
+
 	void ReorderPointArrayData(UPCGBasePointData* InData, const TArray<int32>& InOrder)
 	{
 		TRACE_CPUPROFILER_EVENT_SCOPE(PCGExHelpers::ReorderPointArrayData);
 
-		const int32 NumElements = InOrder.Num();
-		check(NumElements == InData->GetNumPoints());
-
-		TBitArray<> Visited;
-		Visited.Init(false, NumElements);
-
 		EPCGPointNativeProperties AllocatedProperties = InData->GetAllocatedProperties();
 
-#define PCGEX_REORDER_RANGE_DECL(_NAME, _TYPE, ...)\
-		const bool bProcess##_NAME = EnumHasAnyFlags(AllocatedProperties, EPCGPointNativeProperties::_NAME);\
-		TPCGValueRange<_TYPE> _NAME##Range = InData->Get##_NAME##ValueRange(bProcess##_NAME);
+#define PCGEX_REORDER_RANGE_DECL(_NAME, _TYPE, ...) \
+	if(EnumHasAnyFlags(AllocatedProperties, EPCGPointNativeProperties::_NAME)){ \
+		TPCGValueRange<_TYPE> Range = InData->Get##_NAME##ValueRange(true); \
+		ReorderValueRange<_TYPE>(Range, InOrder);}
+
 		PCGEX_FOREACH_POINT_NATIVE_PROPERTY(PCGEX_REORDER_RANGE_DECL)
 #undef PCGEX_REORDER_RANGE_DECL
-
-		for (int32 i = 0; i < NumElements; ++i)
-		{
-			if (Visited[i])
-			{
-				continue;
-			}
-
-			int32 Current = i;
-			int32 Next = InOrder[Current];
-
-			if (Next == Current)
-			{
-				Visited[Current] = true;
-				continue;
-			}
-
-#define PCGEX_REORDER_MOVE_TEMP(_NAME, _TYPE, ...) _TYPE Temp##_NAME = bProcess##_NAME ? MoveTemp(_NAME##Range[Current]) : _TYPE{};
-			PCGEX_FOREACH_POINT_NATIVE_PROPERTY(PCGEX_REORDER_MOVE_TEMP)
-#undef PCGEX_REORDER_MOVE_TEMP
-
-			while (!Visited[Next])
-			{
-#define PCGEX_REORDER_MOVE_FORWARD(_NAME, _TYPE, ...) if(bProcess##_NAME){ _NAME##Range[Current] = MoveTemp(_NAME##Range[Next]); };
-				PCGEX_FOREACH_POINT_NATIVE_PROPERTY(PCGEX_REORDER_MOVE_FORWARD)
-#undef PCGEX_REORDER_MOVE_FORWARD
-
-				Visited[Current] = true;
-				Current = Next;
-				Next = InOrder[Current];
-			}
-
-#define PCGEX_REORDER_MOVE_BACK(_NAME, _TYPE, ...) if(bProcess##_NAME){ _NAME##Range[Current] = MoveTemp(Temp##_NAME); }
-			PCGEX_FOREACH_POINT_NATIVE_PROPERTY(PCGEX_REORDER_MOVE_BACK)
-#undef PCGEX_REORDER_MOVE_BACK
-
-			Visited[Current] = true;
-		}
 	}
 
 	FString GetSelectorDisplayName(const FPCGAttributePropertyInputSelector& InSelector)
@@ -505,27 +495,6 @@ void UPCGExComponentCallback::Callback(UActorComponent* InComponent)
 }
 
 void UPCGExComponentCallback::BeginDestroy()
-{
-	CallbackFn = nullptr;
-	UObject::BeginDestroy();
-}
-
-void UPCGExPCGComponentCallback::Callback(UPCGComponent* InComponent)
-{
-	if (!CallbackFn) { return; }
-	if (bIsOnce)
-	{
-		auto Callback = MoveTemp(CallbackFn);
-		CallbackFn = nullptr;
-		Callback(InComponent);
-	}
-	else
-	{
-		CallbackFn(InComponent);
-	}
-}
-
-void UPCGExPCGComponentCallback::BeginDestroy()
 {
 	CallbackFn = nullptr;
 	UObject::BeginDestroy();
@@ -573,19 +542,15 @@ namespace PCGExHelpers
 			IsDataDomainAttribute(InputSelector.GetName());
 	}
 
-	void CopyBaseNativeProperties(const UPCGData* From, UPCGData* To, EPCGPointNativeProperties Properties)
+	void InitEmptyNativeProperties(const UPCGData* From, UPCGData* To, EPCGPointNativeProperties Properties)
 	{
 		const UPCGPointArrayData* FromPoints = Cast<UPCGPointArrayData>(From);
 		UPCGPointArrayData* ToPoints = Cast<UPCGPointArrayData>(To);
 
-		if (!FromPoints || !ToPoints) { return; }
+		if (!FromPoints || !ToPoints || FromPoints == ToPoints) { return; }
 
-#define PCGEX_COPY_SINGLE_VALUE(_NAME, _TYPE, ...) if(EnumHasAnyFlags(Properties, EPCGPointNativeProperties::_NAME)){ \
-		TConstPCGValueRange<_TYPE> Range = FromPoints->GetConst##_NAME##ValueRange(); \
-		if (Range.GetSingleValue().IsSet()) { ToPoints->Get##_NAME##ValueRange(false).GetSingleValue().Emplace(Range.GetSingleValue().GetValue()); } \
-		}
-
-		PCGEX_FOREACH_POINT_NATIVE_PROPERTY(PCGEX_COPY_SINGLE_VALUE)
+		ToPoints->CopyUnallocatedPropertiesFrom(FromPoints);
+		ToPoints->AllocateProperties(FromPoints->GetAllocatedProperties());
 	}
 
 	void LoadBlocking_AnyThread(const FSoftObjectPath& Path)

@@ -3,9 +3,10 @@
 
 #include "Graph/Filters/PCGExAdjacency.h"
 
+#include "Data/PCGExData.h"
 #include "Graph/PCGExCluster.h"
 
-bool FPCGExAdjacencySettings::Init(const FPCGContext* InContext, const TSharedRef<PCGExData::FFacade>& InPrimaryDataFacade)
+bool FPCGExAdjacencySettings::Init(const FPCGExContext* InContext, const TSharedRef<PCGExData::FFacade>& InPrimaryDataFacade, const bool bQuiet)
 {
 	bUseDiscreteMeasure = ThresholdType == EPCGExMeanMeasure::Discrete;
 	bUseLocalThreshold = ThresholdInput == EPCGExInputValueType::Attribute;

@@ -4,7 +4,13 @@
 #include "Constants/PCGExConstantEnum.h"
 
 #include "PCGComponent.h"
+#include "PCGEx.h"
 #include "PCGExCompare.h"
+#include "PCGExHelpers.h"
+#include "PCGModule.h"
+#include "PCGParamData.h"
+#include "Details/PCGExDetailsBitmask.h"
+#include "Metadata/PCGMetadataAttributeTpl.h"
 
 #if WITH_EDITOR
 FString UPCGExConstantEnumSettings::GetDisplayName() const
@@ -237,7 +243,7 @@ TArray<FPCGPinProperties> UPCGExConstantEnumSettings::OutputPinProperties() cons
 	}
 
 	// Output bitmask last
-	if (bOutputFlags) { PCGEX_PIN_PARAM(PCGExConstantEnumConstants::BitflagOutputPinName, "Flags representing the current selection within the enum", Required, {}); }
+	if (bOutputFlags) { PCGEX_PIN_PARAM(PCGExConstantEnumConstants::BitflagOutputPinName, "Flags representing the current selection within the enum", Required); }
 
 	return PinProperties;
 #undef MAKE_TOOLTIP_FOR_VALUE
@@ -286,11 +292,11 @@ bool FPCGExConstantEnumElement::ExecuteInternal(FPCGContext* InContext) const
 
 	FPCGExBitmask Bitflags;
 	Bitflags.Mode = EPCGExBitmaskMode::Individual;
-	Bitflags.Bits.SetNum(Unfiltered.Num());
+	Bitflags.Mutations.SetNum(Unfiltered.Num());
 	for (int i = 0; i < Unfiltered.Num(); i++)
 	{
-		Bitflags.Bits[i].BitIndex = Settings->FlagBitOffset + i;
-		Bitflags.Bits[i].bValue = false;
+		Bitflags.Mutations[i].BitIndex = Settings->FlagBitOffset + i;
+		Bitflags.Mutations[i].bValue = false;
 	}
 
 
@@ -361,7 +367,7 @@ void FPCGExConstantEnumElement::StageEnumValuesSeparatePins(
 {
 	for (const PCGExConstantEnumConstants::FMapping& T : ValueData)
 	{
-		OutBitflags.Bits[T.Get<3>()].bValue = true;
+		OutBitflags.Mutations[T.Get<3>()].bValue = true;
 
 		UPCGParamData* OutputData = InContext->ManagedObjects->New<UPCGParamData>();
 
@@ -433,7 +439,7 @@ void FPCGExConstantEnumElement::StageEnumValuesSinglePin(
 
 	for (const PCGExConstantEnumConstants::FMapping& T : ValueData)
 	{
-		OutBitflags.Bits[T.Get<3>()].bValue = true;
+		OutBitflags.Mutations[T.Get<3>()].bValue = true;
 
 		const auto Entry = OutputData->Metadata->AddEntry();
 		if (KeyAttrib)

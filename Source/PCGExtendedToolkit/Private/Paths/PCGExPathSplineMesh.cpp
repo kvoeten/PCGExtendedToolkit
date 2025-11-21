@@ -8,6 +8,11 @@
 
 #include "PCGExHelpers.h"
 #include "PCGExRandom.h"
+#include "PCGExSubSystem.h"
+#include "Data/PCGExDataTag.h"
+#include "Data/PCGExPointIO.h"
+#include "Details/PCGExVersion.h"
+#include "Metadata/PCGObjectPropertyOverride.h"
 
 
 #include "Paths/PCGExPaths.h"
@@ -18,18 +23,18 @@
 #if WITH_EDITOR
 void UPCGExPathSplineMeshSettings::ApplyDeprecation(UPCGNode* InOutNode)
 {
-	if (SplineMeshAxisConstant_DEPRECATED != EPCGExMinimalAxis::None && DefaultDescriptor.SplineMeshAxis == EPCGExSplineMeshAxis::Default)
+	PCGEX_UPDATE_TO_DATA_VERSION(1, 70, 11)
 	{
 		DefaultDescriptor.SplineMeshAxis = static_cast<EPCGExSplineMeshAxis>(SplineMeshAxisConstant_DEPRECATED);
+		Tangents.ApplyDeprecation(bApplyCustomTangents_DEPRECATED, ArriveTangentAttribute_DEPRECATED, LeaveTangentAttribute_DEPRECATED);
 	}
-
-	Tangents.ApplyDeprecation(bApplyCustomTangents_DEPRECATED, ArriveTangentAttribute_DEPRECATED, LeaveTangentAttribute_DEPRECATED);
 
 	Super::ApplyDeprecation(InOutNode);
 }
 #endif
 
 PCGEX_INITIALIZE_ELEMENT(PathSplineMesh)
+PCGEX_ELEMENT_BATCH_POINT_IMPL(PathSplineMesh)
 
 UPCGExPathSplineMeshSettings::UPCGExPathSplineMeshSettings(
 	const FObjectInitializer& ObjectInitializer)
@@ -44,11 +49,13 @@ TArray<FPCGPinProperties> UPCGExPathSplineMeshSettings::InputPinProperties() con
 
 	if (CollectionSource == EPCGExCollectionSource::AttributeSet)
 	{
-		PCGEX_PIN_PARAM(PCGExAssetCollection::SourceAssetCollection, "Attribute set to be used as collection.", Required, {})
+		PCGEX_PIN_PARAM(PCGExAssetCollection::SourceAssetCollection, "Attribute set to be used as collection.", Required)
 	}
 
 	return PinProperties;
 }
+
+PCGExData::EIOInit UPCGExPathSplineMeshSettings::GetMainDataInitializationPolicy() const { return PCGExData::EIOInit::Duplicate; }
 
 bool FPCGExPathSplineMeshElement::Boot(FPCGExContext* InContext) const
 {
@@ -129,7 +136,7 @@ bool FPCGExPathSplineMeshElement::ExecuteInternal(FPCGContext* InContext) const
 	{
 		PCGEX_ON_INVALILD_INPUTS(FTEXT("Some inputs have less than 2 points and won't be processed."))
 
-		if (!Context->StartBatchProcessingPoints<PCGExPointsMT::TBatch<PCGExPathSplineMesh::FProcessor>>(
+		if (!Context->StartBatchProcessingPoints(
 			[&](const TSharedPtr<PCGExData::FPointIO>& Entry)
 			{
 				if (Entry->GetNum() < 2)
@@ -140,7 +147,7 @@ bool FPCGExPathSplineMeshElement::ExecuteInternal(FPCGContext* InContext) const
 				}
 				return true;
 			},
-			[&](const TSharedPtr<PCGExPointsMT::TBatch<PCGExPathSplineMesh::FProcessor>>& NewBatch)
+			[&](const TSharedPtr<PCGExPointsMT::IBatch>& NewBatch)
 			{
 			}))
 		{
@@ -149,8 +156,6 @@ bool FPCGExPathSplineMeshElement::ExecuteInternal(FPCGContext* InContext) const
 	}
 
 	PCGEX_POINTS_BATCH_PROCESSING(PCGExCommon::State_Done)
-
-	Context->MainBatch->Output();
 
 	Context->MainPoints->StageOutputs();
 	Context->ExecuteOnNotifyActors(Settings->PostProcessFunctionNames);
@@ -184,8 +189,11 @@ namespace PCGExPathSplineMesh
 		TangentsHandler = MakeShared<PCGExTangents::FTangentsHandler>(bClosedLoop);
 		if (!TangentsHandler->Init(Context, Context->Tangents, PointDataFacade)) { return false; }
 
-		Helper = MakeUnique<PCGExAssetCollection::TDistributionHelper<UPCGExMeshCollection, FPCGExMeshCollectionEntry>>(Context->MainCollection, Settings->DistributionSettings);
-		if (!Helper->Init(ExecutionContext, PointDataFacade)) { return false; }
+		Helper = MakeShared<PCGExStaging::TDistributionHelper<UPCGExMeshCollection, FPCGExMeshCollectionEntry>>(Context->MainCollection, Settings->DistributionSettings);
+		if (!Helper->Init(PointDataFacade)) { return false; }
+
+		MicroHelper = MakeShared<PCGExStaging::TMicroDistributionHelper<PCGExMeshCollection::FMicroCache>>(Settings->MaterialDistributionSettings);
+		if (!MicroHelper->Init(PointDataFacade)) { return false; }
 
 		if (Settings->SplineMeshUpMode == EPCGExSplineMeshUpMode::Attribute)
 		{
@@ -193,7 +201,7 @@ namespace PCGExPathSplineMesh
 
 			if (!UpGetter)
 			{
-				PCGE_LOG_C(Error, GraphAndLog, ExecutionContext, FTEXT("Mesh Up Vector attribute is missing on some inputs."));
+				PCGEX_LOG_INVALID_SELECTOR_C(Context, Spline Mesh Up Vector, Settings->SplineMeshUpVectorAttribute)
 				return false;
 			}
 		}
@@ -256,31 +264,29 @@ namespace PCGExPathSplineMesh
 			}
 		};
 
+		bool bAnyValidSegment = false;
+
+		const FPCGExAssetDistributionDetails& Details = Helper->Details;
+		const UPCGComponent* Component = Context->GetComponent();
+		const bool bTangentsEnabled = TangentsHandler->IsEnabled();
+
 		PCGEX_SCOPE_LOOP(Index)
 		{
-			if (Index == LastIndex && !bClosedLoop)
+			if (!PointFilterCache[Index] || (Index == LastIndex && !bClosedLoop))
 			{
-				// Ignore last index, only used for maths reasons
 				InvalidPoint(Index);
 				continue;
 			}
 
-			if (!PointFilterCache[Index])
-			{
-				Segments[Index] = PCGExPaths::FSplineMeshSegment();
-				InvalidPoint(Index);
-				continue;
-			}
-
+			PCGExPaths::FSplineMeshSegment Segment;
+			ON_SCOPE_EXIT { Segments[Index] = Segment; };
+			
 			const FPCGExMeshCollectionEntry* MeshEntry = nullptr;
 			const UPCGExAssetCollection* EntryHost = nullptr;
 
 			const int32 Seed = PCGExRandom::GetSeed(
 				Seeds[Index], Helper->Details.SeedComponents,
-				Helper->Details.LocalSeed, Settings, Context->GetComponent());
-
-			Segments[Index] = PCGExPaths::FSplineMeshSegment();
-			PCGExPaths::FSplineMeshSegment& Segment = Segments[Index];
+				Helper->Details.LocalSeed, Settings, Component);
 
 			if (bUseTags) { Helper->GetEntry(MeshEntry, Index, Seed, Settings->TaggingDetails.GrabTags, Segment.Tags, EntryHost); }
 			else { Helper->GetEntry(MeshEntry, Index, Seed, EntryHost); }
@@ -293,9 +299,21 @@ namespace PCGExPathSplineMesh
 				continue;
 			}
 
-			if (MeshEntry->MacroCache && MeshEntry->MacroCache->GetType() == PCGExAssetCollection::EType::Mesh)
+			const int32 NextIndex = Index + 1 > LastIndex ? 0 : Index + 1;
+			const FTransform& CurrentTransform = Transforms[Index];
+			const FVector CurrentLocation = CurrentTransform.GetLocation();
+			const FQuat CurrentRotation = CurrentTransform.GetRotation();
+			const FVector CurrentScale = CurrentTransform.GetScale3D();
+			const FTransform& NextTransform = Transforms[NextIndex];
+			const FVector NextLocation = NextTransform.GetLocation();
+			const FQuat NextRotation = NextTransform.GetRotation();
+			const FVector NextScale = NextTransform.GetScale3D();
+
+			if (const PCGExAssetCollection::FMicroCache* MicroCache = MeshEntry->MicroCache.Get();
+				MicroHelper && MicroCache && MicroCache->GetType() == PCGExAssetCollection::EType::Mesh)
 			{
-				Segment.MaterialPick = StaticCastSharedPtr<PCGExMeshCollection::FMacroCache>(MeshEntry->MacroCache)->GetPickRandomWeighted(Seed);
+				const PCGExMeshCollection::FMicroCache* EntryMicroCache = static_cast<const PCGExMeshCollection::FMicroCache*>(MicroCache);
+				MicroHelper->GetPick(EntryMicroCache, Index, Seed, Segment.MaterialPick);
 				if (Segment.MaterialPick != -1) { MeshEntry->GetMaterialPaths(Segment.MaterialPick, *ScopedMaterials->Get(Scope)); }
 			}
 
@@ -312,12 +330,8 @@ namespace PCGExPathSplineMesh
 
 			//
 
-			const int32 NextIndex = Index + 1 > LastIndex ? 0 : Index + 1;
-
-			//
-
 			const FBox& StBox = MeshEntry->Staging.Bounds;
-			FVector OutScale = Transforms[Index].GetScale3D();
+			FVector OutScale = CurrentScale;
 			const FBox InBounds = FBox(BoundsMin[Index] * OutScale, BoundsMax[Index] * OutScale);
 			FBox OutBounds = StBox;
 
@@ -334,26 +348,26 @@ namespace PCGExPathSplineMesh
 			int32 C2 = 2;
 			PCGExPaths::GetAxisForEntry(MeshEntry->SMDescriptor, Segment.SplineMeshAxis, C1, C2, Settings->DefaultDescriptor.SplineMeshAxis);
 
-			Segment.Params.StartPos = Transforms[Index].GetLocation();
+			Segment.Params.StartPos = CurrentLocation;
 			Segment.Params.StartScale = FVector2D(OutScale[C1], OutScale[C2]);
-			Segment.Params.StartRoll = Transforms[Index].GetRotation().Rotator().Roll;
+			Segment.Params.StartRoll = CurrentRotation.Rotator().Roll;
 
-			const FVector Scale = bApplyScaleToFit ? OutScale : Transforms[NextIndex].GetScale3D();
-			Segment.Params.EndPos = Transforms[NextIndex].GetLocation();
+			const FVector Scale = bApplyScaleToFit ? OutScale : NextScale;
+			Segment.Params.EndPos = NextLocation;
 			Segment.Params.EndScale = FVector2D(Scale[C1], Scale[C2]);
-			Segment.Params.EndRoll = Transforms[NextIndex].GetRotation().Rotator().Roll;
+			Segment.Params.EndRoll = NextRotation.Rotator().Roll;
 
 			Segment.Params.StartOffset = FVector2D(OutTranslation[C1], OutTranslation[C2]);
 			Segment.Params.EndOffset = FVector2D(OutTranslation[C1], OutTranslation[C2]);
 
-			if (TangentsHandler->IsEnabled())
+			if (bTangentsEnabled)
 			{
 				TangentsHandler->GetSegmentTangents(Index, Segment.Params.StartTangent, Segment.Params.EndTangent);
 			}
 			else
 			{
-				Segment.Params.StartTangent = Transforms[Index].GetRotation().GetForwardVector();
-				Segment.Params.EndTangent = Transforms[NextIndex].GetRotation().GetForwardVector();
+				Segment.Params.StartTangent = CurrentRotation.GetForwardVector();
+				Segment.Params.EndTangent = NextRotation.GetForwardVector();
 			}
 
 			if (UpGetter) { Segment.UpVector = UpGetter->Read(Index); }
@@ -361,61 +375,92 @@ namespace PCGExPathSplineMesh
 			else { Segment.ComputeUpVectorFromTangents(); }
 
 			SegmentMutationDetails.Mutate(Index, Segment);
+			bAnyValidSegment = true;
 		}
+
+		if (bAnyValidSegment) { FPlatformAtomics::InterlockedExchange(&bHasValidSegments, 1); }
 	}
 
 	void FProcessor::OnPointsProcessingComplete()
 	{
+		if (!bHasValidSegments)
+		{
+			bIsProcessorValid = false;
+			return;
+		}
+
 		PCGEX_MAKE_SHARED(MaterialPaths, TSet<FSoftObjectPath>)
 		ScopedMaterials->Collapse(*MaterialPaths.Get());
 		if (!MaterialPaths->IsEmpty()) { PCGExHelpers::LoadBlocking_AnyThread(MaterialPaths); } // TODO : Refactor this atrocity
+
+		//
+
+
+		TargetActor = Settings->TargetActor.Get() ? Settings->TargetActor.Get() : ExecutionContext->GetTargetActor(nullptr);
+		ObjectFlags = (bIsPreviewMode ? RF_Transient : RF_NoFlags);
+
+		if (!TargetActor)
+		{
+			PCGE_LOG_C(Error, GraphAndLog, ExecutionContext, FTEXT("Invalid target actor."));
+			bIsProcessorValid = false;
+			return;
+		}
+
+		const int32 FinalNumSegments = Segments.Num();
+
+		if (!FinalNumSegments)
+		{
+			bIsProcessorValid = false;
+			return;
+		}
+
+		MainThreadLoop = MakeShared<PCGExMT::FScopeLoopOnMainThread>(FinalNumSegments);
+		MainThreadLoop->OnIterationCallback = [&](const int32 Index, const PCGExMT::FScope& Scope) { ProcessSegment(Index); };
+
+		PCGEX_ASYNC_HANDLE_CHKD_VOID(AsyncManager, MainThreadLoop)
+	}
+
+	void FProcessor::ProcessSegment(const int32 Index)
+	{
+		const PCGExPaths::FSplineMeshSegment& Segment = Segments[Index];
+		if (!Segment.MeshEntry) { return; }
+
+		USplineMeshComponent* SplineMeshComponent = Context->ManagedObjects->New<USplineMeshComponent>(
+			TargetActor, MakeUniqueObjectName(
+				TargetActor, USplineMeshComponent::StaticClass(),
+				Context->UniqueNameGenerator->Get(TEXT("PCGSplineMeshComponent_") + Segment.MeshEntry->Staging.Path.GetAssetName())), ObjectFlags);
+
+		if (!SplineMeshComponent || !Segment.MeshEntry) { return; }
+
+		Segment.ApplySettings(SplineMeshComponent); // Init Component
+		if (Settings->bForceDefaultDescriptor || Settings->CollectionSource == EPCGExCollectionSource::AttributeSet) { Settings->DefaultDescriptor.InitComponent(SplineMeshComponent); }
+		else { Segment.MeshEntry->SMDescriptor.InitComponent(SplineMeshComponent); }
+
+		if (Settings->TaggingDetails.bForwardInputDataTags) { SplineMeshComponent->ComponentTags.Append(DataTags); }
+		if (!Segment.Tags.IsEmpty()) { SplineMeshComponent->ComponentTags.Append(Segment.Tags.Array()); }
+
+		if (!Settings->PropertyOverrideDescriptions.IsEmpty())
+		{
+			FPCGObjectOverrides DescriptorOverride(SplineMeshComponent);
+			DescriptorOverride.Initialize(Settings->PropertyOverrideDescriptions, SplineMeshComponent, PointDataFacade->Source->GetIn(), Context);
+			if (DescriptorOverride.IsValid() && !DescriptorOverride.Apply(Index))
+			{
+				PCGLog::LogWarningOnGraph(FText::Format(LOCTEXT("FailOverride", "Failed to override descriptor for input {0}"), Index));
+			}
+		}
+
+		if (!Segment.ApplyMesh(SplineMeshComponent)) { return; }
+
+		Context->AttachManagedComponent(
+			TargetActor, SplineMeshComponent,
+			FAttachmentTransformRules(EAttachmentRule::KeepWorld, EAttachmentRule::KeepWorld, EAttachmentRule::KeepWorld, false));
+
+		Context->AddNotifyActor(TargetActor);
 	}
 
 	void FProcessor::CompleteWork()
 	{
 		PointDataFacade->WriteFastest(AsyncManager);
-	}
-
-	void FProcessor::Output()
-	{
-		TRACE_CPUPROFILER_EVENT_SCOPE(UPCGExPathSplineMesh::FProcessor::Output);
-
-		// TODO : Resolve per-point target actor...? irk.
-		AActor* TargetActor = Settings->TargetActor.Get() ? Settings->TargetActor.Get() : ExecutionContext->GetTargetActor(nullptr);
-
-		if (!TargetActor)
-		{
-			PCGE_LOG_C(Error, GraphAndLog, ExecutionContext, FTEXT("Invalid target actor."));
-			return;
-		}
-
-		for (int i = 0; i < Segments.Num(); i++)
-		{
-			const PCGExPaths::FSplineMeshSegment& Segment = Segments[i];
-			if (!Segment.MeshEntry) { continue; }
-
-			const EObjectFlags ObjectFlags = (bIsPreviewMode ? RF_Transient : RF_NoFlags);
-			USplineMeshComponent* SplineMeshComponent = NewObject<USplineMeshComponent>(
-				TargetActor, MakeUniqueObjectName(
-					TargetActor, USplineMeshComponent::StaticClass(),
-					Context->UniqueNameGenerator->Get(TEXT("PCGSplineMeshComponent_") + Segment.MeshEntry->Staging.Path.GetAssetName())), ObjectFlags);
-
-			Segment.ApplySettings(SplineMeshComponent); // Init Component
-
-			if (Settings->bForceDefaultDescriptor || Settings->CollectionSource == EPCGExCollectionSource::AttributeSet) { Settings->DefaultDescriptor.InitComponent(SplineMeshComponent); }
-			else { Segment.MeshEntry->SMDescriptor.InitComponent(SplineMeshComponent); }
-
-			if (!Segment.ApplyMesh(SplineMeshComponent)) { continue; }
-
-			if (Settings->TaggingDetails.bForwardInputDataTags) { SplineMeshComponent->ComponentTags.Append(DataTags); }
-			if (!Segment.Tags.IsEmpty()) { SplineMeshComponent->ComponentTags.Append(Segment.Tags.Array()); }
-
-			Context->AttachManagedComponent(
-				TargetActor, SplineMeshComponent,
-				FAttachmentTransformRules(EAttachmentRule::KeepWorld, EAttachmentRule::KeepWorld, EAttachmentRule::KeepWorld, false));
-
-			Context->AddNotifyActor(TargetActor);
-		}
 	}
 }
 

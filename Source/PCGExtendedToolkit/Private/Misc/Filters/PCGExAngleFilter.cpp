@@ -3,6 +3,8 @@
 
 #include "Misc/Filters/PCGExAngleFilter.h"
 
+#include "PCGExHelpers.h"
+#include "Data/PCGExData.h"
 #include "Paths/PCGExPaths.h"
 
 
@@ -26,6 +28,12 @@ TSharedPtr<PCGExPointFilter::IFilter> UPCGExAngleFilterFactory::CreateFilter() c
 	return MakeShared<PCGExPointFilter::FAngleFilter>(this);
 }
 
+void UPCGExAngleFilterFactory::RegisterBuffersDependencies(FPCGExContext* InContext, PCGExData::FFacadePreloader& FacadePreloader) const
+{
+	Super::RegisterBuffersDependencies(InContext, FacadePreloader);
+	Config.DotComparisonDetails.RegisterBuffersDependencies(InContext, FacadePreloader);
+}
+
 bool UPCGExAngleFilterFactory::RegisterConsumableAttributesWithData(FPCGExContext* InContext, const UPCGData* InData) const
 {
 	if (!Super::RegisterConsumableAttributesWithData(InContext, InData)) { return false; }
@@ -38,7 +46,7 @@ bool PCGExPointFilter::FAngleFilter::Init(FPCGExContext* InContext, const TShare
 	if (!IFilter::Init(InContext, InPointDataFacade)) { return false; }
 
 	DotComparison = TypedFilterFactory->Config.DotComparisonDetails;
-	if (!DotComparison.Init(InContext, InPointDataFacade.ToSharedRef())) { return false; }
+	if (!DotComparison.Init(InContext, InPointDataFacade.ToSharedRef(), PCGEX_QUIET_HANDLING)) { return false; }
 
 	bClosedLoop = PCGExPaths::GetClosedLoop(InPointDataFacade->GetIn());
 	LastIndex = InPointDataFacade->GetNum() - 1;

@@ -4,8 +4,8 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "CollisionQueryParams.h"
-#include "Engine/HitResult.h"
+//#include "CollisionQueryParams.h"
+//#include "Engine/HitResult.h"
 
 #include "PCGContext.h"
 #include "PCGExCommon.h"
@@ -44,8 +44,10 @@ protected:
 public:
 	TWeakPtr<PCGEx::FWorkPermit> GetWorkPermit() { return WorkPermit; }
 	TSharedPtr<PCGEx::FManagedObjects> ManagedObjects;
+	EPCGExAsyncPriority WorkPriority = EPCGExAsyncPriority::Default;
 
 	bool bScopedAttributeGet = false;
+	bool bPropagateAbortedExecution = false;
 
 	FPCGExContext();
 
@@ -130,13 +132,18 @@ public:
 
 	TSharedPtr<PCGEx::FUniqueNameGenerator> UniqueNameGenerator;
 
-	void EDITOR_TrackPath(const FSoftObjectPath& Path, bool bIsCulled = false) const;
-	void EDITOR_TrackClass(const TSubclassOf<UObject>& InSelectionClass, bool bIsCulled = false) const;
+	void EDITOR_TrackPath(const FSoftObjectPath& Path, bool bIsCulled = false);
+	void EDITOR_TrackClass(const TSubclassOf<UObject>& InSelectionClass, bool bIsCulled = false);
 
 	bool CanExecute() const;
 	virtual bool IsAsyncWorkComplete();
 
+	bool bQuietInvalidInputWarning = false;
+
+	bool bQuietMissingAttributeError = false;
+	bool bQuietMissingInputError = false;
 	bool bQuietCancellationError = false;
+
 	virtual bool CancelExecution(const FString& InReason);
 
 protected:
@@ -145,7 +152,7 @@ protected:
 	// Actors to notify when execution is complete
 	TSet<AActor*> NotifyActors;
 
-	void ExecuteOnNotifyActors(const TArray<FName>& FunctionNames) const;
+	void ExecuteOnNotifyActors(const TArray<FName>& FunctionNames);
 
 	bool bExecutionCancelled = false;
 

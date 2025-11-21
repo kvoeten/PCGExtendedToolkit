@@ -5,6 +5,8 @@
 
 
 #include "Curve/CurveUtil.h"
+#include "Data/PCGExData.h"
+#include "Data/PCGExPointIO.h"
 #include "Elements/Metadata/PCGMetadataElementCommon.h"
 #include "Math/ConvexHull2d.h"
 #include "Graph/PCGExCluster.h"
@@ -18,16 +20,17 @@ TArray<FPCGPinProperties> UPCGExBuildConvexHull2DSettings::OutputPinProperties()
 	if (!bOutputClusters)
 	{
 		TArray<FPCGPinProperties> PinProperties;
-		PCGEX_PIN_POINTS(PCGExPaths::OutputPathsLabel, "Point data representing closed convex hull paths.", Required, {})
+		PCGEX_PIN_POINTS(PCGExPaths::OutputPathsLabel, "Point data representing closed convex hull paths.", Required)
 		return PinProperties;
 	}
 	TArray<FPCGPinProperties> PinProperties = Super::OutputPinProperties();
-	PCGEX_PIN_POINTS(PCGExGraph::OutputEdgesLabel, "Point data representing edges.", Required, {})
-	PCGEX_PIN_POINTS(PCGExPaths::OutputPathsLabel, "Point data representing closed convex hull paths.", Required, {})
+	PCGEX_PIN_POINTS(PCGExGraph::OutputEdgesLabel, "Point data representing edges.", Required)
+	PCGEX_PIN_POINTS(PCGExPaths::OutputPathsLabel, "Point data representing closed convex hull paths.", Required)
 	return PinProperties;
 }
 
 PCGEX_INITIALIZE_ELEMENT(BuildConvexHull2D)
+PCGEX_ELEMENT_BATCH_POINT_IMPL(BuildConvexHull2D)
 
 bool FPCGExBuildConvexHull2DElement::Boot(FPCGExContext* InContext) const
 {
@@ -52,7 +55,7 @@ bool FPCGExBuildConvexHull2DElement::ExecuteInternal(
 	{
 		PCGEX_ON_INVALILD_INPUTS(FTEXT("Some inputs have less than 3 points and won't be processed."))
 
-		if (!Context->StartBatchProcessingPoints<PCGExPointsMT::TBatch<PCGExConvexHull2D::FProcessor>>(
+		if (!Context->StartBatchProcessingPoints(
 			[&](const TSharedPtr<PCGExData::FPointIO>& Entry)
 			{
 				if (Entry->GetNum() < 3)
@@ -62,7 +65,7 @@ bool FPCGExBuildConvexHull2DElement::ExecuteInternal(
 				}
 				return true;
 			},
-			[&](const TSharedPtr<PCGExPointsMT::TBatch<PCGExConvexHull2D::FProcessor>>& NewBatch)
+			[&](const TSharedPtr<PCGExPointsMT::IBatch>& NewBatch)
 			{
 			}))
 		{
@@ -83,11 +86,11 @@ bool FPCGExBuildConvexHull2DElement::ExecuteInternal(
 	return Context->TryComplete();
 }
 
-namespace PCGExConvexHull2D
+namespace PCGExBuildConvexHull2D
 {
 	bool FProcessor::Process(const TSharedPtr<PCGExMT::FTaskManager>& InAsyncManager)
 	{
-		TRACE_CPUPROFILER_EVENT_SCOPE(PCGExConvexHull2D::Process);
+		TRACE_CPUPROFILER_EVENT_SCOPE(PCGExBuildConvexHull2D::Process);
 
 		if (!IProcessor::Process(InAsyncManager)) { return false; }
 

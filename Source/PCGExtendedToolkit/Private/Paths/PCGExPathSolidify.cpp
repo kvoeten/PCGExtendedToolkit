@@ -3,16 +3,85 @@
 
 #include "Paths/PCGExPathSolidify.h"
 
+#include "Data/PCGExPointIO.h"
+#include "Details/PCGExDetailsSettings.h"
+#include "Details/PCGExVersion.h"
+#include "Paths/PCGExPaths.h"
+
 #define LOCTEXT_NAMESPACE "PCGExPathSolidifyElement"
 #define PCGEX_NAMESPACE PathSolidify
 
+UPCGExPathSolidifySettings::UPCGExPathSolidifySettings(const FObjectInitializer& ObjectInitializer)
+	: Super(ObjectInitializer)
+{
+	RotationMapping.Add(EPCGExAxisOrder::XYZ, EPCGExMakeRotAxis::X);
+	RotationMapping.Add(EPCGExAxisOrder::YZX, EPCGExMakeRotAxis::Z);
+	RotationMapping.Add(EPCGExAxisOrder::ZXY, EPCGExMakeRotAxis::X);
+	RotationMapping.Add(EPCGExAxisOrder::YXZ, EPCGExMakeRotAxis::XY);
+	RotationMapping.Add(EPCGExAxisOrder::ZYX, EPCGExMakeRotAxis::XY);
+	RotationMapping.Add(EPCGExAxisOrder::XZY, EPCGExMakeRotAxis::X);
+}
+
+#if WITH_EDITOR
+
+void UPCGExPathSolidifySettings::ApplyDeprecation(UPCGNode* InOutNode)
+{
+	PCGEX_UPDATE_TO_DATA_VERSION(1, 70, 11)
+	{
+#define PCGEX_COPY_TO(_SOURCE, _TARGET)\
+		_TARGET##Axis.Radius = Radius##_SOURCE##Constant_DEPRECATED;\
+		_TARGET##Axis.RadiusAttribute = Radius##_SOURCE##SourceAttribute_DEPRECATED;\
+		if(bWriteRadius##_SOURCE##_DEPRECATED){ _TARGET##Axis.RadiusInput = static_cast<EPCGExInputValueToggle>(Radius##_SOURCE##Input##_DEPRECATED); }\
+		else{_TARGET##Axis.RadiusInput = EPCGExInputValueToggle::Disabled;}
+
+		if (SolidificationAxis_DEPRECATED == EPCGExMinimalAxis::X)
+		{
+			SolidificationOrder = EPCGExAxisOrder::XYZ;
+			PCGEX_COPY_TO(Z, Secondary)
+			PCGEX_COPY_TO(Y, Tertiary)
+		}
+		else if (SolidificationAxis_DEPRECATED == EPCGExMinimalAxis::Y)
+		{
+			SolidificationOrder = EPCGExAxisOrder::YZX;
+			PCGEX_COPY_TO(Z, Secondary)
+			PCGEX_COPY_TO(X, Tertiary)
+		}
+		else
+		{
+			SolidificationOrder = EPCGExAxisOrder::ZXY;
+			PCGEX_COPY_TO(X, Secondary)
+			PCGEX_COPY_TO(Y, Tertiary)
+		}
+#undef PCGEX_COPY_TO
+	}
+
+	Super::ApplyDeprecation(InOutNode);
+}
+
+#endif
+
 PCGEX_INITIALIZE_ELEMENT(PathSolidify)
+
+PCGExData::EIOInit UPCGExPathSolidifySettings::GetMainDataInitializationPolicy() const { return PCGExData::EIOInit::Duplicate; }
+
+PCGEX_ELEMENT_BATCH_POINT_IMPL(PathSolidify)
+
+PCGEX_SETTING_VALUE_IMPL_TOGGLE(FPCGExPathSolidificationAxisDetails, Flip, bool, FlipInput, FlipAttributeName, bFlip, false)
+PCGEX_SETTING_VALUE_IMPL_BOOL(FPCGExPathSolidificationRadiusDetails, Radius, double, RadiusInput == EPCGExInputValueToggle::Attribute, RadiusAttribute, Radius)
+
+PCGEX_SETTING_VALUE_IMPL(UPCGExPathSolidifySettings, SolidificationLerp, double, SolidificationLerpInput, SolidificationLerpAttribute, SolidificationLerpConstant)
 
 bool FPCGExPathSolidifyElement::Boot(FPCGExContext* InContext) const
 {
 	if (!FPCGExPathProcessorElement::Boot(InContext)) { return false; }
 
 	PCGEX_CONTEXT_AND_SETTINGS(PathSolidify)
+
+	Context->RotationConstructionsMap.Reserve(6);
+	for (int i = 0; i < 6; i++)
+	{
+		Context->RotationConstructionsMap.Add(Settings->RotationMapping[static_cast<EPCGExAxisOrder>(i)]);
+	}
 
 	return true;
 }
@@ -26,13 +95,13 @@ bool FPCGExPathSolidifyElement::ExecuteInternal(FPCGContext* InContext) const
 	PCGEX_ON_INITIAL_EXECUTION
 	{
 		PCGEX_ON_INVALILD_INPUTS(FTEXT("Some input have less than 2 points and will be ignored."))
-		if (!Context->StartBatchProcessingPoints<PCGExPointsMT::TBatch<PCGExPathSolidify::FProcessor>>(
+		if (!Context->StartBatchProcessingPoints(
 			[&](const TSharedPtr<PCGExData::FPointIO>& Entry)
 			{
 				PCGEX_SKIP_INVALID_PATH_ENTRY
 				return true;
 			},
-			[&](const TSharedPtr<PCGExPointsMT::TBatch<PCGExPathSolidify::FProcessor>>& NewBatch)
+			[&](const TSharedPtr<PCGExPointsMT::IBatch>& NewBatch)
 			{
 			}))
 		{
@@ -68,28 +137,116 @@ namespace PCGExPathSolidify
 		bClosedLoop = PCGExPaths::GetClosedLoop(PointIO->GetIn());
 
 		Path = MakeShared<PCGExPaths::FPath>(PointDataFacade->GetIn(), 0);
-		PathLength = Path->AddExtra<PCGExPaths::FPathEdgeLength>();
 		Path->IOIndex = PointDataFacade->Source->IOIndex;
 
+		PathLength = Path->AddExtra<PCGExPaths::FPathEdgeLength>();
+
+		const FVector Up = GetDefault<UPCGExGlobalSettings>()->WorldUp;
+
+		if (Settings->NormalType == EPCGExInputValueType::Attribute)
+		{
+			NormalGetter = PointDataFacade->GetBroadcaster<FVector>(Settings->NormalAttribute, true);
+			if (!NormalGetter)
+			{
+				PCGEX_LOG_INVALID_SELECTOR_C(ExecutionContext, Cross Direction, Settings->NormalAttribute)
+				return false;
+			}
+		}
+		else
+		{
+			switch (Settings->Normal)
+			{
+			case EPCGExPathNormalDirection::Normal:
+				PathNormal = StaticCastSharedPtr<PCGExPaths::TPathEdgeExtra<FVector>>(Path->AddExtra<PCGExPaths::FPathEdgeNormal>(false, Up));
+				break;
+			case EPCGExPathNormalDirection::Binormal:
+				PathNormal = StaticCastSharedPtr<PCGExPaths::TPathEdgeExtra<FVector>>(Path->AddExtra<PCGExPaths::FPathEdgeBinormal>(false, Up));
+				break;
+			case EPCGExPathNormalDirection::AverageNormal:
+				PathNormal = StaticCastSharedPtr<PCGExPaths::TPathEdgeExtra<FVector>>(Path->AddExtra<PCGExPaths::FPathEdgeAvgNormal>(false, Up));
+				break;
+			}
+		}
+
 		if (!bClosedLoop && Settings->bRemoveLastPoint) { PointDataFacade->GetOut()->SetNumPoints(Path->LastIndex); }
+
+		// Axis order overrides
+		
+		if (Settings->bReadOrderFromAttribute)
+		{
+			AxisOrder = PointDataFacade->GetBroadcaster<int32>(Settings->OrderAttribute, true);
+			if (!AxisOrder) { PCGEX_LOG_INVALID_ATTR_C(ExecutionContext, Axis Order, Settings->OrderAttribute) }
+		}
+
+		// Axis construction overrides
+		if (Settings->bReadConstructionFromAttribute)
+		{
+			RotationConstruction = PointDataFacade->GetBroadcaster<int32>(Settings->ConstructionAttribute, true);
+			if (!AxisOrder) { PCGEX_LOG_INVALID_ATTR_C(ExecutionContext, Rotation Construction, Settings->ConstructionAttribute) }
+		}
+
+		// Flip settings
+
+		PrimaryFlip = Settings->PrimaryAxis.GetValueSettingFlip();
+		if (!PrimaryFlip->Init(PointDataFacade)) { return false; }
+
+		SecondaryFlip = Settings->SecondaryAxis.GetValueSettingFlip();
+		if (!SecondaryFlip->Init(PointDataFacade)) { return false; }
+
+		TertiaryFlip = Settings->TertiaryAxis.GetValueSettingFlip();
+		if (!TertiaryFlip->Init(PointDataFacade)) { return false; }
+
+		// Radius settings
+
+		if (Settings->TertiaryAxis.RadiusInput != EPCGExInputValueToggle::Disabled)
+		{
+			TertiaryRadius = Settings->TertiaryAxis.GetValueSettingRadius();
+			if (!TertiaryRadius->Init(PointDataFacade)) { return false; }
+		}
+
+		if (Settings->SecondaryAxis.RadiusInput != EPCGExInputValueToggle::Disabled)
+		{
+			SecondaryRadius = Settings->SecondaryAxis.GetValueSettingRadius();
+			if (!SecondaryRadius->Init(PointDataFacade)) { return false; }
+		}
 
 		PointDataFacade->GetOut()->AllocateProperties(
 			EPCGPointNativeProperties::Transform |
 			EPCGPointNativeProperties::BoundsMin |
 			EPCGPointNativeProperties::BoundsMax);
 
-#define PCGEX_CREATE_LOCAL_AXIS_SET_CONST(_AXIS) if (Settings->bWriteRadius##_AXIS){\
-		SolidificationRad##_AXIS = PCGExDetails::MakeSettingValue(Settings->Radius##_AXIS##Input, Settings->Radius##_AXIS##SourceAttribute, Settings->Radius##_AXIS##Constant);\
-		if (!SolidificationRad##_AXIS->Init(PointDataFacade, false)){ return false; }}
-		PCGEX_FOREACH_XYZ(PCGEX_CREATE_LOCAL_AXIS_SET_CONST)
-#undef PCGEX_CREATE_LOCAL_AXIS_SET_CONST
-
 		SolidificationLerp = Settings->GetValueSettingSolidificationLerp();
 		if (!SolidificationLerp->Init(PointDataFacade, false)) { return false; }
+
+		Path->ComputeAllEdgeExtra();
 
 		StartParallelLoopForPoints();
 
 		return true;
+	}
+
+	EPCGExAxisOrder FProcessor::GetOrder(const int32 Index) const
+	{
+		if (!AxisOrder) { return Settings->SolidificationOrder; }
+		int32 CustomValue = PCGExMath::SanitizeIndex(AxisOrder->Read(Index), 5);
+		if (CustomValue == -1) { return Settings->SolidificationOrder; }
+		return static_cast<EPCGExAxisOrder>(CustomValue);
+	}
+
+	EPCGExMakeRotAxis FProcessor::GetConstruction(const EPCGExAxisOrder Order, const int32 Index) const
+	{
+		if (!RotationConstruction)
+		{
+			if (Settings->bUseConstructionMapping) { return Context->RotationConstructionsMap[static_cast<int32>(Order)]; }
+			return Settings->RotationConstruction;
+		}
+		int32 CustomValue = PCGExMath::SanitizeIndex(AxisOrder->Read(Index), 5);
+		if (CustomValue == -1)
+		{
+			if (Settings->bUseConstructionMapping) { return Context->RotationConstructionsMap[static_cast<int32>(Order)]; }
+			return Settings->RotationConstruction;
+		}
+		return static_cast<EPCGExMakeRotAxis>(CustomValue);
 	}
 
 	void FProcessor::ProcessPoints(const PCGExMT::FScope& Scope)
@@ -102,58 +259,75 @@ namespace PCGExPathSolidify
 		TPCGValueRange<FVector> BoundsMin = PointDataFacade->GetOut()->GetBoundsMinValueRange(false);
 		TPCGValueRange<FVector> BoundsMax = PointDataFacade->GetOut()->GetBoundsMaxValueRange(false);
 
+		int32 A = 0;
+		int32 B = 0;
+		int32 C = 0;
+
 		PCGEX_SCOPE_LOOP(Index)
 		{
-			if (!Path->IsValidEdgeIndex(Index)) { continue; }
-
+			if (!Path->IsValidEdgeIndex(Index))
+				continue;
+			
 			const PCGExPaths::FPathEdge& Edge = Path->Edges[Index];
-			Path->ComputeEdgeExtra(Index);
-
 			const double Length = PathLength->Get(Index);
+			const FVector Scale = Transforms[Index].GetScale3D();
+			const FVector InvScale = FVector(1 / Scale.X, 1 / Scale.Y, 1 / Scale.Z);
 
-			FRotator EdgeRot;
-			FVector TargetBoundsMin = BoundsMin[Index];
-			FVector TargetBoundsMax = BoundsMax[Index];
+			const FVector Normal = PathNormal ? PathNormal->Get(Index) : NormalGetter->Read(Index).GetSafeNormal();
+			const FVector RealXAxis = Edge.Dir;
+			const FVector RealYAxis = FVector::CrossProduct(RealXAxis, Normal);
+			const FVector RealZAxis = FVector::CrossProduct(RealYAxis, RealXAxis);
 
-			const double EdgeLerp = FMath::Clamp(SolidificationLerp->Read(Index), 0, 1);
-			const double EdgeLerpInv = 1 - EdgeLerp;
+			const FVector Flip(
+					PrimaryFlip->Read(Index) ? -1.0f : 1.0f,
+					SecondaryFlip->Read(Index) ? -1.0f : 1.0f,
+					TertiaryFlip->Read(Index) ? -1.0f : 1.0f
+				);
 
-			const FVector PtScale = Transforms[Index].GetScale3D();
-			const FVector InvScale = FVector::One() / PtScale;
+			FVector XAxis = RealXAxis * Flip.X;
+			FVector YAxis = RealYAxis * Flip.Y;
+			FVector ZAxis = RealZAxis * Flip.Z;
 
-			//SolidificationRad##_AXIS.IsValid();
+			const EPCGExAxisOrder Order = GetOrder(Index);
+			
+			PCGEx::ReorderAxes(Order, XAxis, YAxis, ZAxis);
+			const FQuat Quat = PCGEx::MakeRot(GetConstruction(Order, Index), XAxis, YAxis, ZAxis);
 
-#define PCGEX_SOLIDIFY_DIMENSION(_AXIS)\
-if (Settings->SolidificationAxis == EPCGExMinimalAxis::_AXIS){\
-TargetBoundsMin._AXIS = (-Length * EdgeLerp)* InvScale._AXIS;\
-TargetBoundsMax._AXIS = (Length * EdgeLerpInv) * InvScale._AXIS;\
-}else if(Settings->bWriteRadius##_AXIS){\
-const double Rad = FMath::Lerp(SolidificationRad##_AXIS->Read(Index), SolidificationRad##_AXIS->Read(Index), EdgeLerpInv); \
-TargetBoundsMin._AXIS = (-Rad) * InvScale._AXIS;\
-TargetBoundsMax._AXIS = (Rad) * InvScale._AXIS;\
-}
+			// Find primary / secondary / tertiary components
+			PCGEx::FindOrderMatch(Quat, RealXAxis, RealYAxis, RealZAxis, A, B, C);
 
-			PCGEX_FOREACH_XYZ(PCGEX_SOLIDIFY_DIMENSION)
-#undef PCGEX_SOLIDIFY_DIMENSION
+			const FVector QuatAxes[3] = {Quat.GetAxisX(), Quat.GetAxisY(), Quat.GetAxisZ()};
+			const bool bForwardFlipped = FVector::DotProduct(QuatAxes[A], RealXAxis) < 0;
+			double EdgeLerp = FMath::Clamp(SolidificationLerp->Read(Index), 0.0, 1.0);
+			//if (bForwardFlipped) { EdgeLerp = 1.0 - EdgeLerp; }
 
-			switch (Settings->SolidificationAxis)
+			// update transform
+			const FVector Position = Path->GetEdgePositionAtAlpha(Index, bForwardFlipped ? 1.0 - EdgeLerp : EdgeLerp);
+			Transforms[Index] = FTransform(Quat, Position, Scale);
+
+			// bounds per axis index
+			FVector& OutBoundsMin = BoundsMin[Index];
+			FVector& OutBoundsMax = BoundsMax[Index];
+
+			// Yey
+			const double EdgeLerpInv = 1.0 - EdgeLerp;
+
+			OutBoundsMin[A] = (-Length * EdgeLerp) * InvScale[A];
+			OutBoundsMax[A] = (Length * EdgeLerpInv) * InvScale[A];
+
+			if (SecondaryRadius)
 			{
-			default:
-			case EPCGExMinimalAxis::X:
-				EdgeRot = FRotationMatrix::MakeFromX(Edge.Dir).Rotator();
-				break;
-			case EPCGExMinimalAxis::Y:
-				EdgeRot = FRotationMatrix::MakeFromY(Edge.Dir).Rotator();
-				break;
-			case EPCGExMinimalAxis::Z:
-				EdgeRot = FRotationMatrix::MakeFromZ(Edge.Dir).Rotator();
-				break;
+				const double Rad = FMath::Abs(SecondaryRadius->Read(Index));
+				OutBoundsMin[B] = -Rad * InvScale[B];
+				OutBoundsMax[B] = Rad * InvScale[B];
 			}
 
-			Transforms[Index] = FTransform(EdgeRot, Path->GetEdgePositionAtAlpha(Index, EdgeLerp), Transforms[Index].GetScale3D());
-
-			BoundsMin[Index] = TargetBoundsMin;
-			BoundsMax[Index] = TargetBoundsMax;
+			if (TertiaryRadius)
+			{
+				const double Rad = FMath::Abs(TertiaryRadius->Read(Index));
+				OutBoundsMin[C] = -Rad * InvScale[C];
+				OutBoundsMax[C] = Rad * InvScale[C];
+			}
 		}
 	}
 }

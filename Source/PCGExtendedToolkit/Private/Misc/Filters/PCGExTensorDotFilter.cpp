@@ -4,6 +4,7 @@
 #include "Misc/Filters/PCGExTensorDotFilter.h"
 
 
+#include "Data/PCGExDataPreloader.h"
 #include "Transform/Tensors/PCGExTensorFactoryProvider.h"
 #include "Transform/Tensors/PCGExTensorHandler.h"
 
@@ -15,19 +16,21 @@ bool UPCGExTensorDotFilterFactory::Init(FPCGExContext* InContext)
 {
 	if (!Super::Init(InContext)) { return false; }
 
-	if (!PCGExFactories::GetInputFactories(InContext, PCGExTensor::SourceTensorsLabel, TensorFactories, {PCGExFactories::EType::Tensor}, true)) { return false; }
-	if (TensorFactories.IsEmpty())
-	{
-		if (!bQuietMissingInputError) { PCGE_LOG_C(Error, GraphAndLog, InContext, FTEXT("Missing tensors.")); }
-		return false;
-	}
-
-	return true;
+	return PCGExFactories::GetInputFactories(
+		InContext, PCGExTensor::SourceTensorsLabel, TensorFactories,
+		{PCGExFactories::EType::Tensor});
 }
 
 TSharedPtr<PCGExPointFilter::IFilter> UPCGExTensorDotFilterFactory::CreateFilter() const
 {
 	return MakeShared<PCGExPointFilter::FTensorDotFilter>(this);
+}
+
+void UPCGExTensorDotFilterFactory::RegisterBuffersDependencies(FPCGExContext* InContext, PCGExData::FFacadePreloader& FacadePreloader) const
+{
+	Super::RegisterBuffersDependencies(InContext, FacadePreloader);
+	FacadePreloader.Register<FVector>(InContext, Config.OperandA);
+	Config.DotComparisonDetails.RegisterBuffersDependencies(InContext, FacadePreloader);
 }
 
 bool UPCGExTensorDotFilterFactory::RegisterConsumableAttributesWithData(FPCGExContext* InContext, const UPCGData* InData) const
@@ -48,10 +51,10 @@ bool PCGExPointFilter::FTensorDotFilter::Init(FPCGExContext* InContext, const TS
 	TensorsHandler = MakeShared<PCGExTensor::FTensorsHandler>(TypedFilterFactory->Config.TensorHandlerDetails);
 	if (!TensorsHandler->Init(InContext, TypedFilterFactory->TensorFactories, InPointDataFacade)) { return false; }
 
-	OperandA = PointDataFacade->GetBroadcaster<FVector>(TypedFilterFactory->Config.OperandA, true);
+	OperandA = PointDataFacade->GetBroadcaster<FVector>(TypedFilterFactory->Config.OperandA, true, false, PCGEX_QUIET_HANDLING);
 	if (!OperandA)
 	{
-		PCGEX_LOG_INVALID_SELECTOR_C(InContext, Operand A, TypedFilterFactory->Config.OperandA)
+		PCGEX_LOG_INVALID_SELECTOR_HANDLED_C(InContext, Operand A, TypedFilterFactory->Config.OperandA)
 		return false;
 	}
 
@@ -81,7 +84,7 @@ PCGEX_CREATE_FILTER_FACTORY(TensorDot)
 TArray<FPCGPinProperties> UPCGExTensorDotFilterProviderSettings::InputPinProperties() const
 {
 	TArray<FPCGPinProperties> PinProperties = Super::InputPinProperties();
-	PCGEX_PIN_FACTORIES(PCGExTensor::SourceTensorsLabel, "Tensors", Required, {})
+	PCGEX_PIN_FACTORIES(PCGExTensor::SourceTensorsLabel, "Tensors", Required, FPCGExDataTypeInfoTensor::AsId())
 	return PinProperties;
 }
 

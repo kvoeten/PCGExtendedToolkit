@@ -18,8 +18,8 @@ namespace PCGExData
 UENUM()
 enum class EPCGExSortDirection : uint8
 {
-	Ascending  = 0 UMETA(DisplayName = "Ascending"),
-	Descending = 1 UMETA(DisplayName = "Descending")
+	Ascending  = 0 UMETA(DisplayName = "Ascending", ToolTip = "Ascending", ActionIcon="Ascending"),
+	Descending = 1 UMETA(DisplayName = "Descending", ToolTip = "Descending", ActionIcon="Descending")
 };
 
 USTRUCT(BlueprintType)
@@ -27,16 +27,9 @@ struct PCGEXTENDEDTOOLKIT_API FPCGExSortRuleConfig : public FPCGExInputConfig
 {
 	GENERATED_BODY()
 
-	FPCGExSortRuleConfig()
-	{
-	}
+	FPCGExSortRuleConfig() = default;
+	FPCGExSortRuleConfig(const FPCGExSortRuleConfig& Other);
 
-	FPCGExSortRuleConfig(const FPCGExSortRuleConfig& Other)
-		: FPCGExInputConfig(Other),
-		  Tolerance(Other.Tolerance),
-		  bInvertRule(Other.bInvertRule)
-	{
-	}
 
 	/** Equality tolerance. */
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta = (PCG_Overridable))
@@ -56,14 +49,8 @@ struct PCGEXTENDEDTOOLKIT_API FPCGExCollectionSortingDetails
 {
 	GENERATED_BODY()
 
-	FPCGExCollectionSortingDetails()
-	{
-	}
-
-	explicit FPCGExCollectionSortingDetails(const bool InEnabled)
-	{
-		bEnabled = InEnabled;
-	}
+	FPCGExCollectionSortingDetails() = default;
+	explicit FPCGExCollectionSortingDetails(const bool InEnabled);
 
 	/** Whether this collection sorting is enabled or not. */
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta=(PCG_Overridable))
@@ -90,9 +77,15 @@ struct PCGEXTENDEDTOOLKIT_API FPCGExCollectionSortingDetails
 	bool bQuietMissingTagWarning = false;
 
 	bool Init(const FPCGContext* InContext);
-	void Sort(const FPCGContext* InContext, const TSharedPtr<PCGExData::FPointIOCollection>& InCollection) const;
+	void Sort(const FPCGExContext* InContext, const TSharedPtr<PCGExData::FPointIOCollection>& InCollection) const;
 };
 
+USTRUCT(meta=(PCG_DataTypeDisplayName="PCGEx | Sort Rule"))
+struct FPCGExDataTypeInfoSortRule : public FPCGExFactoryDataTypeInfo
+{
+	GENERATED_BODY()
+	PCG_DECLARE_TYPE_INFO(PCGEXTENDEDTOOLKIT_API)
+};
 
 /**
  * 
@@ -103,6 +96,8 @@ class PCGEXTENDEDTOOLKIT_API UPCGExSortingRule : public UPCGExFactoryData
 	GENERATED_BODY()
 
 public:
+	PCG_ASSIGN_TYPE_INFO(FPCGExDataTypeInfoSortRule)
+
 	virtual PCGExFactories::EType GetFactoryType() const override { return PCGExFactories::EType::RuleSort; }
 
 	int32 Priority;
@@ -115,6 +110,9 @@ UCLASS(BlueprintType, ClassGroup = (Procedural), Category="PCGEx|Filter")
 class PCGEXTENDEDTOOLKIT_API UPCGExSortingRuleProviderSettings : public UPCGExFactoryProviderSettings
 {
 	GENERATED_BODY()
+
+protected:
+	PCGEX_FACTORY_TYPE_ID(FPCGExDataTypeInfoSortRule)
 
 public:
 	//~Begin UPCGSettings
@@ -136,8 +134,8 @@ public:
 	//~End UPCGExFactoryProviderSettings
 
 	/** Filter Priority.*/
-	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta=(PCG_Overridable, DisplayPriority=-1))
-	int32 Priority;
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta=(PCG_Overridable, DisplayPriority=-1), AdvancedDisplay)
+	int32 Priority = 0;
 
 	/** Rule Config */
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta=(PCG_Overridable, ShowOnlyInnerProperties))

@@ -3,6 +3,8 @@
 
 #include "Misc/PCGExCopyToPoints.h"
 
+#include "Data/PCGExData.h"
+#include "Data/PCGExPointIO.h"
 #include "Geometry/PCGExGeo.h"
 
 #define LOCTEXT_NAMESPACE "PCGExCopyToPointsElement"
@@ -11,7 +13,7 @@
 TArray<FPCGPinProperties> UPCGExCopyToPointsSettings::InputPinProperties() const
 {
 	TArray<FPCGPinProperties> PinProperties = Super::InputPinProperties();
-	PCGEX_PIN_POINT(PCGEx::SourceTargetsLabel, "Target points to copy inputs to.", Required, {})
+	PCGEX_PIN_POINT(PCGEx::SourceTargetsLabel, "Target points to copy inputs to.", Required)
 	PCGExMatching::DeclareMatchingRulesInputs(DataMatching, PinProperties);
 
 	return PinProperties;
@@ -25,6 +27,7 @@ TArray<FPCGPinProperties> UPCGExCopyToPointsSettings::OutputPinProperties() cons
 }
 
 PCGEX_INITIALIZE_ELEMENT(CopyToPoints)
+PCGEX_ELEMENT_BATCH_POINT_IMPL(CopyToPoints)
 
 bool FPCGExCopyToPointsElement::Boot(FPCGExContext* InContext) const
 {
@@ -60,9 +63,9 @@ bool FPCGExCopyToPointsElement::ExecuteInternal(FPCGContext* InContext) const
 
 	PCGEX_ON_INITIAL_EXECUTION
 	{
-		if (!Context->StartBatchProcessingPoints<PCGExPointsMT::TBatch<PCGExCopyToPoints::FProcessor>>(
+		if (!Context->StartBatchProcessingPoints(
 			[&](const TSharedPtr<PCGExData::FPointIO>& Entry) { return true; },
-			[&](const TSharedPtr<PCGExPointsMT::TBatch<PCGExCopyToPoints::FProcessor>>& NewBatch)
+			[&](const TSharedPtr<PCGExPointsMT::IBatch>& NewBatch)
 			{
 			}))
 		{

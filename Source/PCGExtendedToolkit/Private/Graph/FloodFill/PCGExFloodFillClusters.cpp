@@ -3,12 +3,21 @@
 
 #include "Graph/FloodFill/PCGExFloodFillClusters.h"
 
+#include "Data/PCGExPointIO.h"
+#include "Details/PCGExDetailsSettings.h"
 #include "Graph/FloodFill/PCGExFloodFill.h"
 #include "Graph/FloodFill/FillControls/PCGExFillControlsFactoryProvider.h"
+#include "Graph/Pathfinding/Heuristics/PCGExHeuristicsFactoryProvider.h"
 #include "Paths/PCGExPaths.h"
 
 #define LOCTEXT_NAMESPACE "PCGExClusterDiffusion"
 #define PCGEX_NAMESPACE ClusterDiffusion
+
+UPCGExClusterDiffusionSettings::UPCGExClusterDiffusionSettings(const FObjectInitializer& ObjectInitializer)
+	: Super(ObjectInitializer)
+{
+	SeedForwarding.bPreservePCGExData = true;
+}
 
 PCGExData::EIOInit UPCGExClusterDiffusionSettings::GetMainOutputInitMode() const { return PCGExData::EIOInit::Duplicate; }
 PCGExData::EIOInit UPCGExClusterDiffusionSettings::GetEdgeOutputInitMode() const { return PCGExData::EIOInit::Forward; }
@@ -17,9 +26,9 @@ TArray<FPCGPinProperties> UPCGExClusterDiffusionSettings::InputPinProperties() c
 {
 	TArray<FPCGPinProperties> PinProperties = Super::InputPinProperties();
 
-	PCGEX_PIN_FACTORIES(PCGExGraph::SourceHeuristicsLabel, "Heuristics. Used to drive flooding.", Required, {})
-	PCGEX_PIN_POINT(PCGExGraph::SourceSeedsLabel, "Seed points.", Required, {})
-	PCGEX_PIN_FACTORIES(PCGExFloodFill::SourceFillControlsLabel, "Fill controls, used to constraint & limit flood fill", Normal, {})
+	PCGEX_PIN_FACTORIES(PCGExGraph::SourceHeuristicsLabel, "Heuristics. Used to drive flooding.", Required, FPCGExDataTypeInfoHeuristics::AsId())
+	PCGEX_PIN_POINT(PCGExGraph::SourceSeedsLabel, "Seed points.", Required)
+	PCGEX_PIN_FACTORIES(PCGExFloodFill::SourceFillControlsLabel, "Fill controls, used to constraint & limit flood fill", Normal, FPCGExDataTypeInfoFillControl::AsId())
 	PCGExDataBlending::DeclareBlendOpsInputs(PinProperties, EPCGPinStatus::Normal);
 
 	return PinProperties;
@@ -31,13 +40,14 @@ TArray<FPCGPinProperties> UPCGExClusterDiffusionSettings::OutputPinProperties() 
 
 	if (PathOutput != EPCGExFloodFillPathOutput::None)
 	{
-		PCGEX_PIN_POINTS(PCGExPaths::OutputPathsLabel, "High density, overlapping paths representing individual flood lanes", Normal, {})
+		PCGEX_PIN_POINTS(PCGExPaths::OutputPathsLabel, "High density, overlapping paths representing individual flood lanes", Normal)
 	}
 
 	return PinProperties;
 }
 
 PCGEX_INITIALIZE_ELEMENT(ClusterDiffusion)
+PCGEX_ELEMENT_BATCH_EDGE_IMPL_ADV(ClusterDiffusion)
 
 bool FPCGExClusterDiffusionElement::Boot(FPCGExContext* InContext) const
 {
@@ -67,7 +77,9 @@ bool FPCGExClusterDiffusionElement::Boot(FPCGExContext* InContext) const
 		Context->Paths->OutputPin = PCGExPaths::OutputPathsLabel;
 	}
 
-	Context->SeedForwardHandler = Settings->SeedForwarding.GetHandler(Context->SeedsDataFacade, false);
+	FPCGExForwardDetails FwdDetails = Settings->SeedForwarding;
+	FwdDetails.bFilterToRemove = true;
+	Context->SeedForwardHandler = FwdDetails.GetHandler(Context->SeedsDataFacade, false);
 
 	return true;
 }
@@ -80,9 +92,9 @@ bool FPCGExClusterDiffusionElement::ExecuteInternal(FPCGContext* InContext) cons
 	PCGEX_EXECUTION_CHECK
 	PCGEX_ON_INITIAL_EXECUTION
 	{
-		if (!Context->StartProcessingClusters<PCGExClusterDiffusion::FBatch>(
+		if (!Context->StartProcessingClusters(
 			[](const TSharedPtr<PCGExData::FPointIOTaggedEntries>& Entries) { return true; },
-			[&](const TSharedPtr<PCGExClusterDiffusion::FBatch>& NewBatch)
+			[&](const TSharedPtr<PCGExClusterMT::IBatch>& NewBatch)
 			{
 				NewBatch->bRequiresWriteStep = true;
 			}))
@@ -91,36 +103,10 @@ bool FPCGExClusterDiffusionElement::ExecuteInternal(FPCGContext* InContext) cons
 		}
 	}
 
-	if (Settings->PathOutput != EPCGExFloodFillPathOutput::None)
-	{
-		PCGEX_CLUSTER_BATCH_PROCESSING(PCGExCommon::State_ReadyForNextPoints)
-
-		if (Context->ExpectedPathCount > 0)
-		{
-			PCGEX_ON_STATE(PCGExCommon::State_ReadyForNextPoints)
-			{
-				Context->SetAsyncState(PCGExCommon::State_WaitingOnAsyncWork);
-				Context->OutputBatches();
-			}
-
-			PCGEX_ON_ASYNC_STATE_READY(PCGExCommon::State_WaitingOnAsyncWork)
-			{
-				Context->Paths->StageOutputs();
-				Context->Done();
-			}
-		}
-		else
-		{
-			// No point, maybe give a warning or something?
-			Context->Done();
-		}
-	}
-	else
-	{
-		PCGEX_CLUSTER_BATCH_PROCESSING(PCGExCommon::State_Done)
-	}
+	PCGEX_CLUSTER_BATCH_PROCESSING(PCGExCommon::State_Done)
 
 	Context->OutputPointsAndEdges();
+	if (Context->Paths) { Context->Paths->StageOutputs(); }
 
 	return Context->TryComplete();
 }
@@ -177,15 +163,14 @@ namespace PCGExClusterDiffusion
 					FVector SeedLocation = SeedTransforms[Index].GetLocation();
 					const int32 ClosestIndex = This->Cluster->FindClosestNode(SeedLocation, This->Settings->Seeds.SeedPicking.PickingMethod);
 
-					if (ClosestIndex < 0 ||
+					if (ClosestIndex < 0) { continue; }
+
+					const PCGExCluster::FNode* SeedNode = &Nodes[ClosestIndex];
+					if (!This->Settings->Seeds.SeedPicking.WithinDistance(This->Cluster->GetPos(SeedNode), SeedLocation) ||
 						FPlatformAtomics::InterlockedCompareExchange(&This->Seeded[ClosestIndex], 1, 0) == 1)
 					{
 						continue;
 					}
-
-					const PCGExCluster::FNode* SeedNode = &Nodes[ClosestIndex];
-
-					if (!This->Settings->Seeds.SeedPicking.WithinDistance(This->Cluster->GetPos(SeedNode), SeedLocation)) { continue; }
 
 					TSharedPtr<PCGExFloodFill::FDiffusion> NewDiffusion = MakeShared<PCGExFloodFill::FDiffusion>(This->FillControlsHandler, This->Cluster, SeedNode);
 					NewDiffusion->Index = Index;
@@ -211,7 +196,7 @@ namespace PCGExClusterDiffusion
 
 		if (OngoingDiffusions.IsEmpty())
 		{
-			// TODO : Warn that no diffusion could be initialized
+			PCGE_LOG_C(Warning, GraphAndLog, Context, FTEXT("A cluster could not initialize any diffusions. This is usually caused when there is more clusters than there is seeds, or all available seeds were better candidates for other clusters."));
 			bIsProcessorValid = false;
 			return;
 		}
@@ -263,7 +248,7 @@ namespace PCGExClusterDiffusion
 			return;
 		}
 
-		// Grow one entierely
+		// Grow one entirely
 		const TSharedPtr<PCGExFloodFill::FDiffusion> Diffusion = OngoingDiffusions.Pop();
 		while (!Diffusion->bStopped) { Diffusion->Grow(); }
 
@@ -305,10 +290,24 @@ namespace PCGExClusterDiffusion
 
 	void FProcessor::CompleteWork()
 	{
+		if (Diffusions.IsEmpty())
+		{
+			PCGE_LOG_C(Warning, GraphAndLog, Context, FTEXT("No valid diffusions."));
+			bIsProcessorValid = false;
+			return;
+		}
+
 		// Proceed to blending
 		// Note: There is an important probability of collision for nodes with influences > 1
 
 		PCGEX_ASYNC_GROUP_CHKD_VOID(AsyncManager, DiffuseDiffusions)
+
+		DiffuseDiffusions->OnCompleteCallback =
+			[PCGEX_ASYNC_THIS_CAPTURE]()
+			{
+				PCGEX_ASYNC_THIS
+				This->OnDiffusionComplete();
+			};
 
 		DiffuseDiffusions->OnIterationCallback =
 			[PCGEX_ASYNC_THIS_CAPTURE](const int32 Index, const PCGExMT::FScope& Scope)
@@ -353,9 +352,13 @@ namespace PCGExClusterDiffusion
 		// TODO : Cleanup the diffusion if we don't want paths
 	}
 
-	void FProcessor::Output()
+	void FProcessor::OnDiffusionComplete()
 	{
-		if (ExpectedPathCount == 0) { return; }
+		if (Settings->PathOutput == EPCGExFloodFillPathOutput::None ||
+			ExpectedPathCount == 0)
+		{
+			return;
+		}
 
 		if (Settings->PathOutput == EPCGExFloodFillPathOutput::Full)
 		{
@@ -416,7 +419,7 @@ namespace PCGExClusterDiffusion
 
 					if (PathNodeIndex != -1)
 					{
-						int32 PathPointIndex = This->Cluster->GetNode(EndpointNodeIndex)->PointIndex;
+						int32 PathPointIndex = This->Cluster->GetNodePointIndex(EndpointNodeIndex);
 						PathIndices.Add(PathPointIndex);
 						Visited.Add(PathPointIndex);
 
@@ -425,7 +428,7 @@ namespace PCGExClusterDiffusion
 							const int32 CurrentIndex = PathNodeIndex;
 							PCGEx::NH64(Diff->TravelStack->Get(CurrentIndex), PathNodeIndex, PathEdgeIndex);
 
-							PathPointIndex = This->Cluster->GetNode(CurrentIndex)->PointIndex;
+							PathPointIndex = This->Cluster->GetNodePointIndex(CurrentIndex);
 							PathIndices.Add(PathPointIndex);
 
 							bool bIsAlreadyVisited = false;
@@ -452,13 +455,13 @@ namespace PCGExClusterDiffusion
 		TArray<int32> PathIndices;
 		if (PathNodeIndex != -1)
 		{
-			PathIndices.Add(Cluster->GetNode(EndpointNodeIndex)->PointIndex);
+			PathIndices.Add(Cluster->GetNodePointIndex(EndpointNodeIndex));
 
 			while (PathNodeIndex != -1)
 			{
 				const int32 CurrentIndex = PathNodeIndex;
 				PCGEx::NH64(Diffusion->TravelStack->Get(CurrentIndex), PathNodeIndex, PathEdgeIndex);
-				PathIndices.Add(Cluster->GetNode(CurrentIndex)->PointIndex);
+				PathIndices.Add(Cluster->GetNodePointIndex(CurrentIndex));
 			}
 		}
 
@@ -469,6 +472,7 @@ namespace PCGExClusterDiffusion
 		// Create a copy of the final vtx, so we get all the goodies
 
 		TSharedPtr<PCGExData::FPointIO> PathIO = Context->Paths->Emplace_GetRef(VtxDataFacade->Source->GetOut(), PCGExData::EIOInit::New);
+		PathIO->DeleteAttribute(PCGExPaths::ClosedLoopIdentifier);
 
 		(void)PCGEx::SetNumPointsAllocated(PathIO->GetOut(), PathIndices.Num(), VtxDataFacade->Source->GetIn()->GetAllocatedProperties());
 		PathIO->InheritPoints(PathIndices, 0);
@@ -489,6 +493,7 @@ namespace PCGExClusterDiffusion
 		// Create a copy of the final vtx, so we get all the goodies
 
 		TSharedPtr<PCGExData::FPointIO> PathIO = Context->Paths->Emplace_GetRef(VtxDataFacade->Source->GetOut(), PCGExData::EIOInit::New);
+		PathIO->DeleteAttribute(PCGExPaths::ClosedLoopIdentifier);
 
 		(void)PCGEx::SetNumPointsAllocated(PathIO->GetOut(), PathIndices.Num(), VtxDataFacade->Source->GetIn()->GetAllocatedProperties());
 		PathIO->InheritPoints(PathIndices, 0);
@@ -565,16 +570,18 @@ namespace PCGExClusterDiffusion
 		TBatch<FProcessor>::Process();
 	}
 
-	bool FBatch::PrepareSingle(const TSharedPtr<FProcessor>& ClusterProcessor)
+	bool FBatch::PrepareSingle(const TSharedPtr<PCGExClusterMT::IProcessor>& InProcessor)
 	{
-		if (!TBatch<FProcessor>::PrepareSingle(ClusterProcessor)) { return false; }
+		if (!TBatch<FProcessor>::PrepareSingle(InProcessor)) { return false; }
 
-		ClusterProcessor->BlendOpsManager = BlendOpsManager;
-		ClusterProcessor->InfluencesCount = InfluencesCount;
+		PCGEX_TYPED_PROCESSOR
 
-		ClusterProcessor->FillRate = FillRate;
+		TypedProcessor->BlendOpsManager = BlendOpsManager;
+		TypedProcessor->InfluencesCount = InfluencesCount;
 
-#define PCGEX_OUTPUT_FWD_TO(_NAME, _TYPE, _DEFAULT_VALUE) if(_NAME##Writer){ ClusterProcessor->_NAME##Writer = _NAME##Writer; }
+		TypedProcessor->FillRate = FillRate;
+
+#define PCGEX_OUTPUT_FWD_TO(_NAME, _TYPE, _DEFAULT_VALUE) if(_NAME##Writer){ TypedProcessor->_NAME##Writer = _NAME##Writer; }
 		PCGEX_FOREACH_FIELD_CLUSTER_DIFF(PCGEX_OUTPUT_FWD_TO)
 #undef PCGEX_OUTPUT_FWD_TO
 

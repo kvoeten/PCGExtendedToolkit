@@ -4,10 +4,25 @@
 #include "Paths/PCGExOrient.h"
 
 
+#include "PCGParamData.h"
+#include "Data/PCGExData.h"
+#include "Data/PCGExPointIO.h"
 #include "Paths/Orient/PCGExOrientAverage.h"
+#include "Paths/Orient/PCGExOrientLookAt.h"
 
 #define LOCTEXT_NAMESPACE "PCGExOrientElement"
 #define PCGEX_NAMESPACE Orient
+
+#if WITH_EDITORONLY_DATA
+void UPCGExOrientSettings::PostInitProperties()
+{
+	if (!HasAnyFlags(RF_ClassDefaultObject) && IsInGameThread())
+	{
+		if (!Orientation) { Orientation = NewObject<UPCGExOrientLookAt>(this, TEXT("Orientation")); }
+	}
+	Super::PostInitProperties();
+}
+#endif
 
 TArray<FPCGPinProperties> UPCGExOrientSettings::InputPinProperties() const
 {
@@ -17,6 +32,10 @@ TArray<FPCGPinProperties> UPCGExOrientSettings::InputPinProperties() const
 }
 
 PCGEX_INITIALIZE_ELEMENT(Orient)
+
+PCGExData::EIOInit UPCGExOrientSettings::GetMainDataInitializationPolicy() const { return PCGExData::EIOInit::Duplicate; }
+
+PCGEX_ELEMENT_BATCH_POINT_IMPL(Orient)
 
 bool FPCGExOrientElement::Boot(FPCGExContext* InContext) const
 {
@@ -44,13 +63,13 @@ bool FPCGExOrientElement::ExecuteInternal(FPCGContext* InContext) const
 {
 	TRACE_CPUPROFILER_EVENT_SCOPE(FPCGExOrientElement::Execute);
 
-	PCGEX_CONTEXT(Orient)
+	PCGEX_CONTEXT_AND_SETTINGS(Orient)
 	PCGEX_EXECUTION_CHECK
 	PCGEX_ON_INITIAL_EXECUTION
 	{
 		PCGEX_ON_INVALILD_INPUTS(FTEXT("Some inputs have less than 2 points and won't be processed."))
 
-		if (!Context->StartBatchProcessingPoints<PCGExPointsMT::TBatch<PCGExOrient::FProcessor>>(
+		if (!Context->StartBatchProcessingPoints(
 			[&](const TSharedPtr<PCGExData::FPointIO>& Entry)
 			{
 				if (Entry->GetNum() < 2)
@@ -61,7 +80,7 @@ bool FPCGExOrientElement::ExecuteInternal(FPCGContext* InContext) const
 				}
 				return true;
 			},
-			[&](const TSharedPtr<PCGExPointsMT::TBatch<PCGExOrient::FProcessor>>& NewBatch)
+			[&](const TSharedPtr<PCGExPointsMT::IBatch>& NewBatch)
 			{
 			}))
 		{
@@ -71,7 +90,7 @@ bool FPCGExOrientElement::ExecuteInternal(FPCGContext* InContext) const
 
 	PCGEX_POINTS_BATCH_PROCESSING(PCGExCommon::State_Done)
 
-	Context->MainPoints->StageOutputs();
+	PCGEX_OUTPUT_VALID_PATHS(MainPoints)
 
 	return Context->TryComplete();
 }

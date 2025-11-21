@@ -4,6 +4,8 @@
 #include "Graph/Diagrams/PCGExBuildConvexHull.h"
 
 
+#include "Data/PCGExData.h"
+#include "Data/PCGExPointIO.h"
 #include "Elements/Metadata/PCGMetadataElementCommon.h"
 #include "Geometry/PCGExGeoDelaunay.h"
 #include "Graph/PCGExCluster.h"
@@ -14,11 +16,15 @@
 TArray<FPCGPinProperties> UPCGExBuildConvexHullSettings::OutputPinProperties() const
 {
 	TArray<FPCGPinProperties> PinProperties = Super::OutputPinProperties();
-	PCGEX_PIN_POINTS(PCGExGraph::OutputEdgesLabel, "Point data representing edges.", Required, {})
+	PCGEX_PIN_POINTS(PCGExGraph::OutputEdgesLabel, "Point data representing edges.", Required)
 	return PinProperties;
 }
 
 PCGEX_INITIALIZE_ELEMENT(BuildConvexHull)
+
+PCGExData::EIOInit UPCGExBuildConvexHullSettings::GetMainDataInitializationPolicy() const { return PCGExData::EIOInit::Duplicate; }
+
+PCGEX_ELEMENT_BATCH_POINT_IMPL(BuildConvexHull)
 
 FName UPCGExBuildConvexHullSettings::GetMainOutputPin() const { return PCGExGraph::OutputVerticesLabel; }
 
@@ -42,7 +48,7 @@ bool FPCGExBuildConvexHullElement::ExecuteInternal(
 	{
 		PCGEX_ON_INVALILD_INPUTS(FTEXT("Some inputs have less than 4 points and won't be processed."))
 
-		if (!Context->StartBatchProcessingPoints<PCGExPointsMT::TBatch<PCGExConvexHull::FProcessor>>(
+		if (!Context->StartBatchProcessingPoints(
 			[&](const TSharedPtr<PCGExData::FPointIO>& Entry)
 			{
 				if (Entry->GetNum() < 4)
@@ -52,7 +58,7 @@ bool FPCGExBuildConvexHullElement::ExecuteInternal(
 				}
 				return true;
 			},
-			[&](const TSharedPtr<PCGExPointsMT::TBatch<PCGExConvexHull::FProcessor>>& NewBatch)
+			[&](const TSharedPtr<PCGExPointsMT::IBatch>& NewBatch)
 			{
 				NewBatch->bRequiresWriteStep = true;
 			}))
@@ -69,11 +75,11 @@ bool FPCGExBuildConvexHullElement::ExecuteInternal(
 	return Context->TryComplete();
 }
 
-namespace PCGExConvexHull
+namespace PCGExBuildConvexHull
 {
 	bool FProcessor::Process(const TSharedPtr<PCGExMT::FTaskManager>& InAsyncManager)
 	{
-		TRACE_CPUPROFILER_EVENT_SCOPE(PCGExConvexHull::Process);
+		TRACE_CPUPROFILER_EVENT_SCOPE(PCGExBuildConvexHull::Process);
 
 		if (!IProcessor::Process(InAsyncManager)) { return false; }
 
@@ -86,7 +92,10 @@ namespace PCGExConvexHull
 
 		if (!Delaunay->Process<false, true>(ActivePositions))
 		{
-			PCGE_LOG_C(Warning, GraphAndLog, ExecutionContext, FTEXT("Some inputs generates no results. Are points coplanar? If so, use Convex Hull 2D instead."));
+			if (!Context->bQuietInvalidInputWarning)
+			{
+				PCGE_LOG_C(Warning, GraphAndLog, ExecutionContext, FTEXT("Some inputs generates no results. Are points coplanar? If so, use Convex Hull 2D instead."));
+			}
 			return false;
 		}
 

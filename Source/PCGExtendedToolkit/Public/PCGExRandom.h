@@ -11,7 +11,7 @@ class UPCGSettings;
 UENUM(meta=(Bitflags, UseEnumValuesAsMaskValuesInEditor="true", DisplayName="[PCGEx] Seed Components"))
 enum class EPCGExSeedComponents : uint8
 {
-	None      = 0,
+	None      = 0 UMETA(Hidden),
 	Local     = 1 << 1 UMETA(DisplayName = "Local"),
 	Settings  = 1 << 2 UMETA(DisplayName = "Settings"),
 	Component = 1 << 3 UMETA(DisplayName = "Component"),
@@ -22,22 +22,10 @@ using EPCGExSeedComponentsBitmask = TEnumAsByte<EPCGExSeedComponents>;
 
 namespace PCGExRandom
 {
-	FORCEINLINE static int ComputeSeed(const int A)
+	FORCEINLINE static double FastRand01(uint32& Seed)
 	{
-		// From Epic git main, unexposed in 5.3
-		return (A * 196314165U) + 907633515U;
-	}
-
-	FORCEINLINE static int ComputeSeed(const int A, const int B)
-	{
-		// From Epic git main, unexposed in 5.3
-		return ((A * 196314165U) + 907633515U) ^ ((B * 73148459U) + 453816763U);
-	}
-
-	FORCEINLINE static int ComputeSeed(const int A, const int B, const int C)
-	{
-		// From Epic git main, unexposed in 5.3
-		return ((A * 196314165U) + 907633515U) ^ ((B * 73148459U) + 453816763U) ^ ((C * 34731343U) + 453816743U);
+		Seed = Seed * 1664525u + 1013904223u;
+		return (Seed & 0x00FFFFFF) / static_cast<double>(0x01000000);
 	}
 
 	PCGEXTENDEDTOOLKIT_API

@@ -3,10 +3,11 @@
 
 #include "Graph/PCGExBreakClustersToPaths.h"
 
+
 #include "Curve/CurveUtil.h"
 #include "Data/PCGExDataPreloader.h"
+#include "Data/PCGExPointIO.h"
 #include "Graph/PCGExChain.h"
-#include "Graph/Filters/PCGExClusterFilter.h"
 #include "Paths/PCGExPaths.h"
 
 #define LOCTEXT_NAMESPACE "PCGExBreakClustersToPaths"
@@ -15,7 +16,7 @@
 TArray<FPCGPinProperties> UPCGExBreakClustersToPathsSettings::OutputPinProperties() const
 {
 	TArray<FPCGPinProperties> PinProperties;
-	PCGEX_PIN_POINTS(PCGExPaths::OutputPathsLabel, "Paths", Required, {})
+	PCGEX_PIN_POINTS(PCGExPaths::OutputPathsLabel, "Paths", Required)
 	return PinProperties;
 }
 
@@ -23,6 +24,7 @@ PCGExData::EIOInit UPCGExBreakClustersToPathsSettings::GetEdgeOutputInitMode() c
 PCGExData::EIOInit UPCGExBreakClustersToPathsSettings::GetMainOutputInitMode() const { return PCGExData::EIOInit::NoInit; }
 
 PCGEX_INITIALIZE_ELEMENT(BreakClustersToPaths)
+PCGEX_ELEMENT_BATCH_EDGE_IMPL_ADV(BreakClustersToPaths)
 
 bool FPCGExBreakClustersToPathsElement::Boot(FPCGExContext* InContext) const
 {
@@ -33,8 +35,8 @@ bool FPCGExBreakClustersToPathsElement::Boot(FPCGExContext* InContext) const
 	Context->bUseProjection = Settings->Winding != EPCGExWindingMutation::Unchanged;
 	Context->bUsePerClusterProjection = Context->bUseProjection && Settings->ProjectionDetails.Method == EPCGExProjectionMethod::BestFit;
 
-	Context->Paths = MakeShared<PCGExData::FPointIOCollection>(Context);
-	Context->Paths->OutputPin = PCGExPaths::OutputPathsLabel;
+	Context->OutputPaths = MakeShared<PCGExData::FPointIOCollection>(Context);
+	Context->OutputPaths->OutputPin = PCGExPaths::OutputPathsLabel;
 
 	return true;
 }
@@ -48,12 +50,19 @@ bool FPCGExBreakClustersToPathsElement::ExecuteInternal(
 	PCGEX_EXECUTION_CHECK
 	PCGEX_ON_INITIAL_EXECUTION
 	{
-		if (!Context->StartProcessingClusters<PCGExBreakClustersToPaths::FBatch>(
+		if (!Context->StartProcessingClusters(
 			[](const TSharedPtr<PCGExData::FPointIOTaggedEntries>& Entries) { return true; },
-			[&](const TSharedPtr<PCGExBreakClustersToPaths::FBatch>& NewBatch)
+			[&](const TSharedPtr<PCGExClusterMT::IBatch>& NewBatch)
 			{
 				if (Settings->Winding != EPCGExWindingMutation::Unchanged) { NewBatch->SetProjectionDetails(Settings->ProjectionDetails); }
-				if (Settings->OperateOn == EPCGExBreakClusterOperationTarget::Paths) { NewBatch->VtxFilterFactories = &Context->FilterFactories; }
+				if (Settings->OperateOn == EPCGExBreakClusterOperationTarget::Paths)
+				{
+					NewBatch->VtxFilterFactories = &Context->FilterFactories;
+				}
+				else
+				{
+					NewBatch->bSkipCompletion = true;
+				}
 			}))
 		{
 			return Context->CancelExecution(TEXT("Could not build any clusters."));
@@ -62,7 +71,7 @@ bool FPCGExBreakClustersToPathsElement::ExecuteInternal(
 
 	PCGEX_CLUSTER_BATCH_PROCESSING(PCGExCommon::State_Done)
 
-	Context->Paths->StageOutputs();
+	Context->OutputPaths->StageOutputs();
 	return Context->TryComplete();
 }
 
@@ -105,6 +114,13 @@ namespace PCGExBreakClustersToPaths
 		}
 		else
 		{
+			ChainsIO.Reserve(NumEdges);
+			Context->OutputPaths->IncreaseReserve(NumEdges);
+			for (int i = 0; i < NumEdges; ++i)
+			{
+				ChainsIO.Add(Context->OutputPaths->Emplace_GetRef<UPCGPointArrayData>(VtxDataFacade->Source, PCGExData::EIOInit::New));
+			}
+
 			StartParallelLoopForEdges();
 		}
 
@@ -130,16 +146,21 @@ namespace PCGExBreakClustersToPaths
 
 	void FProcessor::CompleteWork()
 	{
-		if (Settings->OperateOn == EPCGExBreakClusterOperationTarget::Paths)
+		const int32 NumChains = ChainBuilder->Chains.Num();
+		if (!NumChains)
 		{
-			if (ChainBuilder->Chains.IsEmpty())
-			{
-				bIsProcessorValid = false;
-				return;
-			}
-
-			StartParallelLoopForRange(ChainBuilder->Chains.Num());
+			bIsProcessorValid = false;
+			return;
 		}
+
+		ChainsIO.Reserve(NumChains);
+		Context->OutputPaths->IncreaseReserve(NumChains);
+		for (int i = 0; i < NumChains; ++i)
+		{
+			ChainsIO.Add(Context->OutputPaths->Emplace_GetRef<UPCGPointArrayData>(VtxDataFacade->Source, PCGExData::EIOInit::New));
+		}
+
+		StartParallelLoopForRange(ChainBuilder->Chains.Num());
 	}
 
 	void FProcessor::ProcessRange(const PCGExMT::FScope& Scope)
@@ -147,19 +168,24 @@ namespace PCGExBreakClustersToPaths
 		PCGEX_SCOPE_LOOP(Index)
 		{
 			const TSharedPtr<PCGExCluster::FNodeChain> Chain = ChainBuilder->Chains[Index];
-			if (!Chain) { continue; }
+			const TSharedPtr<PCGExData::FPointIO> PathIO = ChainsIO[Index];
 
-			if (Settings->LeavesHandling == EPCGExBreakClusterLeavesHandling::Exclude && Chain->bIsLeaf) { continue; }
+			if (!Chain)
+			{
+				if (PathIO) { PathIO->Disable(); }
+				continue;
+			}
+
+#define PCGEX_IGNORE_CHAIN PathIO->Disable(); continue;
+
+			if (Settings->LeavesHandling == EPCGExBreakClusterLeavesHandling::Exclude && Chain->bIsLeaf) { PCGEX_IGNORE_CHAIN }
 
 			const int32 ChainSize = Chain->Links.Num() + 1;
 
-			if (ChainSize < Settings->MinPointCount) { continue; }
-			if (Settings->bOmitAbovePointCount && ChainSize > Settings->MaxPointCount) { continue; }
+			if (ChainSize < Settings->MinPointCount) { PCGEX_IGNORE_CHAIN }
+			if (Settings->bOmitAbovePointCount && ChainSize > Settings->MaxPointCount) { PCGEX_IGNORE_CHAIN }
 
 			const bool bReverse = DirectionSettings.SortExtrapolation(Cluster.Get(), Chain->Seed.Edge, Chain->Seed.Node, Chain->Links.Last().Node);
-
-			const TSharedPtr<PCGExData::FPointIO> PathIO = Context->Paths->Emplace_GetRef<UPCGPointArrayData>(VtxDataFacade->Source, PCGExData::EIOInit::New);
-			if (!PathIO) { continue; }
 
 			bool bDoReverse = bReverse;
 			(void)PCGEx::SetNumPointsAllocated(PathIO->GetOut(), ChainSize, PathIO->GetOut()->GetAllocatedProperties());
@@ -197,6 +223,8 @@ namespace PCGExBreakClustersToPaths
 			PCGExPaths::SetClosedLoop(PathIO->GetOut(), Chain->bIsClosedLoop);
 
 			PathIO->ConsumeIdxMapping(EPCGPointNativeProperties::All);
+
+#undef PCGX_IGNORE_CHAIN
 		}
 	}
 
@@ -208,7 +236,7 @@ namespace PCGExBreakClustersToPaths
 		{
 			PCGExGraph::FEdge& Edge = ClusterEdges[Index];
 
-			const TSharedPtr<PCGExData::FPointIO> PathIO = Context->Paths->Emplace_GetRef<UPCGPointArrayData>(VtxDataFacade->Source, PCGExData::EIOInit::New);
+			const TSharedPtr<PCGExData::FPointIO> PathIO = ChainsIO[Index];
 			if (!PathIO) { continue; }
 
 			UPCGBasePointData* MutablePoints = PathIO->GetOut();
@@ -248,11 +276,7 @@ namespace PCGExBreakClustersToPaths
 		PCGEX_TYPED_CONTEXT_AND_SETTINGS(BreakClustersToPaths)
 
 		DirectionSettings = Settings->DirectionSettings;
-		if (!DirectionSettings.Init(Context, VtxDataFacade, Context->GetEdgeSortingRules()))
-		{
-			PCGE_LOG_C(Warning, GraphAndLog, Context, FTEXT("Some vtx are missing the specified Direction attribute."));
-			return;
-		}
+		if (!DirectionSettings.Init(Context, VtxDataFacade, Context->GetEdgeSortingRules())) { return; }
 
 		TBatch<FProcessor>::OnProcessingPreparationComplete();
 	}

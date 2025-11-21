@@ -6,10 +6,16 @@
 #include "CoreMinimal.h"
 #include "PCGExCompare.h"
 
+#include "PCGExMath.h"
 #include "PCGExPointsProcessor.h"
+#include "PCGParamData.h"
 #include "Data/PCGExAttributeHelpers.h"
+#include "Data/PCGExData.h"
+#include "Data/Blending/PCGExBlendModes.h"
 #include "Data/PCGExDataFilter.h"
+#include "Data/PCGExDataTag.h"
 #include "Data/PCGExPointFilter.h"
+#include "Data/PCGExPointIO.h"
 
 #include "PCGExAttributeStats.generated.h"
 
@@ -36,7 +42,7 @@ public:
 	//~Begin UPCGSettings
 #if WITH_EDITOR
 	PCGEX_NODE_INFOS(AttributeStats, "Attribute Stats", "Output attribute statistics.");
-	virtual FLinearColor GetNodeTitleColor() const override { return GetDefault<UPCGExGlobalSettings>()->NodeColorMisc; }
+	virtual FLinearColor GetNodeTitleColor() const override { return GetDefault<UPCGExGlobalSettings>()->ColorMisc; }
 #endif
 
 protected:
@@ -234,6 +240,9 @@ struct FPCGExAttributeStatsContext final : FPCGExPointsProcessorContext
 	TArray<UPCGParamData*> OutputParams;
 	TMap<FName, UPCGParamData*> OutputParamsMap;
 	TArray<int64> Rows;
+
+protected:
+	PCGEX_ELEMENT_BATCH_POINT_DECL
 };
 
 class FPCGExAttributeStatsElement final : public FPCGExPointsProcessorElement
@@ -316,6 +325,7 @@ namespace PCGExAttributeStats
 		FPCGAttributeIdentifier PrintName(Settings->OutputToPoints == EPCGExStatsOutputToPoints::Prefix ? FName(Settings->_NAME##AttributeName.ToString() + StrName) : FName(StrName + Settings->_NAME##AttributeName.ToString()), PCGMetadataDomainID::Data);\
 		if (PointsMetadata->GetConstTypedAttribute<_TYPE>(PrintName)) { PointsMetadata->DeleteAttribute(PrintName); }\
 		PointsMetadata->FindOrCreateAttribute<_TYPE>(PrintName, _VALUE);} }
+
 			TSharedPtr<PCGExData::TBuffer<T>> Buffer = InDataFacade->GetReadable<T>(Identity.Identifier);
 			PCGExMath::TypeMinMax(MinValue, MaxValue);
 			PCGExMath::TypeMinMax(SetMinValue, SetMaxValue);
@@ -478,7 +488,6 @@ namespace PCGExAttributeStats
 
 		virtual ~FProcessor() override;
 
-		virtual bool IsTrivial() const override { return false; }
 		virtual bool Process(const TSharedPtr<PCGExMT::FTaskManager>& InAsyncManager) override;
 		virtual void CompleteWork() override;
 	};

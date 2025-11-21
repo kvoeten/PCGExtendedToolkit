@@ -22,7 +22,7 @@ public:
 	//~Begin UPCGSettings
 #if WITH_EDITOR
 	PCGEX_NODE_INFOS(MergeVertices, "Cluster : Merge Vtx", "Merge Vtx so all edges share the same vtx collection.");
-	virtual FLinearColor GetNodeTitleColor() const override { return GetDefault<UPCGExGlobalSettings>()->NodeColorCluster; }
+	virtual FLinearColor GetNodeTitleColor() const override { return GetDefault<UPCGExGlobalSettings>()->ColorClusterOp; }
 #endif
 
 protected:
@@ -53,6 +53,9 @@ struct FPCGExMergeVerticesContext final : FPCGExEdgesProcessorContext
 
 	virtual void ClusterProcessing_InitialProcessingDone() override;
 	virtual void ClusterProcessing_WorkComplete() override;
+
+protected:
+	PCGEX_ELEMENT_BATCH_EDGE_DECL
 };
 
 class FPCGExMergeVerticesElement final : public FPCGExEdgesProcessorElement

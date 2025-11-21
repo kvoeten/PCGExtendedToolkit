@@ -4,7 +4,6 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "PCGExDetailsData.h"
 #include "PCGExScopedContainers.h"
 #include "PCGExSorting.h"
 #include "Data/PCGExDataForward.h"
@@ -81,6 +80,8 @@ class UPCGExClusterDiffusionSettings : public UPCGExEdgesProcessorSettings
 
 	//~Begin UObject interface
 public:
+	UPCGExClusterDiffusionSettings(const FObjectInitializer& ObjectInitializer);
+
 	//~End UObject interface
 
 	//~Begin UPCGSettings
@@ -192,6 +193,9 @@ struct FPCGExClusterDiffusionContext final : FPCGExEdgesProcessorContext
 	PCGEX_FOREACH_FIELD_CLUSTER_DIFF(PCGEX_OUTPUT_DECL_TOGGLE)
 
 	int32 ExpectedPathCount = 0;
+
+protected:
+	PCGEX_ELEMENT_BATCH_EDGE_DECL
 };
 
 class FPCGExClusterDiffusionElement final : public FPCGExEdgesProcessorElement
@@ -253,7 +257,7 @@ namespace PCGExClusterDiffusion
 		virtual void CompleteWork() override;
 		void Diffuse(const TSharedPtr<PCGExFloodFill::FDiffusion>& Diffusion);
 
-		virtual void Output() override;
+		void OnDiffusionComplete();
 		void WriteFullPath(const int32 DiffusionIndex, const int32 EndpointNodeIndex);
 		void WritePath(const int32 DiffusionIndex, TArray<int32>& PathIndices);
 
@@ -275,7 +279,7 @@ namespace PCGExClusterDiffusion
 
 		virtual void RegisterBuffersDependencies(PCGExData::FFacadePreloader& FacadePreloader) override;
 		virtual void Process() override;
-		virtual bool PrepareSingle(const TSharedPtr<FProcessor>& ClusterProcessor) override;
+		virtual bool PrepareSingle(const TSharedPtr<PCGExClusterMT::IProcessor>& InProcessor) override;
 		virtual void Write() override;
 	};
 }

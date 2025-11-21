@@ -40,6 +40,13 @@ void UPCGExHeuristicsFactory##_TYPE::RegisterAssetDependencies(FPCGExContext* In
 
 class FPCGExHeuristicOperation;
 
+USTRUCT(meta=(PCG_DataTypeDisplayName="PCGEx | Heuristic"))
+struct FPCGExDataTypeInfoHeuristics : public FPCGExFactoryDataTypeInfo
+{
+	GENERATED_BODY()
+	PCG_DECLARE_TYPE_INFO(PCGEXTENDEDTOOLKIT_API)
+};
+
 USTRUCT(BlueprintType)
 struct PCGEXTENDEDTOOLKIT_API FPCGExHeuristicConfigBase
 {
@@ -55,25 +62,28 @@ struct PCGEXTENDEDTOOLKIT_API FPCGExHeuristicConfigBase
 	{
 	}
 
+	UPROPERTY(meta=(PCG_NotOverridable, EditCondition="false", EditConditionHides))
+	bool bRawSettings = false;
+
 	/** The weight factor for this heuristic.*/
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta=(PCG_Overridable, DisplayPriority=-1))
 	double WeightFactor = 1;
 
 	/** Invert the final heuristics score. */
-	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta=(PCG_Overridable, DisplayPriority=-1))
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta=(PCG_Overridable, DisplayPriority=-1, EditCondition="!bRawSettings", EditConditionHides, HideEditConditionToggle))
 	bool bInvert = false;
 
 	/** Whether to use in-editor curve or an external asset. */
-	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta=(PCG_NotOverridable, DisplayPriority=-1))
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta=(PCG_NotOverridable, DisplayPriority=-1, EditCondition="!bRawSettings", EditConditionHides, HideEditConditionToggle))
 	bool bUseLocalCurve = false;
 
 	// TODO: DirtyCache for OnDependencyChanged when this float curve is an external asset
 	/** Curve the value will be remapped over. */
-	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta = (PCG_NotOverridable, DisplayName="Score Curve", EditCondition = "bUseLocalCurve", EditConditionHides, DisplayPriority=-1))
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta = (PCG_NotOverridable, DisplayName="Score Curve", EditCondition = "!bRawSettings && bUseLocalCurve", EditConditionHides, DisplayPriority=-1, HideEditConditionToggle))
 	FRuntimeFloatCurve LocalScoreCurve;
 
 	/** Curve the value will be remapped over. */
-	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta=(PCG_Overridable, DisplayName="Score Curve", EditCondition="!bUseLocalCurve", EditConditionHides, DisplayPriority=-1))
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta=(PCG_Overridable, DisplayName="Score Curve", EditCondition="!bRawSettings && !bUseLocalCurve", EditConditionHides, DisplayPriority=-1, HideEditConditionToggle))
 	TSoftObjectPtr<UCurveFloat> ScoreCurve = TSoftObjectPtr<UCurveFloat>(PCGEx::WeightDistributionLinear);
 
 	const FRichCurve* ScoreCurveObj = nullptr;
@@ -107,6 +117,8 @@ class PCGEXTENDEDTOOLKIT_API UPCGExHeuristicsFactoryData : public UPCGExFactoryD
 	GENERATED_BODY()
 
 public:
+	PCG_ASSIGN_TYPE_INFO(FPCGExDataTypeInfoHeuristics)
+
 	FPCGExHeuristicConfigBase ConfigBase;
 
 	virtual PCGExFactories::EType GetFactoryType() const override { return PCGExFactories::EType::Heuristics; }
@@ -122,11 +134,14 @@ class PCGEXTENDEDTOOLKIT_API UPCGExHeuristicsFactoryProviderSettings : public UP
 {
 	GENERATED_BODY()
 
+protected:
+	PCGEX_FACTORY_TYPE_ID(FPCGExDataTypeInfoHeuristics)
+
 public:
 	//~Begin UPCGSettings
 #if WITH_EDITOR
 	PCGEX_NODE_INFOS(AbstractHeuristics, "Heuristics Definition", "Creates a single heuristic computational node, to be used with pathfinding nodes.")
-	virtual FLinearColor GetNodeTitleColor() const override { return GetDefault<UPCGExGlobalSettings>()->NodeColorHeuristics; }
+	virtual FLinearColor GetNodeTitleColor() const override { return GetDefault<UPCGExGlobalSettings>()->ColorHeuristics; }
 #endif
 	//~End UPCGSettings
 

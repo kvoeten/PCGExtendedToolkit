@@ -3,9 +3,16 @@
 
 #include "Misc/Filters/PCGExDotFilter.h"
 
+#include "Data/PCGExDataHelpers.h"
+#include "Data/PCGExDataPreloader.h"
+#include "Data/PCGExPointIO.h"
+#include "Details/PCGExDetailsSettings.h"
+
 
 #define LOCTEXT_NAMESPACE "PCGExDotFilterDefinition"
 #define PCGEX_NAMESPACE PCGExDotFilterDefinition
+
+PCGEX_SETTING_VALUE_IMPL(FPCGExDotFilterConfig, OperandB, FVector, CompareAgainst, OperandB, OperandBConstant)
 
 bool UPCGExDotFilterFactory::Init(FPCGExContext* InContext)
 {
@@ -28,6 +35,14 @@ TSharedPtr<PCGExPointFilter::IFilter> UPCGExDotFilterFactory::CreateFilter() con
 	return MakeShared<PCGExPointFilter::FDotFilter>(this);
 }
 
+void UPCGExDotFilterFactory::RegisterBuffersDependencies(FPCGExContext* InContext, PCGExData::FFacadePreloader& FacadePreloader) const
+{
+	Super::RegisterBuffersDependencies(InContext, FacadePreloader);
+	FacadePreloader.Register<FVector>(InContext, Config.OperandA);
+	if (Config.CompareAgainst == EPCGExInputValueType::Attribute) { FacadePreloader.Register<FVector>(InContext, Config.OperandB); }
+	Config.DotComparisonDetails.RegisterBuffersDependencies(InContext, FacadePreloader);
+}
+
 bool UPCGExDotFilterFactory::RegisterConsumableAttributesWithData(FPCGExContext* InContext, const UPCGData* InData) const
 {
 	if (!Super::RegisterConsumableAttributesWithData(InContext, InData)) { return false; }
@@ -48,15 +63,15 @@ bool PCGExPointFilter::FDotFilter::Init(FPCGExContext* InContext, const TSharedP
 	if (!DotComparison.Init(InContext, InPointDataFacade.ToSharedRef())) { return false; }
 
 
-	OperandA = PointDataFacade->GetBroadcaster<FVector>(TypedFilterFactory->Config.OperandA, true);
+	OperandA = PointDataFacade->GetBroadcaster<FVector>(TypedFilterFactory->Config.OperandA, true, false, PCGEX_QUIET_HANDLING);
 	OperandAMultiplier = TypedFilterFactory->Config.bInvertOperandA ? -1 : 1;
 	if (!OperandA)
 	{
-		PCGEX_LOG_INVALID_SELECTOR_C(InContext, Operand A, TypedFilterFactory->Config.OperandA)
+		PCGEX_LOG_INVALID_SELECTOR_HANDLED_C(InContext, Operand A, TypedFilterFactory->Config.OperandA)
 		return false;
 	}
 
-	OperandB = TypedFilterFactory->Config.GetValueSettingOperandB();
+	OperandB = TypedFilterFactory->Config.GetValueSettingOperandB(PCGEX_QUIET_HANDLING);
 	if (!OperandB->Init(PointDataFacade)) { return false; }
 	if (!OperandB->IsConstant()) { OperandBMultiplier = TypedFilterFactory->Config.bInvertOperandB ? -1 : 1; }
 
@@ -82,18 +97,17 @@ bool PCGExPointFilter::FDotFilter::Test(const TSharedPtr<PCGExData::FPointIO>& I
 	FVector A = FVector::ZeroVector;
 	FVector B = FVector::ZeroVector;
 
-	if (!PCGExDataHelpers::TryGetSettingDataValue(IO, TypedFilterFactory->Config.CompareAgainst, TypedFilterFactory->Config.OperandB, TypedFilterFactory->Config.OperandBConstant, B)) { return false; }
+	if (!PCGExDataHelpers::TryGetSettingDataValue(
+		IO, TypedFilterFactory->Config.CompareAgainst, TypedFilterFactory->Config.OperandB,
+		TypedFilterFactory->Config.OperandBConstant, B, PCGEX_QUIET_HANDLING)) { PCGEX_QUIET_HANDLING_RET }
 	B = B.GetSafeNormal();
 
-	if (!PCGExDataHelpers::TryReadDataValue(IO, TypedFilterFactory->Config.OperandA, A)) { return false; }
+	if (!PCGExDataHelpers::TryReadDataValue(IO, TypedFilterFactory->Config.OperandA, A, PCGEX_QUIET_HANDLING)) { PCGEX_QUIET_HANDLING_RET }
 	A = A.GetSafeNormal();
 
 	FPCGExDotComparisonDetails TempComparison = TypedFilterFactory->Config.DotComparisonDetails;
 	PCGEX_MAKE_SHARED(TempFacade, PCGExData::FFacade, IO.ToSharedRef())
-	if (!TempComparison.Init(SharedContext.Get(), TempFacade.ToSharedRef()))
-	{
-		return false;
-	}
+	if (!TempComparison.Init(SharedContext.Get(), TempFacade.ToSharedRef(), PCGEX_QUIET_HANDLING)) { PCGEX_QUIET_HANDLING_RET }
 
 	return TempComparison.Test(FVector::DotProduct(A, B), 0);
 }

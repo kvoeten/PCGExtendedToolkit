@@ -3,11 +3,17 @@
 
 #include "Paths/PCGExFuseCollinear.h"
 
+#include "PCGExMath.h"
+#include "Data/PCGExData.h"
+#include "Data/PCGExPointIO.h"
+#include "Paths/PCGExPaths.h"
+
 
 #define LOCTEXT_NAMESPACE "PCGExFuseCollinearElement"
 #define PCGEX_NAMESPACE FuseCollinear
 
 PCGEX_INITIALIZE_ELEMENT(FuseCollinear)
+PCGEX_ELEMENT_BATCH_POINT_IMPL(FuseCollinear)
 
 bool FPCGExFuseCollinearElement::Boot(FPCGExContext* InContext) const
 {
@@ -34,7 +40,7 @@ bool FPCGExFuseCollinearElement::ExecuteInternal(FPCGContext* InContext) const
 
 		// TODO : Skip completion
 
-		if (!Context->StartBatchProcessingPoints<PCGExPointsMT::TBatch<PCGExFuseCollinear::FProcessor>>(
+		if (!Context->StartBatchProcessingPoints(
 			[&](const TSharedPtr<PCGExData::FPointIO>& Entry)
 			{
 				if (Entry->GetNum() < 2)
@@ -45,7 +51,7 @@ bool FPCGExFuseCollinearElement::ExecuteInternal(FPCGContext* InContext) const
 				}
 				return true;
 			},
-			[&](const TSharedPtr<PCGExPointsMT::TBatch<PCGExFuseCollinear::FProcessor>>& NewBatch)
+			[&](const TSharedPtr<PCGExPointsMT::IBatch>& NewBatch)
 			{
 			}))
 		{
@@ -55,7 +61,7 @@ bool FPCGExFuseCollinearElement::ExecuteInternal(FPCGContext* InContext) const
 
 	PCGEX_POINTS_BATCH_PROCESSING(PCGExCommon::State_Done)
 
-	Context->MainPoints->StageOutputs();
+	PCGEX_OUTPUT_VALID_PATHS(MainPoints)
 
 	return Context->TryComplete();
 }
@@ -79,7 +85,7 @@ namespace PCGExFuseCollinear
 		ReadIndices.Reserve(Path->NumPoints);
 		LastPosition = Path->GetPos(0);
 
-		bDaisyChainProcessPoints = true;
+		bForceSingleThreadedProcessPoints = true;
 		StartParallelLoopForPoints(PCGExData::EIOSide::In);
 
 		return true;

@@ -3,7 +3,11 @@
 
 #include "Misc/PCGExAttributesToTags.h"
 
+#include "PCGExHelpers.h"
+#include "PCGParamData.h"
+#include "Data/PCGExData.h"
 #include "Data/PCGExDataForward.h"
+#include "Data/PCGExPointIO.h"
 #include "Misc/Pickers/PCGExPicker.h"
 #include "Misc/Pickers/PCGExPickerFactoryProvider.h"
 
@@ -19,16 +23,17 @@ bool UPCGExAttributesToTagsSettings::GetIsMainTransactional() const
 TArray<FPCGPinProperties> UPCGExAttributesToTagsSettings::InputPinProperties() const
 {
 	TArray<FPCGPinProperties> PinProperties = Super::InputPinProperties();
+
 	if (Resolution != EPCGExAttributeToTagsResolution::Self)
 	{
-		PCGEX_PIN_ANY(FName("Tags Source"), "Source collection(s) to read the tags from.", Required, {})
+		PCGEX_PIN_ANY(FName("Tags Source"), "Source collection(s) to read the tags from.", Required)
 	}
 
 	if (Selection == EPCGExCollectionEntrySelection::Picker ||
 		Selection == EPCGExCollectionEntrySelection::PickerFirst ||
 		Selection == EPCGExCollectionEntrySelection::PickerLast)
 	{
-		PCGEX_PIN_PARAMS(PCGExPicker::SourcePickersLabel, "Pickers config", Required, {})
+		PCGEX_PIN_FACTORIES(PCGExPicker::SourcePickersLabel, "Pickers config", Required, FPCGExDataTypeInfoPicker::AsId())
 	}
 
 	return PinProperties;
@@ -38,24 +43,24 @@ TArray<FPCGPinProperties> UPCGExAttributesToTagsSettings::OutputPinProperties() 
 {
 	TArray<FPCGPinProperties> PinProperties;
 
-	if (Action == EPCGExAttributeToTagsAction::AddTags)
+	if (Action != EPCGExAttributeToTagsAction::Attribute)
 	{
-		PCGEX_PIN_ANY(GetMainOutputPin(), "The processed input.", Normal, {})
+		PCGEX_PIN_ANY(GetMainOutputPin(), "The processed input.", Normal)
 	}
 	else
 	{
-		PCGEX_PIN_PARAMS(FName("Tags"), "Tags value in the format `AttributeName = AttributeName:AttributeValue`", Required, {})
+		PCGEX_PIN_PARAMS(FName("Tags"), "Tags value in the format `AttributeName = AttributeName:AttributeValue`", Required)
 	}
-
 
 	return PinProperties;
 }
 
 PCGEX_INITIALIZE_ELEMENT(AttributesToTags)
+PCGEX_ELEMENT_BATCH_POINT_IMPL(AttributesToTags)
 
 bool FPCGExAttributesToTagsElement::Boot(FPCGExContext* InContext) const
 {
-	if (!FPCGExPointsProcessorElement::Boot(InContext)) { return false; }
+	if (InContext == nullptr || !FPCGExPointsProcessorElement::Boot(InContext)) { return false; }
 
 	PCGEX_CONTEXT_AND_SETTINGS(AttributesToTags)
 
@@ -117,10 +122,10 @@ bool FPCGExAttributesToTagsElement::Boot(FPCGExContext* InContext) const
 		Settings->Selection == EPCGExCollectionEntrySelection::PickerFirst ||
 		Settings->Selection == EPCGExCollectionEntrySelection::PickerLast)
 	{
-		PCGExFactories::GetInputFactories(Context, PCGExPicker::SourcePickersLabel, Context->PickerFactories, {PCGExFactories::EType::IndexPicker}, false);
-		if (Context->PickerFactories.IsEmpty())
+		if (!PCGExFactories::GetInputFactories(
+			Context, PCGExPicker::SourcePickersLabel, Context->PickerFactories,
+			{PCGExFactories::EType::IndexPicker}))
 		{
-			PCGE_LOG(Error, GraphAndLog, FTEXT("Missing pickers."));
 			return false;
 		}
 	}
@@ -136,9 +141,9 @@ bool FPCGExAttributesToTagsElement::ExecuteInternal(FPCGContext* InContext) cons
 	PCGEX_EXECUTION_CHECK
 	PCGEX_ON_INITIAL_EXECUTION
 	{
-		if (!Context->StartBatchProcessingPoints<PCGExPointsMT::TBatch<PCGExAttributesToTags::FProcessor>>(
+		if (!Context->StartBatchProcessingPoints(
 			[&](const TSharedPtr<PCGExData::FPointIO>& Entry) { return true; },
-			[&](const TSharedPtr<PCGExPointsMT::TBatch<PCGExAttributesToTags::FProcessor>>& NewBatch)
+			[&](const TSharedPtr<PCGExPointsMT::IBatch>& NewBatch)
 			{
 			}))
 		{
@@ -148,7 +153,7 @@ bool FPCGExAttributesToTagsElement::ExecuteInternal(FPCGContext* InContext) cons
 
 	PCGEX_POINTS_BATCH_PROCESSING(PCGExCommon::State_Done)
 
-	if (Settings->Action == EPCGExAttributeToTagsAction::AddTags)
+	if (Settings->Action != EPCGExAttributeToTagsAction::Attribute)
 	{
 		Context->MainPoints->StageAnyOutputs();
 	}
@@ -166,7 +171,11 @@ namespace PCGExAttributesToTags
 	{
 		const PCGExData::FConstPoint Point = PointDataFacade->GetInPoint(Index);
 		if (OutputSet) { InDetails.Tag(Point, OutputSet->Metadata); }
-		else { InDetails.Tag(Point, PointDataFacade->Source); }
+		else
+		{
+			if (Settings->Action == EPCGExAttributeToTagsAction::AddTags) { InDetails.Tag(Point, PointDataFacade->Source); }
+			else { InDetails.Tag(Point, PointDataFacade->Source->GetOut()->MutableMetadata()); }
+		}
 	}
 
 	bool FProcessor::Process(const TSharedPtr<PCGExMT::FTaskManager>& InAsyncManager)
@@ -175,15 +184,10 @@ namespace PCGExAttributesToTags
 
 		if (!IProcessor::Process(InAsyncManager)) { return false; }
 
-		if (Settings->Action == EPCGExAttributeToTagsAction::Attribute)
-		{
-			PCGEX_INIT_IO(PointDataFacade->Source, PCGExData::EIOInit::NoInit)
-		}
-		else
-		{
-			PCGEX_INIT_IO(PointDataFacade->Source, Settings->bCleanupConsumableAttributes ? PCGExData::EIOInit::Duplicate : PCGExData::EIOInit::Forward)
-		}
-
+		PCGEX_INIT_IO(
+			PointDataFacade->Source, Settings->Action == EPCGExAttributeToTagsAction::Attribute ? PCGExData::EIOInit::NoInit
+			: Settings->Action == EPCGExAttributeToTagsAction::Data ? PCGExData::EIOInit::Duplicate
+			: PCGExData::EIOInit::Forward)
 
 		FRandomStream RandomSource(BatchIndex);
 

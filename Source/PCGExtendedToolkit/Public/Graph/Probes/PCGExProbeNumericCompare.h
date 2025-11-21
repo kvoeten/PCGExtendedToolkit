@@ -10,7 +10,6 @@
 #include "PCGExProbeFactoryProvider.h"
 #include "PCGExProbeOperation.h"
 
-
 #include "PCGExProbeNumericCompare.generated.h"
 
 namespace PCGExProbing
@@ -23,10 +22,18 @@ struct FPCGExProbeConfigNumericCompare : public FPCGExProbeConfigBase
 {
 	GENERATED_BODY()
 
-	FPCGExProbeConfigNumericCompare() :
-		FPCGExProbeConfigBase()
-	{
-	}
+	FPCGExProbeConfigNumericCompare() = default;
+
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta=(PCG_Overridable))
+	EPCGExInputValueType MaxConnectionsInput = EPCGExInputValueType::Constant;
+
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta=(PCG_Overridable, DisplayName="Max Connections (Attr)", EditCondition="MaxConnectionsInput != EPCGExInputValueType::Constant", EditConditionHides))
+	FPCGAttributePropertyInputSelector MaxConnectionsAttribute;
+
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta=(PCG_Overridable, DisplayName="Max Connections", ClampMin=0, EditCondition="MaxConnectionsInput == EPCGExInputValueType::Constant", EditConditionHides, ClampMin=0))
+	int32 MaxConnectionsConstant = 1;
+
+	PCGEX_SETTING_VALUE_DECL(MaxConnections, int32)
 
 	/** Attribute to compare */
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta=(PCG_Overridable))
@@ -56,11 +63,12 @@ class FPCGExProbeNumericCompare : public FPCGExProbeOperation
 {
 public:
 	virtual bool PrepareForPoints(FPCGExContext* InContext, const TSharedPtr<PCGExData::FPointIO>& InPointIO) override;
-	virtual void ProcessCandidates(const int32 Index, const FTransform& WorkingTransform, TArray<PCGExProbing::FCandidate>& Candidates, TSet<FInt32Vector>* Coincidence, const FVector& ST, TSet<uint64>* OutEdges) override;
-	virtual void ProcessNode(const int32 Index, const FTransform& WorkingTransform, TSet<FInt32Vector>* Coincidence, const FVector& ST, TSet<uint64>* OutEdges, const TArray<int8>& AcceptConnections) override;
+	virtual void ProcessCandidates(const int32 Index, const FTransform& WorkingTransform, TArray<PCGExProbing::FCandidate>& Candidates, TSet<uint64>* Coincidence, const FVector& ST, TSet<uint64>* OutEdges) override;
+	virtual void ProcessNode(const int32 Index, const FTransform& WorkingTransform, TSet<uint64>* Coincidence, const FVector& ST, TSet<uint64>* OutEdges, const TArray<int8>& AcceptConnections) override;
 
 	FPCGExProbeConfigNumericCompare Config;
 
+	TSharedPtr<PCGExDetails::TSettingValue<int32>> MaxConnections;
 	TSharedPtr<PCGExData::TBuffer<double>> ValuesBuffer;
 
 protected:

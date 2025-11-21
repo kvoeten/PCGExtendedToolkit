@@ -4,12 +4,14 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "PCGExPointsProcessor.h"
+#include "PCGExPathProcessor.h"
 #include "Data/PCGExDataFilter.h"
+#include "Data/PCGSplineStruct.h"
+#include "Details/PCGExDetailsFiltering.h"
 #include "Misc/Filters/PCGExPolyPathFilterFactory.h"
 
-#include "Sampling/PCGExSampleNearestSpline.h"
 #include "Sampling/PCGExSampling.h"
+#include "Transform/PCGExFitting.h"
 
 #include "PCGExSplineToPath.generated.h"
 
@@ -24,7 +26,7 @@ MACRO(Alpha, double, 0)
  * 
  */
 UCLASS(MinimalAPI, BlueprintType, ClassGroup = (Procedural), Category="PCGEx|Path", meta=(PCGExNodeLibraryDoc="paths/spline-to-path"))
-class UPCGExSplineToPathSettings : public UPCGExPointsProcessorSettings
+class UPCGExSplineToPathSettings : public UPCGExPathProcessorSettings
 {
 	GENERATED_BODY()
 
@@ -32,7 +34,7 @@ public:
 	//~Begin UPCGSettings
 #if WITH_EDITOR
 	PCGEX_NODE_INFOS(SplineToPath, "Spline to Path", "Turns splines to paths.");
-	virtual FLinearColor GetNodeTitleColor() const override { return GetDefault<UPCGExGlobalSettings>()->NodeColorPath; }
+	virtual FLinearColor GetNodeTitleColor() const override { return GetDefault<UPCGExGlobalSettings>()->ColorPath; }
 #endif
 
 protected:
@@ -69,6 +71,9 @@ public:
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta=(DisplayName="Leave Tangent", PCG_Overridable, EditCondition="bWriteLeaveTangent"))
 	FName LeaveTangentAttributeName = FName("LeaveTangent");
 
+	/** Tag handling */
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta=(PCG_NotOverridable))
+	EPCGExTagsToDataAction TagsToData = EPCGExTagsToDataAction::ToData;
 
 	/** */
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta=(PCG_Overridable, InlineEditConditionToggle))
@@ -103,7 +108,7 @@ public:
 	FPCGExCarryOverDetails CarryOverDetails;
 };
 
-struct FPCGExSplineToPathContext final : FPCGExPointsProcessorContext
+struct FPCGExSplineToPathContext final : FPCGExPathProcessorContext
 {
 	friend class FPCGExSplineToPathElement;
 
@@ -119,7 +124,7 @@ struct FPCGExSplineToPathContext final : FPCGExPointsProcessorContext
 	int64 NumTargets = 0;
 };
 
-class FPCGExSplineToPathElement final : public FPCGExPointsProcessorElement
+class FPCGExSplineToPathElement final : public FPCGExPathProcessorElement
 {
 protected:
 	PCGEX_ELEMENT_CREATE_CONTEXT(SplineToPath)

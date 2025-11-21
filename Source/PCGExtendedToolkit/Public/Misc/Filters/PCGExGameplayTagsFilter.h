@@ -16,6 +16,11 @@
 
 #include "PCGExGameplayTagsFilter.generated.h"
 
+namespace PCGExData
+{
+	template <typename T>
+	class TBuffer;
+}
 
 USTRUCT(BlueprintType)
 struct FPCGExGameplayTagsFilterConfig
@@ -56,7 +61,7 @@ struct FPCGExGameplayTagsFilterConfig
  * 
  */
 UCLASS(MinimalAPI, BlueprintType, ClassGroup = (Procedural), Category="PCGEx|Filter")
-class UPCGExGameplayTagsFilterFactory : public UPCGExFilterFactoryData
+class UPCGExGameplayTagsFilterFactory : public UPCGExPointFilterFactoryData
 {
 	GENERATED_BODY()
 

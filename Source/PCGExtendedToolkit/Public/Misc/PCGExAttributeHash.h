@@ -23,7 +23,7 @@ public:
 		AttributeHash, "Attribute Hash", "Generates a hash from the input data, based on a attribute or property.",
 		FName(FString::Printf(TEXT("Hash : %s"), *HashConfig.SourceAttribute.GetName().ToString())));
 	virtual EPCGSettingsType GetType() const override { return EPCGSettingsType::Metadata; }
-	virtual FLinearColor GetNodeTitleColor() const override { return GetDefault<UPCGExGlobalSettings>()->WantsColor(GetDefault<UPCGExGlobalSettings>()->NodeColorMiscWrite); }
+	virtual FLinearColor GetNodeTitleColor() const override { return GetDefault<UPCGExGlobalSettings>()->WantsColor(GetDefault<UPCGExGlobalSettings>()->ColorMiscWrite); }
 #endif
 
 protected:
@@ -51,6 +51,9 @@ public:
 struct FPCGExAttributeHashContext final : FPCGExPointsProcessorContext
 {
 	friend class FPCGExAttributeHashElement;
+
+protected:
+	PCGEX_ELEMENT_BATCH_POINT_DECL
 };
 
 class FPCGExAttributeHashElement final : public FPCGExPointsProcessorElement

@@ -2,13 +2,18 @@
 // Released under the MIT license https://opensource.org/license/MIT/
 
 #include "Actions/PCGExActionFactoryProvider.h"
+
+
 #include "PCGPin.h"
+#include "Data/PCGExAttributeHelpers.h"
 #include "Data/PCGExPointFilter.h"
 #include "Data/PCGExDataFilter.h"
 
 
 #define LOCTEXT_NAMESPACE "PCGExWriteActions"
 #define PCGEX_NAMESPACE PCGExWriteActions
+
+PCG_DEFINE_TYPE_INFO(FPCGExDataTypeInfoAction, UPCGExActionFactoryData)
 
 bool FPCGExActionOperation::PrepareForData(FPCGExContext* InContext, const TSharedPtr<PCGExData::FFacade>& InPointDataFacade)
 {
@@ -88,8 +93,8 @@ void UPCGExActionFactoryData::BeginDestroy()
 TArray<FPCGPinProperties> UPCGExActionProviderSettings::InputPinProperties() const
 {
 	TArray<FPCGPinProperties> PinProperties = Super::InputPinProperties();
-	if (GetRequiresFilters()) { PCGEX_PIN_FACTORIES(PCGExActions::SourceConditionsFilterLabel, "Filters used to define if there's a match or not.", Required, {}) }
-	else { PCGEX_PIN_FACTORIES(PCGExActions::SourceConditionsFilterLabel, "Filters used to define if there's a match or not.", Normal, {}) }
+	if (GetRequiresFilters()) { PCGEX_PIN_FILTERS(PCGExActions::SourceConditionsFilterLabel, "Filters used to define if there's a match or not.", Required) }
+	else { PCGEX_PIN_FILTERS(PCGExActions::SourceConditionsFilterLabel, "Filters used to define if there's a match or not.", Normal) }
 	return PinProperties;
 }
 
@@ -101,10 +106,7 @@ UPCGExFactoryData* UPCGExActionProviderSettings::CreateFactory(FPCGExContext* In
 	{
 		if (!GetInputFactories(
 			InContext, PCGExActions::SourceConditionsFilterLabel, TypedFactory->FilterFactories,
-			PCGExFactories::PointFilters, !bQuietMissingInputError))
-		{
-			return nullptr;
-		}
+			PCGExFactories::PointFilters)) { return nullptr; }
 
 		TypedFactory->Priority = Priority;
 

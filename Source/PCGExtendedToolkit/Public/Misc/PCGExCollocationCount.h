@@ -13,6 +13,12 @@
 
 #include "PCGExCollocationCount.generated.h"
 
+namespace PCGExData
+{
+	template <typename T>
+	class TBuffer;
+}
+
 UCLASS(MinimalAPI, BlueprintType, ClassGroup = (Procedural), Category="PCGEx|Misc", meta=(PCGExNodeLibraryDoc="misc/collocation-count"))
 class UPCGExCollocationCountSettings : public UPCGExPointsProcessorSettings
 {
@@ -25,12 +31,14 @@ public:
 		CollocationCount, "Collocation Count", "Write the number of time a point shares its location with another.",
 		CollicationNumAttributeName);
 	virtual EPCGSettingsType GetType() const override { return EPCGSettingsType::Metadata; }
-	virtual FLinearColor GetNodeTitleColor() const override { return GetDefault<UPCGExGlobalSettings>()->WantsColor(GetDefault<UPCGExGlobalSettings>()->NodeColorMiscWrite); }
+	virtual FLinearColor GetNodeTitleColor() const override { return GetDefault<UPCGExGlobalSettings>()->WantsColor(GetDefault<UPCGExGlobalSettings>()->ColorMiscWrite); }
 #endif
 
 protected:
 	virtual FPCGElementPtr CreateElement() const override;
 	//~End UPCGSettings
+
+	virtual PCGExData::EIOInit GetMainDataInitializationPolicy() const override;
 
 public:
 	/** The name of the attribute to write collocation to.*/
@@ -53,6 +61,9 @@ public:
 struct FPCGExCollocationCountContext final : FPCGExPointsProcessorContext
 {
 	friend class FPCGExCollocationCountElement;
+
+protected:
+	PCGEX_ELEMENT_BATCH_POINT_DECL
 };
 
 class FPCGExCollocationCountElement final : public FPCGExPointsProcessorElement

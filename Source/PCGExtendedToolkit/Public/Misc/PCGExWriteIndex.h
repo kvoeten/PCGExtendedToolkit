@@ -7,8 +7,15 @@
 #include "PCGExGlobalSettings.h"
 
 #include "PCGExPointsProcessor.h"
+#include "Data/PCGExDataHelpers.h"
 
 #include "PCGExWriteIndex.generated.h"
+
+namespace PCGExData
+{
+	template <typename T>
+	class TBuffer;
+}
 
 UCLASS(MinimalAPI, BlueprintType, ClassGroup = (Procedural), Category="PCGEx|Misc", meta=(PCGExNodeLibraryDoc="metadata/write-index"))
 class UPCGExWriteIndexSettings : public UPCGExPointsProcessorSettings
@@ -22,7 +29,7 @@ public:
 		WriteIndex, "Write Index", "Write the current point index to an attribute.",
 		FName(GetDisplayName()));
 	virtual EPCGSettingsType GetType() const override { return EPCGSettingsType::Metadata; }
-	virtual FLinearColor GetNodeTitleColor() const override { return GetDefault<UPCGExGlobalSettings>()->WantsColor(GetDefault<UPCGExGlobalSettings>()->NodeColorMiscWrite); }
+	virtual FLinearColor GetNodeTitleColor() const override { return GetDefault<UPCGExGlobalSettings>()->WantsColor(GetDefault<UPCGExGlobalSettings>()->ColorMiscWrite); }
 #endif
 
 protected:
@@ -31,6 +38,8 @@ protected:
 	virtual TArray<FPCGPinProperties> OutputPinProperties() const override;
 	virtual FPCGElementPtr CreateElement() const override;
 	//~End UPCGSettings
+
+	virtual PCGExData::EIOInit GetMainDataInitializationPolicy() const override;
 
 public:
 	/** Whether to write the index of the point on the point. */
@@ -115,6 +124,9 @@ struct FPCGExWriteIndexContext final : FPCGExPointsProcessorContext
 	FPCGAttributeIdentifier EntryIndexIdentifier;
 	FPCGAttributeIdentifier NumEntriesIdentifier;
 	FPCGAttributeIdentifier CollectionIndexIdentifier;
+
+protected:
+	PCGEX_ELEMENT_BATCH_POINT_DECL
 };
 
 class FPCGExWriteIndexElement final : public FPCGExPointsProcessorElement

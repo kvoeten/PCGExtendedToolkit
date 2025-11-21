@@ -7,13 +7,13 @@
 #include "UObject/Object.h"
 
 #include "PCGExCompare.h"
-#include "PCGExDetailsData.h"
 #include "PCGExFilterFactoryProvider.h"
 #include "Data/PCGExPointFilter.h"
-#include "PCGExPointsProcessor.h"
+#include "Details/PCGExDetailsDistances.h"
 #include "Sampling/PCGExSampling.h"
 
 #include "PCGExDistanceFilter.generated.h"
+
 
 USTRUCT(BlueprintType)
 struct FPCGExDistanceFilterConfig
@@ -44,7 +44,7 @@ struct FPCGExDistanceFilterConfig
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta=(PCG_Overridable, DisplayName="Distance Threshold", EditCondition="CompareAgainst == EPCGExInputValueType::Constant", EditConditionHides))
 	double DistanceThresholdConstant = 0;
 
-	/** Rounding mode for relative measures */
+	/** Near-equality tolerance */
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta=(PCG_Overridable, EditCondition="Comparison == EPCGExComparison::NearlyEqual || Comparison == EPCGExComparison::NearlyNotEqual", EditConditionHides))
 	double Tolerance = DBL_COMPARE_TOLERANCE;
 
@@ -52,7 +52,7 @@ struct FPCGExDistanceFilterConfig
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta=(PCG_Overridable))
 	bool bIgnoreSelf = false;
 
-	PCGEX_SETTING_VALUE_GET(DistanceThreshold, double, CompareAgainst, DistanceThreshold, DistanceThresholdConstant)
+	PCGEX_SETTING_VALUE_DECL(DistanceThreshold, double)
 
 	/** If enabled, when used with a collection filter, will use collection bounds as a proxy point instead of per-point testing */
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta=(PCG_Overridable))
@@ -64,7 +64,7 @@ struct FPCGExDistanceFilterConfig
  * 
  */
 UCLASS(MinimalAPI, BlueprintType, ClassGroup = (Procedural), Category="PCGEx|Filter")
-class UPCGExDistanceFilterFactory : public UPCGExFilterFactoryData
+class UPCGExDistanceFilterFactory : public UPCGExPointFilterFactoryData
 {
 	GENERATED_BODY()
 
@@ -78,6 +78,7 @@ public:
 	virtual bool SupportsProxyEvaluation() const override;
 
 	virtual TSharedPtr<PCGExPointFilter::IFilter> CreateFilter() const override;
+	virtual void RegisterBuffersDependencies(FPCGExContext* InContext, PCGExData::FFacadePreloader& FacadePreloader) const override;
 	virtual bool RegisterConsumableAttributesWithData(FPCGExContext* InContext, const UPCGData* InData) const override;
 
 	virtual bool WantsPreparation(FPCGExContext* InContext) override { return true; }
@@ -147,7 +148,7 @@ public:
 
 #if WITH_EDITOR
 	virtual FString GetDisplayName() const override;
-	virtual bool ShowMissingDataHandling_Internal() const override { return true; }
+	virtual bool ShowMissingDataPolicy_Internal() const override { return true; }
 #endif
 
 protected:

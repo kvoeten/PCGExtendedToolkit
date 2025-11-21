@@ -10,13 +10,11 @@
 
 #include "PCGExPointsProcessor.h"
 #include "PCGExSampling.h"
-#include "PCGExScopedContainers.h"
 #include "PCGExSorting.h"
-#include "Data/Blending/PCGExUnionOpsManager.h"
+#include "Data/PCGExPointFilter.h"
 #include "Data/Matching/PCGExMatching.h"
-
-#include "Paths/PCGExPaths.h"
-
+#include "Details/PCGExSettingsMacros.h"
+#include "Geometry/PCGExGeo.h"
 
 #include "PCGExSampleNearestPath.generated.h"
 
@@ -34,7 +32,26 @@ MACRO(NumInside, int32, 0)\
 MACRO(NumSamples, int32, 0)\
 MACRO(ClosedLoop, int32, false)
 
-class UPCGExFilterFactoryData;
+class UPCGExBlendOpFactory;
+
+namespace PCGExDataBlending
+{
+	class IUnionBlender;
+	class FUnionOpsManager;
+}
+
+namespace PCGExMT
+{
+	template <typename T>
+	class TScopedNumericValue;
+}
+
+namespace PCGExPaths
+{
+	class FPolyPath;
+}
+
+class UPCGExPointFilterFactoryData;
 
 UENUM()
 enum class EPCGExPathSamplingIncludeMode : uint8
@@ -63,7 +80,7 @@ public:
 	//~Begin UPCGSettings
 #if WITH_EDITOR
 	PCGEX_NODE_INFOS(SampleNearestPath, "Sample : Nearest Path", "Sample the nearest(s) paths.");
-	virtual FLinearColor GetNodeTitleColor() const override { return GetDefault<UPCGExGlobalSettings>()->NodeColorSampler; }
+	virtual FLinearColor GetNodeTitleColor() const override { return GetDefault<UPCGExGlobalSettings>()->ColorSampling; }
 #endif
 
 protected:
@@ -72,6 +89,8 @@ protected:
 	virtual bool IsPinUsedByNodeExecution(const UPCGPin* InPin) const override;
 	virtual FPCGElementPtr CreateElement() const override;
 	//~End UPCGSettings
+
+	virtual PCGExData::EIOInit GetMainDataInitializationPolicy() const override;
 
 	//~Begin UPCGExPointsProcessorSettings
 public:
@@ -96,6 +115,10 @@ public:
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = "Settings|Sampling", meta=(PCG_Overridable))
 	EPCGExSampleMethod SampleMethod = EPCGExSampleMethod::WithinRange;
 
+	/** Sort direction */
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = "Settings|Sampling", meta = (PCG_Overridable, DisplayName=" └─ Sort direction", EditCondition="SampleMethod == EPCGExSampleMethod::BestCandidate", EditConditionHides))
+	EPCGExSortDirection SortDirection = EPCGExSortDirection::Ascending;
+
 	/** If enabled, will always sample paths if the point lies inside, even if further away from the edges than the specified max range. */
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = "Settings|Sampling", meta=(PCG_NotOverridable))
 	bool bAlwaysSampleWhenInside = true;
@@ -104,9 +127,9 @@ public:
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = "Settings|Sampling", meta=(PCG_NotOverridable))
 	bool bOnlySampleWhenInside = true;
 
-	/** Sort direction */
-	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = "Settings|Sampling", meta = (PCG_Overridable, EditCondition="SampleMethod == EPCGExSampleMethod::BestCandidate", EditConditionHides))
-	EPCGExSortDirection SortDirection = EPCGExSortDirection::Ascending;
+	/** If non-zero, will apply an offset (inset) to the data used for inclusion testing. */
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = "Settings|Sampling", meta=(PCG_Overridable))
+	double InclusionOffset = 0;
 
 #pragma region Sampling Range
 
@@ -122,7 +145,7 @@ public:
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = "Settings|Sampling", meta=(PCG_Overridable, EditCondition="RangeMinInput == EPCGExInputValueType::Constant", EditConditionHides, ClampMin=0))
 	double RangeMin = 0;
 
-	PCGEX_SETTING_VALUE_GET(RangeMin, double, RangeMinInput, RangeMinAttribute, RangeMin)
+	PCGEX_SETTING_VALUE_DECL(RangeMin, double)
 
 	/** Type of Range Min */
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = "Settings|Sampling", meta=(PCG_Overridable))
@@ -136,7 +159,7 @@ public:
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = "Settings|Sampling", meta=(PCG_Overridable, EditCondition="RangeMaxInput == EPCGExInputValueType::Constant", ClampMin=0))
 	double RangeMax = 300;
 
-	PCGEX_SETTING_VALUE_GET(RangeMax, double, RangeMaxInput, RangeMaxAttribute, RangeMax)
+	PCGEX_SETTING_VALUE_DECL(RangeMax, double)
 
 	/** If the value is greater than 0, will do a rough vertical check as part of the projected inclusion. 0 is infinite. */
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = "Settings|Sampling", meta=(PCG_NotOverridable, ClampMin=0))
@@ -168,7 +191,7 @@ public:
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = "Settings|Sampling", meta=(PCG_Overridable, DisplayName=" └─ Sample Alpha", EditCondition="bSampleSpecificAlpha && SampleAlphaInput == EPCGExInputValueType::Constant", EditConditionHides))
 	double SampleAlphaConstant = 0.5;
 
-	PCGEX_SETTING_VALUE_GET_BOOL(SampleAlpha, double, bSampleSpecificAlpha, SampleAlphaAttribute, SampleAlphaConstant)
+	PCGEX_SETTING_VALUE_DECL(SampleAlpha, double)
 
 	/** Distance method to be used for source points. */
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = "Settings|Sampling", meta=(PCG_Overridable))
@@ -240,7 +263,7 @@ public:
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = "Settings|Outputs", meta=(PCG_Overridable, DisplayName=" └─ Up Vector", EditCondition="LookAtUpSelection == EPCGExSampleSource::Constant", EditConditionHides))
 	FVector LookAtUpConstant = FVector::UpVector;
 
-	PCGEX_SETTING_VALUE_GET(LookAtUp, FVector, LookAtUpSelection == EPCGExSampleSource::Constant ? EPCGExInputValueType::Constant : EPCGExInputValueType::Attribute, LookAtUpSource, LookAtUpConstant)
+	PCGEX_SETTING_VALUE_DECL(LookAtUp, FVector)
 
 	/** Write the sampled distance. */
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = "Settings|Outputs", meta=(PCG_Overridable, InlineEditConditionToggle))
@@ -405,7 +428,8 @@ struct FPCGExSampleNearestPathContext final : FPCGExPointsProcessorContext
 
 	PCGEX_FOREACH_FIELD_NEARESTPATH(PCGEX_OUTPUT_DECL_TOGGLE)
 
-	virtual void RegisterAssetDependencies() override;
+protected:
+	PCGEX_ELEMENT_BATCH_POINT_DECL
 };
 
 class FPCGExSampleNearestPathElement final : public FPCGExPointsProcessorElement
@@ -414,10 +438,7 @@ protected:
 	PCGEX_ELEMENT_CREATE_CONTEXT(SampleNearestPath)
 
 	virtual bool Boot(FPCGExContext* InContext) const override;
-	virtual void PostLoadAssetsDependencies(FPCGExContext* InContext) const override;
 	virtual bool ExecuteInternal(FPCGContext* Context) const override;
-
-	virtual bool CanExecuteOnlyOnMainThread(FPCGContext* Context) const override;
 };
 
 namespace PCGExSampleNearestPath

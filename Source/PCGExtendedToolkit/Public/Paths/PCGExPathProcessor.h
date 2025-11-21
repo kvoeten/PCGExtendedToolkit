@@ -5,17 +5,15 @@
 
 #include "CoreMinimal.h"
 #include "PCGExGlobalSettings.h"
-#include "PCGExPaths.h"
 #include "PCGExPointsProcessor.h"
 
 #include "PCGExPathProcessor.generated.h"
 
-#define PCGEX_SKIP_INVALID_PATH_ENTRY \
-if (Entry->GetNum() < 2){ \
-if (!Settings->bOmitInvalidPathsOutputs) { Entry->InitializeOutput(PCGExData::EIOInit::Forward); } \
-bHasInvalidInputs = true; return false; }
+#define PCGEX_SKIP_INVALID_PATH_ENTRY if (Entry->GetNum() < 2){ if (!Settings->bOmitInvalidPathsOutputs) { Entry->InitializeOutput(PCGExData::EIOInit::Forward); } bHasInvalidInputs = true; return false; }
 
-class UPCGExFilterFactoryData;
+#define PCGEX_OUTPUT_VALID_PATHS(_COLLECTION) if (Settings->bOmitInvalidPathsOutputs) { Context->_COLLECTION->StageOutputs(2, MAX_int32); }else{ Context->_COLLECTION->StageOutputs(); }
+
+class UPCGExPointFilterFactoryData;
 
 class UPCGExNodeStateFactory;
 
@@ -37,13 +35,13 @@ public:
 
 	//~Begin UPCGSettings
 #if WITH_EDITOR
-	virtual FLinearColor GetNodeTitleColor() const override { return GetDefault<UPCGExGlobalSettings>()->NodeColorPath; }
+	virtual FLinearColor GetNodeTitleColor() const override { return GetDefault<UPCGExGlobalSettings>()->ColorPath; }
 #endif
 	//~End UPCGSettings
 
 	//~Begin UPCGExPointsProcessorSettings
-	virtual FName GetMainInputPin() const override { return PCGExPaths::SourcePathsLabel; }
-	virtual FName GetMainOutputPin() const override { return PCGExPaths::OutputPathsLabel; }
+	virtual FName GetMainInputPin() const override;
+	virtual FName GetMainOutputPin() const override;
 	virtual FString GetPointFilterTooltip() const override { return TEXT("Path points processing filters"); }
 
 	//~End UPCGExPointsProcessorSettings

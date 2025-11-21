@@ -2,13 +2,14 @@
 // Released under the MIT license https://opensource.org/license/MIT/
 
 #pragma once
-#include "PCGExCompare.h"
 #include "PCGSettings.h"
-#include "PCGExMacros.h"
+#include "Details/PCGExMacros.h"
 #include "PCGExGlobalSettings.h"
 #include "PCGExContext.h"
 #include "Elements/ControlFlow/PCGControlFlow.h"
 #include "PCGExConstantEnum.generated.h"
+
+struct FPCGExBitmask;
 
 UENUM()
 enum class EPCGExEnumConstantSourceType : uint8
@@ -61,7 +62,7 @@ public:
 	PCGEX_NODE_INFOS_CUSTOM_SUBTITLE(EnumConstant, "Enum Constant", "Break an enum into handy constant values.", FName(GetDisplayName())); // Tim says nope! :D
 	FString GetDisplayName() const;
 	virtual EPCGSettingsType GetType() const override { return EPCGSettingsType::Param; };
-	virtual FLinearColor GetNodeTitleColor() const override { return GetDefault<UPCGExGlobalSettings>()->NodeColorConstant; };
+	virtual FLinearColor GetNodeTitleColor() const override { return GetDefault<UPCGExGlobalSettings>()->ColorConstant; };
 	// End unrolling of Tim's lovely macro
 #endif
 
@@ -122,7 +123,8 @@ public:
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category="Settings|Output Attributes|Descriptions", meta=(EditCondition="OutputEnumDescriptions"))
 	FName DescriptionAttribute = "Description";
 
-	// Whether to output the numeric enum values. Note: will be output as int64 to match behaviour in native PCG
+	/** Whether to output the numeric enum values.
+	 * Note: will be output as int64 to match behaviour in native PCG */
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category="Settings|Output Attributes|Values")
 	bool OutputEnumValues = true;
 

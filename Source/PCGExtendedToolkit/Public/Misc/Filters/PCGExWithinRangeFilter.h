@@ -14,6 +14,12 @@
 
 #include "PCGExWithinRangeFilter.generated.h"
 
+namespace PCGExData
+{
+	template <typename T>
+	class TBuffer;
+}
+
 UENUM()
 enum class EPCGExRangeSource : uint8
 {
@@ -64,7 +70,7 @@ struct FPCGExWithinRangeFilterConfig
  * 
  */
 UCLASS(MinimalAPI, BlueprintType, ClassGroup = (Procedural), Category="PCGEx|Filter")
-class UPCGExWithinRangeFilterFactory : public UPCGExFilterFactoryData
+class UPCGExWithinRangeFilterFactory : public UPCGExPointFilterFactoryData
 {
 	GENERATED_BODY()
 

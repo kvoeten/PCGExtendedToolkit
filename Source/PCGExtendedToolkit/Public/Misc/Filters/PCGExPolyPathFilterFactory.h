@@ -26,14 +26,14 @@ enum class EPCGExSplineSamplingIncludeMode : uint8
 UENUM()
 enum class EPCGExSplineCheckType : uint8
 {
-	IsInside       = 0 UMETA(DisplayName = "Is Inside", Tooltip="..."),
-	IsInsideOrOn   = 1 UMETA(DisplayName = "Is Inside or On", Tooltip="..."),
-	IsInsideAndOn  = 2 UMETA(DisplayName = "Is Inside and On", Tooltip="..."),
-	IsOutside      = 3 UMETA(DisplayName = "Is Outside", Tooltip="..."),
-	IsOutsideOrOn  = 4 UMETA(DisplayName = "Is Outside or On", Tooltip="..."),
-	IsOutsideAndOn = 5 UMETA(DisplayName = "Is Outside and On", Tooltip="..."),
-	IsOn           = 6 UMETA(DisplayName = "Is On", Tooltip="..."),
-	IsNotOn        = 7 UMETA(DisplayName = "Is not On", Tooltip="..."),
+	IsInside       = 0 UMETA(DisplayName = "Is Inside", Tooltip="...", ActionIcon="PCGEx.Pin.OUT_Filter", SearchHints = "Inside"),
+	IsInsideOrOn   = 1 UMETA(DisplayName = "Is Inside or On", Tooltip="...", ActionIcon="PCGEx.Pin.OUT_Filter", SearchHints = "Inside or On"),
+	IsInsideAndOn  = 2 UMETA(DisplayName = "Is Inside and On", Tooltip="...", ActionIcon="PCGEx.Pin.OUT_Filter", SearchHints = "Inside and On"),
+	IsOutside      = 3 UMETA(DisplayName = "Is Outside", Tooltip="...", ActionIcon="PCGEx.Pin.OUT_Filter", SearchHints = "Outside"),
+	IsOutsideOrOn  = 4 UMETA(DisplayName = "Is Outside or On", Tooltip="...", ActionIcon="PCGEx.Pin.OUT_Filter", SearchHints = "Outside or On"),
+	IsOutsideAndOn = 5 UMETA(DisplayName = "Is Outside and On", Tooltip="...", ActionIcon="PCGEx.Pin.OUT_Filter", SearchHints = "Outside and On"),
+	IsOn           = 6 UMETA(DisplayName = "Is On", Tooltip="...", ActionIcon="PCGEx.Pin.OUT_Filter", SearchHints = "Is On"),
+	IsNotOn        = 7 UMETA(DisplayName = "Is not On", Tooltip="...", ActionIcon="PCGEx.Pin.OUT_Filter", SearchHints = "Not On"),
 };
 
 UENUM()
@@ -47,7 +47,7 @@ enum class EPCGExSplineFilterPick : uint8
  * 
  */
 UCLASS(Abstract, MinimalAPI, BlueprintType, ClassGroup = (Procedural), Category="PCGEx|Filter")
-class UPCGExPolyPathFilterFactory : public UPCGExFilterFactoryData
+class UPCGExPolyPathFilterFactory : public UPCGExPointFilterFactoryData
 {
 	GENERATED_BODY()
 	friend PCGExPathInclusion::FHandler;
@@ -55,6 +55,7 @@ class UPCGExPolyPathFilterFactory : public UPCGExFilterFactoryData
 public:
 	virtual bool SupportsProxyEvaluation() const override { return true; } // TODO Change this one we support per-point tolerance from attribute
 
+	TSharedPtr<TArray<PCGExData::FTaggedData>> Datas;
 	TArray<TSharedPtr<PCGExPaths::FPolyPath>> PolyPaths;
 	TSharedPtr<PCGExOctree::FItemOctree> Octree;
 
@@ -76,14 +77,18 @@ protected:
 	double LocalFidelity = 50;
 	double LocalExpansion = 0;
 	double LocalExpansionZ = -1;
+	double InclusionOffset = 0;
 	FPCGExGeo2DProjectionDetails LocalProjection;
 	EPCGExSplineSamplingIncludeMode LocalSampleInputs = EPCGExSplineSamplingIncludeMode::All;
 	EPCGExWindingMutation WindingMutation = EPCGExWindingMutation::Unchanged;
 	bool bScaleTolerance = false;
 	bool bUsedForInclusion = true;
+	bool bIgnoreSelf = true;
+	bool bBuildEdgeOctree = false;
 
 	TArray<FPCGTaggedData> TempTargets;
 	TArray<TSharedPtr<PCGExPaths::FPolyPath>> TempPolyPaths;
+	TArray<PCGExData::FTaggedData> TempTaggedData;
 };
 
 namespace PCGExPathInclusion
@@ -91,9 +96,9 @@ namespace PCGExPathInclusion
 	enum EFlags : uint8
 	{
 		None    = 0,
-		Inside  = 1 << 1,
-		Outside = 1 << 2,
-		On      = 1 << 3,
+		Inside  = 1 << 0,
+		Outside = 1 << 1,
+		On      = 1 << 2,
 	};
 
 	enum ESplineMatch : uint8
@@ -102,6 +107,9 @@ namespace PCGExPathInclusion
 		All,
 		Skip
 	};
+
+	PCGEXTENDEDTOOLKIT_API
+	FPCGDataTypeIdentifier GetInclusionIdentifier();
 
 #if WITH_EDITOR
 	static FString ToString(const EPCGExSplineCheckType Check)
@@ -123,12 +131,14 @@ namespace PCGExPathInclusion
 
 	class FHandler : public TSharedFromThis<FHandler>
 	{
+		TSharedPtr<TArray<PCGExData::FTaggedData>> Datas;
 		const TArray<TSharedPtr<PCGExPaths::FPolyPath>>* Paths;
 		TSharedPtr<PCGExOctree::FItemOctree> Octree;
 		EPCGExSplineCheckType Check = EPCGExSplineCheckType::IsInside;
 
 		bool bFastCheck = false;
 		bool bDistanceCheckOnly = false;
+		bool bIgnoreSelf = true;
 
 		EFlags GoodFlags = None;
 		EFlags BadFlags = None;
@@ -157,6 +167,7 @@ namespace PCGExPathInclusion
 			return bPass;
 		}
 
-		EFlags GetInclusionFlags(const FVector& WorldPosition, int32& InclusionCount, const bool bClosestOnly) const;
+		EFlags GetInclusionFlags(const FVector& WorldPosition, int32& InclusionCount, const bool bClosestOnly, const UPCGData* InParentData = nullptr) const;
+		PCGExMath::FClosestPosition FindClosestIntersection(const PCGExMath::FSegment& Segment, const FPCGExPathIntersectionDetails& InDetails, const UPCGData* InParentData = nullptr) const;
 	};
 }

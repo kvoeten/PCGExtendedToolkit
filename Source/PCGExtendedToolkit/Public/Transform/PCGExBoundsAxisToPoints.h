@@ -55,7 +55,7 @@ public:
 	//~Begin UPCGSettings
 #if WITH_EDITOR
 	PCGEX_NODE_INFOS(BoundsAxisToPoints, "Bounds Axis To Points", "Generate a two-point from a bound axis.");
-	virtual FLinearColor GetNodeTitleColor() const override { return GetDefault<UPCGExGlobalSettings>()->NodeColorTransform; }
+	virtual FLinearColor GetNodeTitleColor() const override { return GetDefault<UPCGExGlobalSettings>()->ColorTransform; }
 #endif
 
 protected:
@@ -126,6 +126,9 @@ private:
 struct FPCGExBoundsAxisToPointsContext final : FPCGExPointsProcessorContext
 {
 	friend class FPCGExBoundsAxisToPointsElement;
+
+protected:
+	PCGEX_ELEMENT_BATCH_POINT_DECL
 };
 
 class FPCGExBoundsAxisToPointsElement final : public FPCGExPointsProcessorElement

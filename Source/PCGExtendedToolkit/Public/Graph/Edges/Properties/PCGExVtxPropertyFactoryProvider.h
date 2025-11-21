@@ -15,6 +15,17 @@
 #define PCGEX_VTX_EXTRA_CREATE \
 	NewOperation->Config = Config;
 
+namespace PCGExGeo
+{
+	struct FBestFitPlane;
+}
+
+namespace PCGExData
+{
+	template <typename T>
+	class TBuffer;
+}
+
 namespace PCGExCluster
 {
 	struct FNode;
@@ -134,14 +145,22 @@ struct FPCGExEdgeOutputWithIndexSettings : public FPCGExSimpleEdgeOutputSettings
 class FPCGExVtxPropertyOperation : public FPCGExOperation
 {
 public:
+	virtual bool WantsBFP() const;
 	virtual bool PrepareForCluster(FPCGExContext* InContext, TSharedPtr<PCGExCluster::FCluster> InCluster, const TSharedPtr<PCGExData::FFacade>& InVtxDataFacade, const TSharedPtr<PCGExData::FFacade>& InEdgeDataFacade);
 	virtual bool IsOperationValid();
 
-	virtual void ProcessNode(PCGExCluster::FNode& Node, const TArray<PCGExCluster::FAdjacencyData>& Adjacency);
+	virtual void ProcessNode(PCGExCluster::FNode& Node, const TArray<PCGExCluster::FAdjacencyData>& Adjacency, const PCGExGeo::FBestFitPlane& BFP);
 
 protected:
 	const PCGExCluster::FCluster* Cluster = nullptr;
 	bool bIsValidOperation = true;
+};
+
+USTRUCT( meta=(PCG_DataTypeDisplayName="PCGEx | Vtx Property"))
+struct FPCGExDataTypeInfoVtxProperty : public FPCGExFactoryDataTypeInfo
+{
+	GENERATED_BODY()
+	PCG_DECLARE_TYPE_INFO(PCGEXTENDEDTOOLKIT_API)
 };
 
 UCLASS(BlueprintType, ClassGroup = (Procedural), Category="PCGEx|Data")
@@ -150,6 +169,8 @@ class UPCGExVtxPropertyFactoryData : public UPCGExFactoryData
 	GENERATED_BODY()
 
 public:
+	PCG_ASSIGN_TYPE_INFO(FPCGExDataTypeInfoVtxProperty)
+
 	virtual PCGExFactories::EType GetFactoryType() const override { return PCGExFactories::EType::VtxProperty; }
 	virtual TSharedPtr<FPCGExVtxPropertyOperation> CreateOperation(FPCGExContext* InContext) const;
 };
@@ -159,11 +180,14 @@ class UPCGExVtxPropertyProviderSettings : public UPCGExFactoryProviderSettings
 {
 	GENERATED_BODY()
 
+protected:
+	PCGEX_FACTORY_TYPE_ID(FPCGExDataTypeInfoVtxProperty)
+
 public:
 	//~Begin UPCGSettings
 #if WITH_EDITOR
 	PCGEX_NODE_INFOS(AbstractVtxProperty, "Vtx : Abstract", "Abstract vtx extra settings.")
-	virtual FLinearColor GetNodeTitleColor() const override { return GetDefault<UPCGExGlobalSettings>()->NodeColorSamplerNeighbor; }
+	virtual FLinearColor GetNodeTitleColor() const override { return GetDefault<UPCGExGlobalSettings>()->ColorNeighborSampler; }
 #endif
 
 protected:

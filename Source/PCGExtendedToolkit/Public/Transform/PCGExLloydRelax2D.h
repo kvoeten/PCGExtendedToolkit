@@ -4,12 +4,9 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "PCGExDetailsData.h"
 #include "PCGExGlobalSettings.h"
-
 #include "PCGExPointsProcessor.h"
-
-
+#include "Details/PCGExDetailsRelax.h"
 #include "Geometry/PCGExGeo.h"
 #include "PCGExLloydRelax2D.generated.h"
 
@@ -25,12 +22,14 @@ public:
 	//~Begin UPCGSettings
 #if WITH_EDITOR
 	PCGEX_NODE_INFOS(LloydRelax2D, "Lloyd Relax 2D", "Applies Lloyd relaxation to the input points.");
-	virtual FLinearColor GetNodeTitleColor() const override { return GetDefault<UPCGExGlobalSettings>()->NodeColorTransform; }
+	virtual FLinearColor GetNodeTitleColor() const override { return GetDefault<UPCGExGlobalSettings>()->ColorTransform; }
 #endif
 
 protected:
 	virtual FPCGElementPtr CreateElement() const override;
 	//~End UPCGSettings
+
+	virtual PCGExData::EIOInit GetMainDataInitializationPolicy() const override;
 
 public:
 	/** */
@@ -49,6 +48,9 @@ public:
 struct FPCGExLloydRelax2DContext final : FPCGExPointsProcessorContext
 {
 	friend class FPCGExLloydRelax2DElement;
+
+protected:
+	PCGEX_ELEMENT_BATCH_POINT_DECL
 };
 
 class FPCGExLloydRelax2DElement final : public FPCGExPointsProcessorElement

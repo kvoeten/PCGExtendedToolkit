@@ -3,6 +3,8 @@
 
 #include "Transform/Tensors/PCGExTensorSpin.h"
 
+#include "PCGExHelpers.h"
+
 
 #define LOCTEXT_NAMESPACE "PCGExCreateTensorSpin"
 #define PCGEX_NAMESPACE CreateTensorSpin
@@ -19,10 +21,7 @@ namespace PCGExTensor
 			AxisBuffer = InFactory->InputDataFacade->GetBroadcaster<FVector>(Config.AxisAttribute);
 			if (!AxisBuffer)
 			{
-				if (!InFactory->bQuietMissingInputError)
-				{
-					PCGEX_LOG_INVALID_SELECTOR_C(InContext, Axis, Config.AxisAttribute)
-				}
+				PCGEX_LOG_INVALID_SELECTOR_C(InContext, Axis, Config.AxisAttribute)
 				return false;
 			}
 		}

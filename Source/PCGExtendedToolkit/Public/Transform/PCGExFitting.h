@@ -2,67 +2,81 @@
 // Released under the MIT license https://opensource.org/license/MIT/
 
 #pragma once
-#include "Metadata/PCGAttributePropertySelector.h"
 
 #include "CoreMinimal.h"
-#include "PCGExDetails.h"
+#include "Metadata/PCGAttributePropertySelector.h"
+#include "PCGExCommon.h"
+
 #include "PCGExFitting.generated.h"
 
 namespace PCGExData
 {
-	struct FProxyPoint;
+}
+
+struct FPCGExContext;
+
+namespace PCGExData
+{
+	struct FPoint;
 	class FFacade;
-	struct FConstPoint;
 
 	template <typename T>
 	class TBuffer;
 }
 
+UENUM()
+enum class EPCGExVariationSnapping : uint8
+{
+	None       = 0 UMETA(DisplayName = "No Snapping", ToolTip="No Snapping", ActionIcon="NoSnapping"),
+	SnapOffset = 1 UMETA(DisplayName = "Snap Offset", ToolTip="Snap Offset (the variation value will be snapped, not the result)", ActionIcon="SnapOffset"),
+	SnapResult = 2 UMETA(DisplayName = "Snap Result", ToolTip="Snap Result (the variation will not be snapped but the final result will)", ActionIcon="SnapResult"),
+};
+
 UENUM(BlueprintType)
 enum class EPCGExFitMode : uint8
 {
-	None       = 0 UMETA(DisplayName = "None", ToolTip="No fitting"),
-	Uniform    = 1 UMETA(DisplayName = "Uniform", ToolTip="Uniform fit"),
-	Individual = 2 UMETA(DisplayName = "Individual", ToolTip="Per-component fit"),
+	None       = 0 UMETA(DisplayName = "None", ToolTip="No fitting", ActionIcon="STF_None"),
+	Uniform    = 1 UMETA(DisplayName = "Uniform", ToolTip="Uniform fit", ActionIcon="STF_Uniform"),
+	Individual = 2 UMETA(DisplayName = "Individual", ToolTip="Per-component fit", ActionIcon="STF_Individual"),
 };
 
 UENUM(BlueprintType)
 enum class EPCGExScaleToFit : uint8
 {
-	None = 0 UMETA(DisplayName = "None", ToolTip="No fitting"),
-	Fill = 1 UMETA(DisplayName = "Fill", ToolTip="..."),
-	Min  = 2 UMETA(DisplayName = "Min", ToolTip="..."),
-	Max  = 3 UMETA(DisplayName = "Max", ToolTip="..."),
-	Avg  = 4 UMETA(DisplayName = "Average", ToolTip="..."),
+	None = 0 UMETA(DisplayName = "None", ToolTip="No fitting", ActionIcon="Fit_None"),
+	Fill = 1 UMETA(DisplayName = "Fill", ToolTip="Fill", ActionIcon="Fit_Fill"),
+	Min  = 2 UMETA(DisplayName = "Min", ToolTip="Min", ActionIcon="Fit_Min"),
+	Max  = 3 UMETA(DisplayName = "Max", ToolTip="Max", ActionIcon="Fit_Max"),
+	Avg  = 4 UMETA(DisplayName = "Average", ToolTip="Average", ActionIcon="Fit_Average"),
 };
 
 UENUM(BlueprintType)
 enum class EPCGExJustifyFrom : uint8
 {
-	Min    = 0 UMETA(DisplayName = "Min", ToolTip="..."),
-	Center = 1 UMETA(DisplayName = "Center", ToolTip="..."),
-	Max    = 2 UMETA(DisplayName = "Max", ToolTip="..."),
-	Pivot  = 3 UMETA(DisplayName = "Pivot", ToolTip="..."),
-	Custom = 4 UMETA(DisplayName = "Custom", ToolTip="..."),
+	Min    = 0 UMETA(DisplayName = "Min", ToolTip="Min", ActionIcon="From_Min"),
+	Center = 1 UMETA(DisplayName = "Center", ToolTip="Center", ActionIcon="From_Center"),
+	Max    = 2 UMETA(DisplayName = "Max", ToolTip="Max", ActionIcon="From_Max"),
+	Pivot  = 3 UMETA(DisplayName = "Pivot", ToolTip="Pivot", ActionIcon="From_Pivot"),
+	Custom = 4 UMETA(DisplayName = "Custom", ToolTip="Custom", ActionIcon="From_Custom"),
 };
 
 UENUM(BlueprintType)
 enum class EPCGExJustifyTo : uint8
 {
-	Same   = 0 UMETA(DisplayName = "Same", ToolTip="..."),
-	Min    = 1 UMETA(DisplayName = "Min", ToolTip="..."),
-	Center = 2 UMETA(DisplayName = "Center", ToolTip="..."),
-	Max    = 3 UMETA(DisplayName = "Max", ToolTip="..."),
-	Pivot  = 4 UMETA(DisplayName = "Pivot", ToolTip="..."),
-	Custom = 5 UMETA(DisplayName = "Custom", ToolTip="..."),
+	Min    = 1 UMETA(DisplayName = "Min", ToolTip="Min", ActionIcon="To_Min"),
+	Center = 2 UMETA(DisplayName = "Center", ToolTip="Center", ActionIcon="To_Center"),
+	Max    = 3 UMETA(DisplayName = "Max", ToolTip="Max", ActionIcon="To_Max"),
+	Pivot  = 4 UMETA(DisplayName = "Pivot", ToolTip="Pivot", ActionIcon="To_Pivot"),
+	Custom = 5 UMETA(DisplayName = "Custom", ToolTip="Custom", ActionIcon="To_Custom"),
+	Same   = 0 UMETA(DisplayName = "Same", ToolTip="Same as 'From'", ActionIcon="To_Same"),
 };
 
 UENUM(BlueprintType)
 enum class EPCGExVariationMode : uint8
 {
-	Disabled = 0 UMETA(DisplayName = "Disabled", ToolTip="..."),
-	Before   = 1 UMETA(DisplayName = "Before fitting", ToolTip="Variation are applied to the point that will be fitted"),
-	After    = 2 UMETA(DisplayName = "After fitting", ToolTip="Variation are applied to the fitted bounds"),
+	Disabled = 0 UMETA(DisplayName = "Disabled", ToolTip="Disabled", ActionIcon="STF_None"),
+	Before   = 1 UMETA(DisplayName = "Before fitting", ToolTip="Pre-processing.\nVariation are applied to the asset before it will be fitted to the host point.", ActionIcon="BeforeStaging"),
+	After    = 2 UMETA(DisplayName = "After fitting", ToolTip="Post-processing.\nVariation are applied to the host point after the asset has been fitted inside.", ActionIcon="AfterStaging"),
 };
 
 USTRUCT(BlueprintType)
@@ -95,19 +109,16 @@ struct PCGEXTENDEDTOOLKIT_API FPCGExScaleToFitDetails
 	EPCGExScaleToFit ScaleToFitZ = EPCGExScaleToFit::None;
 
 	void Process(
-		const PCGExData::FConstPoint& InPoint,
+		const PCGExData::FPoint& InPoint,
 		const FBox& InBounds,
 		FVector& OutScale,
 		FBox& OutBounds) const;
 
 private:
 	static void ScaleToFitAxis(
-		const EPCGExScaleToFit Fit,
-		const int32 Axis,
-		const FVector& InScale,
-		const FVector& InPtSize,
-		const FVector& InStSize,
-		const FVector& MinMaxFit,
+		const EPCGExScaleToFit Fit, const int32 Axis,
+		const FVector& TargetScale, const FVector& TargetSize,
+		const FVector& CandidateSize, const FVector& MinMaxFit,
 		FVector& OutScale);
 };
 
@@ -123,15 +134,15 @@ struct PCGEXTENDEDTOOLKIT_API FPCGExSingleJustifyDetails
 	EPCGExJustifyFrom From = EPCGExJustifyFrom::Center;
 
 	/**  */
-	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta=(PCG_Overridable, EditCondition="From == EPCGExJustifyFrom::Custom", EditConditionHides))
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta=(PCG_NotOverridable, DisplayName=" ├─ Input", EditCondition="From == EPCGExJustifyFrom::Custom", EditConditionHides))
 	EPCGExInputValueType FromInput = EPCGExInputValueType::Constant;
 
 	/**  Value is expected to be 0-1 normalized, 0 being bounds min and 1 being bounds min + size. */
-	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta = (PCG_Overridable, DisplayName="From (Attr)", EditCondition="From == EPCGExJustifyFrom::Custom && FromInput != EPCGExInputValueType::Constant", EditConditionHides))
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta = (PCG_Overridable, DisplayName=" └─ From (Attr)", EditCondition="From == EPCGExJustifyFrom::Custom && FromInput != EPCGExInputValueType::Constant", EditConditionHides))
 	FPCGAttributePropertyInputSelector FromSourceAttribute;
 
 	/**  Value is expected to be 0-1 normalized, 0 being bounds min and 1 being bounds min + size. */
-	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta = (PCG_Overridable, DisplayName="From", EditCondition="From == EPCGExJustifyFrom::Custom && FromInput == EPCGExInputValueType::Constant", EditConditionHides))
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta = (PCG_Overridable, DisplayName=" └─ From", EditCondition="From == EPCGExJustifyFrom::Custom && FromInput == EPCGExInputValueType::Constant", EditConditionHides))
 	double FromConstant = 0.5;
 
 	TSharedPtr<PCGExData::TBuffer<double>> FromGetter;
@@ -142,15 +153,15 @@ struct PCGEXTENDEDTOOLKIT_API FPCGExSingleJustifyDetails
 	EPCGExJustifyTo To = EPCGExJustifyTo::Same;
 
 	/**  */
-	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta=(PCG_Overridable, EditCondition="To == EPCGExJustifyTo::Custom", EditConditionHides))
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta=(PCG_NotOverridable, DisplayName=" ├─ Input", EditCondition="To == EPCGExJustifyTo::Custom", EditConditionHides))
 	EPCGExInputValueType ToInput = EPCGExInputValueType::Constant;
 
 	/**  Value is expected to be 0-1 normalized, 0 being bounds min and 1 being bounds min + size. */
-	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta = (PCG_Overridable, DisplayName="To (Attr)", EditCondition="To == EPCGExJustifyTo::Custom && ToInput != EPCGExInputValueType::Constant", EditConditionHides))
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta = (PCG_Overridable, DisplayName=" └─ To (Attr)", EditCondition="To == EPCGExJustifyTo::Custom && ToInput != EPCGExInputValueType::Constant", EditConditionHides))
 	FPCGAttributePropertyInputSelector ToSourceAttribute;
 
 	/**  Value is expected to be 0-1 normalized, 0 being bounds min and 1 being bounds min + size. */
-	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta = (PCG_Overridable, DisplayName="To", EditCondition="To == EPCGExJustifyTo::Custom && ToInput == EPCGExInputValueType::Constant", EditConditionHides))
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta = (PCG_Overridable, DisplayName=" └─ To", EditCondition="To == EPCGExJustifyTo::Custom && ToInput == EPCGExInputValueType::Constant", EditConditionHides))
 	double ToConstant = 0.5;
 
 	TSharedPtr<PCGExData::TBuffer<double>> ToGetter;
@@ -228,12 +239,17 @@ struct PCGEXTENDEDTOOLKIT_API FPCGExFittingVariations
 {
 	GENERATED_BODY()
 
-	/** Index picking mode*/
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta = (PCG_Overridable))
 	FVector OffsetMin = FVector::ZeroVector;
 
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta = (PCG_Overridable))
 	FVector OffsetMax = FVector::ZeroVector;
+
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta = (PCG_Overridable))
+	EPCGExVariationSnapping SnapPosition = EPCGExVariationSnapping::None;
+
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta = (PCG_Overridable))
+	FVector OffsetSnap = FVector(100);
 
 	/** Set offset in world space */
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta = (PCG_Overridable))
@@ -245,16 +261,37 @@ struct PCGEXTENDEDTOOLKIT_API FPCGExFittingVariations
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta = (PCG_Overridable))
 	FRotator RotationMax = FRotator::ZeroRotator;
 
-	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta = (AllowPreserveRatio, PCG_Overridable))
-	FVector ScaleMin = FVector::One();
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta = (PCG_Overridable))
+	EPCGExVariationSnapping SnapRotation = EPCGExVariationSnapping::None;
+
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta = (PCG_Overridable))
+	FRotator RotationSnap = FRotator(90);
+
+	/** Set rotation directly instead of additively on the selected axis */
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta=(PCG_NotOverridable, EditConditionHides, Bitmask, BitmaskEnum="/Script/PCGExtendedToolkit.EPCGExAbsoluteRotationFlags"))
+	uint8 AbsoluteRotation = 0;
 
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta = (AllowPreserveRatio, PCG_Overridable))
-	FVector ScaleMax = FVector::One();
+	FVector ScaleMin = FVector::OneVector;
+
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta = (AllowPreserveRatio, PCG_Overridable))
+	FVector ScaleMax = FVector::OneVector;
+
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta = (PCG_Overridable))
+	EPCGExVariationSnapping SnapScale = EPCGExVariationSnapping::None;
+
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta = (PCG_Overridable))
+	FVector ScaleSnap = FVector(0.1);
 
 	/** Scale uniformly on each axis. Uses the X component of ScaleMin and ScaleMax. */
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta = (PCG_Overridable))
 	bool bUniformScale = true;
+
+	void ApplyOffset(const FRandomStream& RandomStream, FTransform& OutTransform) const;
+	void ApplyRotation(const FRandomStream& RandomStream, FTransform& OutTransform) const;
+	void ApplyScale(const FRandomStream& RandomStream, FTransform& OutTransform) const;
 };
+
 
 USTRUCT(BlueprintType)
 struct PCGEXTENDEDTOOLKIT_API FPCGExFittingVariationsDetails
@@ -282,8 +319,7 @@ struct PCGEXTENDEDTOOLKIT_API FPCGExFittingVariationsDetails
 	void Init(const int InSeed);
 
 	void Apply(
-		int32 BaseSeed,
-		PCGExData::FProxyPoint& InPoint,
+		const FRandomStream& RandomStream, FTransform& OutTransform,
 		const FPCGExFittingVariations& Variations, const EPCGExVariationMode& Step) const;
 };
 
@@ -308,6 +344,7 @@ struct PCGEXTENDEDTOOLKIT_API FPCGExFittingDetailsHandler
 	bool Init(FPCGExContext* InContext, const TSharedRef<PCGExData::FFacade>& InTargetFacade);
 
 	void ComputeTransform(const int32 TargetIndex, FTransform& OutTransform, FBox& InOutBounds, const bool bWorldSpace = true) const;
+	void ComputeLocalTransform(const int32 TargetIndex, const FTransform& InLocalXForm, FTransform& OutTransform, FBox& InOutBounds) const;
 
 	bool WillChangeBounds() const;
 	bool WillChangeTransform() const;
@@ -349,11 +386,11 @@ struct PCGEXTENDEDTOOLKIT_API FPCGExLeanTransformDetails
 	{
 	}
 
-	/** If enabled, point will be scaled by the target' scale. */
+	/** If enabled, point will be scaled by the parent' scale. */
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta=(PCG_Overridable))
 	bool bInheritScale = true;
 
-	/** If enabled, points will be rotated by the target' rotation. */
+	/** If enabled, points will be rotated by the parent' rotation. */
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta=(PCG_Overridable))
 	bool bInheritRotation = true;
 };

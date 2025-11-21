@@ -4,7 +4,10 @@
 #include "Graph/Edges/PCGExWriteEdgeProperties.h"
 
 #include "Data/Blending/PCGExBlendOpFactoryProvider.h"
+#include "Data/Blending/PCGExBlendOpsManager.h"
 #include "Data/Blending/PCGExMetadataBlender.h"
+#include "Details/PCGExDetailsSettings.h"
+#include "Graph/Pathfinding/Heuristics/PCGExHeuristics.h"
 
 #define LOCTEXT_NAMESPACE "WriteEdgeProperties"
 #define PCGEX_NAMESPACE WriteEdgeProperties
@@ -12,11 +15,13 @@
 PCGExData::EIOInit UPCGExWriteEdgePropertiesSettings::GetMainOutputInitMode() const { return PCGExData::EIOInit::Forward; }
 PCGExData::EIOInit UPCGExWriteEdgePropertiesSettings::GetEdgeOutputInitMode() const { return PCGExData::EIOInit::Duplicate; }
 
+PCGEX_SETTING_VALUE_IMPL(UPCGExWriteEdgePropertiesSettings, SolidificationLerp, double, SolidificationLerpInput, SolidificationLerpAttribute, SolidificationLerpConstant)
+
 TArray<FPCGPinProperties> UPCGExWriteEdgePropertiesSettings::InputPinProperties() const
 {
 	TArray<FPCGPinProperties> PinProperties = Super::InputPinProperties();
 	PCGExDataBlending::DeclareBlendOpsInputs(PinProperties, bEndpointsBlending ? EPCGPinStatus::Normal : EPCGPinStatus::Advanced);
-	if (bWriteHeuristics) { PCGEX_PIN_FACTORIES(PCGExGraph::SourceHeuristicsLabel, "Heuristics that will be computed and written.", Required, {}) }
+	if (bWriteHeuristics) { PCGEX_PIN_FACTORIES(PCGExGraph::SourceHeuristicsLabel, "Heuristics that will be computed and written.", Required, FPCGExDataTypeInfoHeuristics::AsId()) }
 	return PinProperties;
 }
 
@@ -27,6 +32,7 @@ bool UPCGExWriteEdgePropertiesSettings::IsPinUsedByNodeExecution(const UPCGPin* 
 }
 
 PCGEX_INITIALIZE_ELEMENT(WriteEdgeProperties)
+PCGEX_ELEMENT_BATCH_EDGE_IMPL_ADV(WriteEdgeProperties)
 
 bool FPCGExWriteEdgePropertiesElement::Boot(FPCGExContext* InContext) const
 {
@@ -55,9 +61,9 @@ bool FPCGExWriteEdgePropertiesElement::ExecuteInternal(
 	PCGEX_EXECUTION_CHECK
 	PCGEX_ON_INITIAL_EXECUTION
 	{
-		if (!Context->StartProcessingClusters<PCGExWriteEdgeProperties::FBatch>(
+		if (!Context->StartProcessingClusters(
 			[](const TSharedPtr<PCGExData::FPointIOTaggedEntries>& Entries) { return true; },
-			[&](const TSharedPtr<PCGExWriteEdgeProperties::FBatch>& NewBatch)
+			[&](const TSharedPtr<PCGExClusterMT::IBatch>& NewBatch)
 			{
 				if (Settings->bWriteHeuristics) { NewBatch->SetWantsHeuristics(true); }
 			}))
@@ -161,9 +167,6 @@ namespace PCGExWriteEdgeProperties
 
 		if (!DataBlender) { DataBlender = MakeShared<PCGExDataBlending::FDummyBlender>(); }
 
-		StartWeight = FMath::Clamp(Settings->EndpointsWeights, 0, 1);
-		EndWeight = 1 - StartWeight;
-
 		StartParallelLoopForEdges();
 
 		return true;
@@ -262,7 +265,7 @@ TargetBoundsMax._AXIS = Rad * InvScale._AXIS;\
 					break;
 				}
 
-				Transforms[EdgeIndex] = FTransform(EdgeRot, FMath::Lerp(B, A, BlendWeightEnd), TargetScale);
+				Transforms[EdgeIndex] = FTransform(EdgeRot, FMath::Lerp(B, A, Settings->bWriteEdgePosition ? Settings->EdgePositionLerp : BlendWeightEnd), TargetScale);
 
 				BoundsMin[EdgeIndex] = TargetBoundsMin;
 				BoundsMax[EdgeIndex] = TargetBoundsMax;
@@ -272,11 +275,11 @@ TargetBoundsMax._AXIS = Rad * InvScale._AXIS;\
 			else if (Settings->bWriteEdgePosition)
 			{
 				Transforms[EdgeIndex].SetLocation(FMath::Lerp(B, A, Settings->EdgePositionLerp));
-				DataBlender->Blend(Edge.Start, Edge.End, EdgeIndex, Settings->EdgePositionLerp);
+				DataBlender->Blend(Edge.Start, Edge.End, EdgeIndex, Settings->EndpointsWeights);
 			}
 			else
 			{
-				DataBlender->Blend(Edge.Start, Edge.End, EdgeIndex, Settings->EdgePositionLerp);
+				DataBlender->Blend(Edge.Start, Edge.End, EdgeIndex, Settings->EndpointsWeights);
 			}
 		}
 	}

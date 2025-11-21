@@ -6,7 +6,11 @@
 
 
 #include "Data/PCGExDataPreloader.h"
+#include "Details/PCGExDetailsSettings.h"
 #include "Graph/FloodFill/FillControls/PCGExFillControlsFactoryProvider.h"
+
+PCGEX_SETTING_VALUE_IMPL(FPCGExFillControlConfigRunningAverage, WindowSize, int32, WindowSizeInput, WindowSizeAttribute, WindowSize)
+PCGEX_SETTING_VALUE_IMPL(FPCGExFillControlConfigRunningAverage, Tolerance, double, ToleranceInput, ToleranceAttribute, Tolerance)
 
 bool FPCGExFillControlRunningAverage::PrepareForDiffusions(FPCGExContext* InContext, const TSharedPtr<PCGExFloodFill::FFillControlsHandler>& InHandler)
 {
@@ -39,7 +43,7 @@ bool FPCGExFillControlRunningAverage::IsValidCandidate(const PCGExFloodFill::FDi
 
 	if (PathNodeIndex != -1)
 	{
-		double Avg = Operand->Read(Cluster->GetNode(PathNodeIndex)->PointIndex);
+		double Avg = Operand->Read(Cluster->GetNodePointIndex(PathNodeIndex));
 		int32 Sampled = 1;
 		while (PathNodeIndex != -1 && Sampled < Window)
 		{
@@ -47,7 +51,7 @@ bool FPCGExFillControlRunningAverage::IsValidCandidate(const PCGExFloodFill::FDi
 			PCGEx::NH64(Diffusion->TravelStack->Get(CurrentIndex), PathNodeIndex, PathEdgeIndex);
 			if (PathNodeIndex != -1)
 			{
-				Avg += Operand->Read(Cluster->GetNode(PathNodeIndex)->PointIndex);
+				Avg += Operand->Read(Cluster->GetNodePointIndex(PathNodeIndex));
 				Sampled++;
 			}
 		}

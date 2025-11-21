@@ -22,7 +22,7 @@ public:
 	//~Begin UPCGSettings
 #if WITH_EDITOR
 	PCGEX_NODE_INFOS(BuildConvexHull2D, "Cluster : Convex Hull 2D", "Create a 2D Convex Hull triangulation for each input dataset. Deprecated as of 5.4; use Find Convex Hull 2D instead.");
-	virtual FLinearColor GetNodeTitleColor() const override { return GetDefault<UPCGExGlobalSettings>()->NodeColorCluster; }
+	virtual FLinearColor GetNodeTitleColor() const override { return GetDefault<UPCGExGlobalSettings>()->ColorClusterGenerator; }
 #endif
 	virtual TArray<FPCGPinProperties> OutputPinProperties() const override;
 
@@ -60,6 +60,9 @@ struct FPCGExBuildConvexHull2DContext final : FPCGExPointsProcessorContext
 	friend class FPCGExBuildConvexHull2DElement;
 
 	TSharedPtr<PCGExData::FPointIOCollection> PathsIO;
+
+protected:
+	PCGEX_ELEMENT_BATCH_POINT_DECL
 };
 
 class FPCGExBuildConvexHull2DElement final : public FPCGExPointsProcessorElement
@@ -71,7 +74,7 @@ protected:
 	virtual bool ExecuteInternal(FPCGContext* InContext) const override;
 };
 
-namespace PCGExConvexHull2D
+namespace PCGExBuildConvexHull2D
 {
 	class FProcessor final : public PCGExPointsMT::TProcessor<FPCGExBuildConvexHull2DContext, UPCGExBuildConvexHull2DSettings>
 	{

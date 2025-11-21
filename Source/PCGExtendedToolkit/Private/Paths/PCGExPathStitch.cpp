@@ -3,6 +3,8 @@
 
 #include "Paths/PCGExPathStitch.h"
 #include "PCGExMath.h"
+#include "Data/PCGExDataTag.h"
+#include "Data/PCGExPointFilter.h"
 
 #include "Paths/SubPoints/DataBlending/PCGExSubPointsBlendInterpolate.h"
 
@@ -12,11 +14,12 @@
 TArray<FPCGPinProperties> UPCGExPathStitchSettings::InputPinProperties() const
 {
 	TArray<FPCGPinProperties> PinProperties = Super::InputPinProperties();
-	PCGEX_PIN_FACTORIES(PCGExGraph::SourceEdgeSortingRules, "Sort-in-place to order the data if needed", Normal, {})
+	PCGEX_PIN_FILTERS(PCGExGraph::SourceEdgeSortingRules, "Sort-in-place to order the data if needed", Normal)
 	return PinProperties;
 }
 
 PCGEX_INITIALIZE_ELEMENT(PathStitch)
+PCGEX_ELEMENT_BATCH_POINT_IMPL_ADV(PathStitch)
 
 bool FPCGExPathStitchElement::Boot(FPCGExContext* InContext) const
 {
@@ -45,7 +48,7 @@ bool FPCGExPathStitchElement::ExecuteInternal(FPCGContext* InContext) const
 	{
 		PCGEX_ON_INVALILD_INPUTS(FTEXT("Some inputs are either closed loop or have less than 2 points and won't be processed."))
 
-		if (!Context->StartBatchProcessingPoints<PCGExPathStitch::FBatch>(
+		if (!Context->StartBatchProcessingPoints(
 			[&](const TSharedPtr<PCGExData::FPointIO>& Entry)
 			{
 				if (Entry->GetNum() < 2 || PCGExPaths::GetClosedLoop(Entry->GetIn()))
@@ -60,7 +63,7 @@ bool FPCGExPathStitchElement::ExecuteInternal(FPCGContext* InContext) const
 				Entry->Tags->DumpTo(D.Tags);
 				return true;
 			},
-			[&](const TSharedPtr<PCGExPathStitch::FBatch>& NewBatch)
+			[&](const TSharedPtr<PCGExPointsMT::IBatch>& NewBatch)
 			{
 				//NewBatch->SetPointsFilterData(&Context->FilterFactories);
 				NewBatch->bRequiresWriteStep = true;
@@ -72,7 +75,7 @@ bool FPCGExPathStitchElement::ExecuteInternal(FPCGContext* InContext) const
 
 	PCGEX_POINTS_BATCH_PROCESSING(PCGExCommon::State_Done)
 
-	Context->MainPoints->StageOutputs();
+	PCGEX_OUTPUT_VALID_PATHS(MainPoints)
 
 	return Context->TryComplete();
 }
@@ -246,11 +249,12 @@ namespace PCGExPathStitch
 		SortedProcessors.Reserve(Processors.Num());
 
 		FBox OctreeBounds = FBox(ForceInit);
-		for (const TSharedRef<FProcessor>& Processor : this->Processors)
+		for (int Pi = 0; Pi < Processors.Num(); Pi++)
 		{
-			SortedProcessors.Add(Processor);
-			OctreeBounds += Processor->StartBounds;
-			OctreeBounds += Processor->EndBounds;
+			const TSharedPtr<FProcessor> P = GetProcessor<FProcessor>(Pi);
+			SortedProcessors.Add(P);
+			OctreeBounds += P->StartBounds;
+			OctreeBounds += P->EndBounds;
 		}
 
 		// Attempt to sort -- if it fails it's ok, just throw a warning
@@ -327,8 +331,8 @@ namespace PCGExPathStitch
 
 						if (Settings->bOnlyMatchStartAndEnds && bIsOtherEnd) { return; }
 
-						const TSharedPtr<FProcessor>& Other = Processors[Index];
-						const TSharedPtr<FProcessor>& StitchPole = bIsOtherEnd ? Other->EndStitch : Other->StartStitch;
+						const TSharedPtr<FProcessor> Other = GetProcessor<FProcessor>(Index);
+						const TSharedPtr<FProcessor> StitchPole = bIsOtherEnd ? Other->EndStitch : Other->StartStitch;
 
 						if (StitchPole || StitchPole == Current ||
 							Other->WorkIndex == Current->WorkIndex) { return; }
@@ -356,8 +360,8 @@ namespace PCGExPathStitch
 
 						if (Settings->bOnlyMatchStartAndEnds && bIsOtherStart) { return; }
 
-						const TSharedPtr<FProcessor>& Other = Processors[Index];
-						const TSharedPtr<FProcessor>& StitchPole = bIsOtherStart ? Other->StartStitch : Other->EndStitch;
+						const TSharedPtr<FProcessor> Other = GetProcessor<FProcessor>(Index);
+						const TSharedPtr<FProcessor> StitchPole = bIsOtherStart ? Other->StartStitch : Other->EndStitch;
 
 						if (StitchPole || StitchPole == Current ||
 							Other->WorkIndex == Current->WorkIndex) { return; }

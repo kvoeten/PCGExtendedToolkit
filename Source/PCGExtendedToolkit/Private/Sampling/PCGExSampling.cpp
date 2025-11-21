@@ -5,7 +5,9 @@
 
 #include "GameFramework/Actor.h"
 #include "PCGExPointsProcessor.h"
+#include "Data/PCGExPointIO.h"
 #include "Data/Matching/PCGExMatchRuleFactoryProvider.h"
+#include "Details/PCGExDetailsDistances.h"
 
 bool FPCGExApplySamplingDetails::WantsApply() const
 {
@@ -158,7 +160,7 @@ namespace PCGExSampling
 
 	int32 FSampingUnionData::ComputeWeights(
 		const TArray<const UPCGBasePointData*>& Sources, const TSharedPtr<PCGEx::FIndexLookup>& IdxLookup,
-		const PCGExData::FConstPoint& Target, const TSharedPtr<PCGExDetails::FDistances>& InDistanceDetails,
+		const PCGExData::FPoint& Target, const TSharedPtr<PCGExDetails::FDistances>& InDistanceDetails,
 		TArray<PCGExData::FWeightedPoint>& OutWeightedPoints) const
 	{
 		const int32 NumElements = Elements.Num();
@@ -227,16 +229,10 @@ namespace PCGExSampling
 		return Index;
 	}
 
-	void FSampingUnionData::AddWeighted_Unsafe(const PCGExData::FElement& Element, const double InWeight)
-	{
-		Add_Unsafe(Element);
-		Weights.Add(Element, InWeight);
-	}
-
 	void FSampingUnionData::AddWeighted(const PCGExData::FElement& Element, const double InWeight)
 	{
 		FWriteScopeLock WriteScopeLock(UnionLock);
-		Add_Unsafe(Element);
+		Add_Unsafe(Element.Index, Element.IO);
 		Weights.Add(Element, InWeight);
 	}
 
@@ -261,7 +257,6 @@ namespace PCGExSampling
 
 	int32 FTargetsHandler::Init(FPCGExContext* InContext, const FName InPinLabel, FInitData&& InitFn)
 	{
-		const UPCGExPointsProcessorSettings* Settings = InContext->GetInputSettings<UPCGExPointsProcessorSettings>();
 		FBox OctreeBounds = FBox(ForceInit);
 
 		TSharedPtr<PCGExData::FPointIOCollection> Targets = MakeShared<PCGExData::FPointIOCollection>(
@@ -269,7 +264,7 @@ namespace PCGExSampling
 
 		if (Targets->IsEmpty())
 		{
-			if (!Settings || !Settings->bQuietMissingInputError) { PCGE_LOG_C(Error, GraphAndLog, InContext, FTEXT("No targets (empty datasets)")); }
+			PCGEX_LOG_MISSING_INPUT(InContext, FTEXT("No targets (empty datasets)"))
 			return 0;
 		}
 
@@ -610,6 +605,16 @@ namespace PCGExSampling
 			});
 	}
 
+	PCGExData::FConstPoint FTargetsHandler::GetPoint(const int32 IO, const int32 Index) const
+	{
+		return TargetFacades[IO]->GetInPoint(Index);
+	}
+
+	PCGExData::FConstPoint FTargetsHandler::GetPoint(const PCGExData::FPoint& Point) const
+	{
+		return TargetFacades[Point.IO]->GetInPoint(Point.Index);
+	}
+
 	double FTargetsHandler::GetDistSquared(const PCGExData::FConstPoint& SourcePoint, const PCGExData::FConstPoint& TargetPoint) const
 	{
 		if (Distances->bOverlapIsZero)
@@ -620,6 +625,11 @@ namespace PCGExSampling
 			return DistSquared;
 		}
 		return Distances->GetDistSquared(SourcePoint, TargetPoint);
+	}
+
+	FVector FTargetsHandler::GetSourceCenter(const PCGExData::FConstPoint& OriginPoint, const FVector& OriginLocation, const FVector& ToCenter) const
+	{
+		return Distances->GetSourceCenter(OriginPoint, OriginLocation, ToCenter);
 	}
 
 	void FTargetsHandler::StartLoading(const TSharedPtr<PCGExMT::FTaskManager>& AsyncManager, const TSharedPtr<PCGExMT::FAsyncMultiHandle>& InParentHandle) const

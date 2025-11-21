@@ -25,7 +25,7 @@ enum class EPCGExCustomGraphActorSourceMode : uint8
  * 
  */
 UCLASS(Blueprintable, BlueprintType, Abstract, DisplayName = "[PCGEx] Custom Graph Settings", meta=(PCGExNodeLibraryDoc="clusters/build-custom-graph"))
-class UPCGExCustomGraphSettings : public UObject
+class PCGEXTENDEDTOOLKIT_API UPCGExCustomGraphSettings : public UObject
 {
 	GENERATED_BODY()
 
@@ -461,7 +461,8 @@ public:
 	PCGEX_NODE_INFOS_CUSTOM_SUBTITLE(
 		BuildCustomGraph, "Cluster : Build Custom Graph", "Create clusters using custom blueprint objects",
 		(Builder ? FName(Builder.GetClass()->GetMetaData(TEXT("DisplayName"))) : FName("...")));
-	virtual FLinearColor GetNodeTitleColor() const override { return GetDefault<UPCGExGlobalSettings>()->NodeColorClusterGen; }
+	virtual FLinearColor GetNodeTitleColor() const override { return GetDefault<UPCGExGlobalSettings>()->ColorClusterGenerator; }
+	virtual bool CanDynamicallyTrackKeys() const override { return true; }
 #endif
 
 protected:

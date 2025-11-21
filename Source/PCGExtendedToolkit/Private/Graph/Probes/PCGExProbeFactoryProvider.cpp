@@ -8,12 +8,14 @@
 #define LOCTEXT_NAMESPACE "PCGExCreateProbe"
 #define PCGEX_NAMESPACE CreateProbe
 
+PCG_DEFINE_TYPE_INFO(FPCGExDataTypeInfoProbe, UPCGExProbeFactoryData)
+
 TSharedPtr<FPCGExProbeOperation> UPCGExProbeFactoryData::CreateOperation(FPCGExContext* InContext) const
 {
 	return nullptr; // Create probe operation
 }
 
-FName UPCGExProbeFactoryProviderSettings::GetMainOutputPin() const{ return PCGExGraph::OutputProbeLabel; }
+FName UPCGExProbeFactoryProviderSettings::GetMainOutputPin() const { return PCGExGraph::OutputProbeLabel; }
 
 UPCGExFactoryData* UPCGExProbeFactoryProviderSettings::CreateFactory(FPCGExContext* InContext, UPCGExFactoryData* InFactory) const
 {

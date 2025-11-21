@@ -4,6 +4,8 @@
 #include "Misc/Filters/PCGExPickerFilter.h"
 
 
+#include "Data/PCGExData.h"
+#include "Data/PCGExPointIO.h"
 #include "Misc/Pickers/PCGExPicker.h"
 #include "Transform/Tensors/PCGExTensorFactoryProvider.h"
 
@@ -14,14 +16,9 @@ bool UPCGExPickerFilterFactory::Init(FPCGExContext* InContext)
 {
 	if (!Super::Init(InContext)) { return false; }
 
-	if (!PCGExFactories::GetInputFactories(InContext, PCGExPicker::SourcePickersLabel, PickerFactories, {PCGExFactories::EType::IndexPicker}, true)) { return false; }
-	if (PickerFactories.IsEmpty())
-	{
-		if (!bQuietMissingInputError) { PCGE_LOG_C(Error, GraphAndLog, InContext, FTEXT("Missing pickers.")); }
-		return false;
-	}
-
-	return true;
+	return PCGExFactories::GetInputFactories(
+		InContext, PCGExPicker::SourcePickersLabel, PickerFactories,
+		{PCGExFactories::EType::IndexPicker});
 }
 
 TSharedPtr<PCGExPointFilter::IFilter> UPCGExPickerFilterFactory::CreateFilter() const
@@ -64,7 +61,7 @@ bool PCGExPointFilter::FPickerFilter::Test(const TSharedPtr<PCGExData::FPointIO>
 TArray<FPCGPinProperties> UPCGExPickerFilterProviderSettings::InputPinProperties() const
 {
 	TArray<FPCGPinProperties> PinProperties = Super::InputPinProperties();
-	PCGEX_PIN_FACTORIES(PCGExPicker::SourcePickersLabel, "Pickers", Required, {})
+	PCGEX_PIN_FACTORIES(PCGExPicker::SourcePickersLabel, "Pickers", Required, FPCGExDataTypeInfoPicker::AsId())
 	return PinProperties;
 }
 

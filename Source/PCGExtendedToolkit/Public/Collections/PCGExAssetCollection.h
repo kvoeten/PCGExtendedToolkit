@@ -6,19 +6,23 @@
 #include "CoreMinimal.h"
 #include "GameFramework/Actor.h"
 #include "Engine/DataAsset.h"
+#include "Metadata/Accessors/IPCGAttributeAccessor.h"
+#include "Metadata/Accessors/PCGAttributeAccessorHelpers.h"
 
 #if WITH_EDITOR
 #include "AssetRegistry/AssetData.h"
 #endif
 
-#include "PCGExDetailsData.h"
-#include "Data/PCGExAttributeHelpers.h"
-#include "Data/PCGExData.h"
+#include "PCGExAssetGrammar.h"
+#include "PCGExHelpers.h"
+#include "PCGParamData.h"
+#include "Details/PCGExDetailsStaging.h"
+#include "Metadata/Accessors/PCGAttributeAccessorKeys.h"
 #include "Transform/PCGExTransform.h"
 #include "Transform/PCGExFitting.h"
 
-
 #include "PCGExAssetCollection.generated.h"
+
 
 #define PCGEX_ASSET_COLLECTION_GET_ENTRY(_TYPE, _ENTRY_TYPE)\
 virtual bool GetEntryAt(const FPCGExAssetCollectionEntry*& OutEntry, const int32 Index, const UPCGExAssetCollection*& OutHost) override {\
@@ -87,77 +91,6 @@ PCGEX_ASSET_COLLECTION_BOILERPLATE_BASE(_TYPE, _ENTRY_TYPE)
 
 class UPCGExAssetCollection;
 
-UENUM()
-enum class EPCGExCollectionSource : uint8
-{
-	Asset        = 0 UMETA(DisplayName = "Asset", Tooltip="Use a single collection reference"),
-	AttributeSet = 1 UMETA(DisplayName = "Attribute Set", Tooltip="Use a single attribute set that will be converted to a dynamic collection on the fly"),
-	Attribute    = 2 UMETA(DisplayName = "Path Attribute", Tooltip="Use an attribute that's a path reference to an asset collection"),
-};
-
-UENUM()
-enum class EPCGExIndexPickMode : uint8
-{
-	Ascending        = 0 UMETA(DisplayName = "Collection order (Ascending)", Tooltip="..."),
-	Descending       = 1 UMETA(DisplayName = "Collection order (Descending)", Tooltip="..."),
-	WeightAscending  = 2 UMETA(DisplayName = "Weight (Descending)", Tooltip="..."),
-	WeightDescending = 3 UMETA(DisplayName = "Weight (Ascending)", Tooltip="..."),
-};
-
-UENUM()
-enum class EPCGExDistribution : uint8
-{
-	Index          = 0 UMETA(DisplayName = "Index", ToolTip="Distribution by index"),
-	Random         = 1 UMETA(DisplayName = "Random", ToolTip="Update the point scale so final asset matches the existing point' bounds"),
-	WeightedRandom = 2 UMETA(DisplayName = "Weighted random", ToolTip="Update the point bounds so it reflects the bounds of the final asset"),
-};
-
-UENUM()
-enum class EPCGExWeightOutputMode : uint8
-{
-	NoOutput           = 0 UMETA(DisplayName = "No Output", ToolTip="Don't output weight as an attribute"),
-	Raw                = 1 UMETA(DisplayName = "Raw", ToolTip="Raw integer"),
-	Normalized         = 2 UMETA(DisplayName = "Normalized", ToolTip="Normalized weight value (Weight / WeightSum)"),
-	NormalizedInverted = 3 UMETA(DisplayName = "Normalized (Inverted)", ToolTip="One Minus normalized weight value (1 - (Weight / WeightSum))"),
-
-	NormalizedToDensity         = 4 UMETA(DisplayName = "Normalized to Density", ToolTip="Normalized weight value (Weight / WeightSum)"),
-	NormalizedInvertedToDensity = 5 UMETA(DisplayName = "Normalized (Inverted) to Density", ToolTip="One Minus normalized weight value (1 - (Weight / WeightSum))"),
-};
-
-UENUM()
-enum class EPCGExAssetTagInheritance : uint8
-{
-	None           = 0,
-	Asset          = 1 << 1 UMETA(DisplayName = "Asset"),
-	Hierarchy      = 1 << 2 UMETA(DisplayName = "Hierarchy"),
-	Collection     = 1 << 3 UMETA(DisplayName = "Collection"),
-	RootCollection = 1 << 4 UMETA(DisplayName = "Root Collection"),
-	RootAsset      = 1 << 5 UMETA(DisplayName = "Root Asset"),
-};
-
-UENUM()
-enum class EPCGExEntryVariationMode : uint8
-{
-	Local  = 0 UMETA(DisplayName = "Local", ToolTip="This entry defines its own variation settings. This can be overruled at the collection level."),
-	Global = 1 UMETA(DisplayName = "Global", ToolTip="Uses global variation settings"),
-	//LocalGlobalFactor    = 2 UMETA(DisplayName = "Local x Global", ToolTip="Uses local variation settings multiplied by global random values (within global min/max range)"),
-	//LocalGlobalFactorMin = 3 UMETA(DisplayName = "Local x Global (Min)", ToolTip="Uses local variation settings multiplied by global min values"),
-	//LocalGlobalFactorMax = 4 UMETA(DisplayName = "Local x Global (Max)", ToolTip="Uses local variation settings multiplied by global max values"),
-};
-
-UENUM()
-enum class EPCGExGlobalVariationRule : uint8
-{
-	PerEntry = 0 UMETA(DisplayName = "Per Entry", ToolTip="Let the entry choose whether it's using global variations or its own settings"),
-	Overrule = 1 UMETA(DisplayName = "Overrule", ToolTip="Disregard of the entry settings and enforce global settings"),
-	//OverruleFactor = 2 UMETA(DisplayName = "Overrule - Multiply Entry", ToolTip="Multiply the entry setting by global random values (within min/max range)"),
-	//OverruleFactorMin = 3 UMETA(DisplayName = "Overrule - Multiply Entry (Min)", ToolTip="Disregard of the entry settings and enforce global settings"),
-	//OverruleFactorMax = 4 UMETA(DisplayName = "Overrule - Multiply Entry (Max)", ToolTip="Disregard of the entry settings and enforce global settings"),
-};
-
-ENUM_CLASS_FLAGS(EPCGExAssetTagInheritance)
-using EPCGExAssetTagInheritanceBitmask = TEnumAsByte<EPCGExAssetTagInheritance>;
-
 namespace PCGExAssetCollection
 {
 	enum class ELoadingFlags : uint8
@@ -165,27 +98,6 @@ namespace PCGExAssetCollection
 		Default = 0,
 		Recursive,
 		RecursiveCollectionsOnly,
-	};
-
-	const FName SourceAssetCollection = TEXT("AttributeSet");
-
-	const TSet<EPCGMetadataTypes> SupportedPathTypes = {
-		EPCGMetadataTypes::SoftObjectPath,
-		EPCGMetadataTypes::String,
-		EPCGMetadataTypes::Name
-	};
-
-
-	const TSet<EPCGMetadataTypes> SupportedWeightTypes = {
-		EPCGMetadataTypes::Float,
-		EPCGMetadataTypes::Double,
-		EPCGMetadataTypes::Integer32,
-		EPCGMetadataTypes::Integer64,
-	};
-
-	const TSet<EPCGMetadataTypes> SupportedCategoryTypes = {
-		EPCGMetadataTypes::String,
-		EPCGMetadataTypes::Name
 	};
 
 	enum class EType : uint8
@@ -196,110 +108,32 @@ namespace PCGExAssetCollection
 		PCGDataAsset,
 	};
 
-	class PCGEXTENDEDTOOLKIT_API FMacroCache : public TSharedFromThis<FMacroCache>
+	class PCGEXTENDEDTOOLKIT_API FMicroCache : public TSharedFromThis<FMicroCache>
 	{
 		// Per-entry cache data
 		// Store entry type specifics
 
 	public:
-		FMacroCache()
+		FMicroCache()
 		{
 		}
 
 		virtual EType GetType() const { return EType::None; }
-		virtual ~FMacroCache() = default;
+		virtual ~FMicroCache() = default;
+
+		bool IsEmpty() const { return Num() == 0; }
+		virtual int32 Num() const { return 0; }
+
+		virtual int32 GetPick(const int32 Index, const EPCGExIndexPickMode PickMode) const { return -1; }
+
+		virtual int32 GetPickAscending(const int32 Index) const { return -1; }
+		virtual int32 GetPickDescending(const int32 Index) const { return -1; }
+		virtual int32 GetPickWeightAscending(const int32 Index) const { return -1; }
+		virtual int32 GetPickWeightDescending(const int32 Index) const { return -1; }
+		virtual int32 GetPickRandom(const int32 Seed) const { return -1; }
+		virtual int32 GetPickRandomWeighted(const int32 Seed) const { return -1; }
 	};
 }
-
-
-USTRUCT(BlueprintType)
-struct PCGEXTENDEDTOOLKIT_API FPCGExAssetDistributionIndexDetails
-{
-	GENERATED_BODY()
-
-	FPCGExAssetDistributionIndexDetails()
-	{
-		if (IndexSource.GetName() == FName("@Last")) { IndexSource.Update(TEXT("$Index")); }
-	}
-
-	/** Index picking mode*/
-	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta=(PCG_Overridable))
-	EPCGExIndexPickMode PickMode = EPCGExIndexPickMode::Ascending;
-
-	/** Index sanitization behavior */
-	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta=(PCG_Overridable))
-	EPCGExIndexSafety IndexSafety = EPCGExIndexSafety::Tile;
-
-	/** The name of the attribute index to read index selection from.*/
-	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta=(PCG_Overridable))
-	FPCGAttributePropertyInputSelector IndexSource;
-
-	PCGEX_SETTING_VALUE_GET(Index, int32, EPCGExInputValueType::Attribute, IndexSource, -1)
-
-	/** Whether to remap index input value to collection size */
-	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta=(PCG_Overridable))
-	bool bRemapIndexToCollectionSize = false;
-
-	/** Whether to remap index input value to collection size */
-	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta=(PCG_Overridable))
-	EPCGExTruncateMode TruncateRemap = EPCGExTruncateMode::None;
-};
-
-USTRUCT(BlueprintType)
-struct PCGEXTENDEDTOOLKIT_API FPCGExAssetTaggingDetails : public FPCGExComponentTaggingDetails
-{
-	GENERATED_BODY()
-
-	FPCGExAssetTaggingDetails() = default;
-
-	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta=(PCG_NotOverridable, Bitmask, BitmaskEnum="/Script/PCGExtendedToolkit.EPCGExAssetTagInheritance"))
-	uint8 GrabTags = static_cast<uint8>(EPCGExAssetTagInheritance::Asset);
-
-	bool IsEnabled() const { return GrabTags != 0; }
-};
-
-USTRUCT(BlueprintType)
-struct PCGEXTENDEDTOOLKIT_API FPCGExAssetDistributionDetails
-{
-	GENERATED_BODY()
-
-	FPCGExAssetDistributionDetails() = default;
-
-	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = "Settings|Distribution", meta=(PCG_Overridable, Bitmask, BitmaskEnum="/Script/PCGExtendedToolkit.EPCGExSeedComponents"))
-	uint8 SeedComponents = 0;
-
-	/** Distribution type */
-	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = "Settings|Distribution", meta=(PCG_Overridable))
-	EPCGExDistribution Distribution = EPCGExDistribution::WeightedRandom;
-
-	/** Index settings */
-	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = "Settings|Distribution", meta=(PCG_Overridable, EditCondition="Distribution == EPCGExDistribution::Index"))
-	FPCGExAssetDistributionIndexDetails IndexSettings;
-
-	/** Note that this is only accounted for if selected in the seed component. */
-	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = "Settings|Distribution", meta=(PCG_Overridable))
-	int32 LocalSeed = 0;
-};
-
-USTRUCT(BlueprintType)
-struct PCGEXTENDEDTOOLKIT_API FPCGExAssetAttributeSetDetails
-{
-	GENERATED_BODY()
-
-	FPCGExAssetAttributeSetDetails() = default;
-
-	/** Name of the attribute on the AttributeSet that contains the asset path to be staged */
-	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta=(PCG_Overridable))
-	FName AssetPathSourceAttribute = FName("AssetPath");
-
-	/** Name of the attribute on the AttributeSet that contains the asset weight, if any. */
-	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta=(PCG_Overridable))
-	FName WeightSourceAttribute = NAME_None;
-
-	/** Name of the attribute on the AttributeSet that contains the asset category, if any. */
-	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta=(PCG_Overridable))
-	FName CategorySourceAttribute = NAME_None;
-};
 
 USTRUCT(BlueprintType, DisplayName="[PCGEx] Asset Staging Data")
 struct PCGEXTENDEDTOOLKIT_API FPCGExAssetStagingData
@@ -333,6 +167,16 @@ struct PCGEXTENDEDTOOLKIT_API FPCGExAssetStagingData
 	bool FindSocket(const FName InName, const FString& Tag, const FPCGExSocket*& OutSocket) const;
 };
 
+USTRUCT(BlueprintType, DisplayName="[PCGEx] Asset Collection Entry Misc")
+struct PCGEXTENDEDTOOLKIT_API FPCGExAssetCollectionEntryMisc
+{
+	GENERATED_BODY()
+	virtual ~FPCGExAssetCollectionEntryMisc() = default;
+
+	UPROPERTY(EditAnywhere, Category = Settings, meta=(DisplayPriority=-1))
+	FLinearColor ColorKey = FLinearColor::Black;
+};
+
 USTRUCT(BlueprintType, DisplayName="[PCGEx] Asset Collection Entry")
 struct PCGEXTENDEDTOOLKIT_API FPCGExAssetCollectionEntry
 {
@@ -341,25 +185,41 @@ struct PCGEXTENDEDTOOLKIT_API FPCGExAssetCollectionEntry
 
 	FPCGExAssetCollectionEntry() = default;
 
-	UPROPERTY(EditAnywhere, Category = Settings, meta=(ClampMin=0, UIMin=0))
+	UPROPERTY(EditAnywhere, Category = Settings, meta=(DisplayPriority=-1, ClampMin=0, UIMin=0))
 	int32 Weight = 1;
-
-	UPROPERTY(EditAnywhere, Category = Settings, meta=(DisplayPriority=-1))
-	bool bIsSubCollection = false;
 
 	UPROPERTY(EditAnywhere, Category = Settings)
 	FName Category = NAME_None;
 
 	UPROPERTY(EditAnywhere, Category = Settings)
-	TSet<FName> Tags;
+	bool bIsSubCollection = false;
 
-	UPROPERTY(EditAnywhere, Category = Settings, meta=(EditCondition="!bIsSubCollection"))
+	UPROPERTY(EditAnywhere, Category = Settings, meta=(EditCondition="!bIsSubCollection", EditConditionHides))
 	EPCGExEntryVariationMode VariationMode = EPCGExEntryVariationMode::Local;
 
-	UPROPERTY(EditAnywhere, Category = Settings, meta=(EditCondition="!bIsSubCollection"))
+	UPROPERTY(EditAnywhere, Category = Settings, meta=(DisplayName=" └─ Variations", EditCondition="!bIsSubCollection && VariationMode == EPCGExEntryVariationMode::Local", EditConditionHides, ShowOnlyInnerProperties))
 	FPCGExFittingVariations Variations;
 
-	UPROPERTY(EditAnywhere, Category = Settings, meta=(EditCondition="!bIsSubCollection"))
+	UPROPERTY(EditAnywhere, Category = Settings)
+	TSet<FName> Tags;
+
+	/** Grammar source. */
+	UPROPERTY(EditAnywhere, Category = Settings, meta=(EditCondition="!bIsSubCollection", EditConditionHides))
+	EPCGExEntryVariationMode GrammarSource = EPCGExEntryVariationMode::Local;
+
+	/** Grammar details. */
+	UPROPERTY(EditAnywhere, Category = Settings, meta=(EditCondition="!bIsSubCollection", EditConditionHides))
+	FPCGExAssetGrammarDetails AssetGrammar;
+
+	/** Whether to override subcollection grammar settings. TODO: Make this an enum */
+	UPROPERTY(EditAnywhere, Category = Settings, meta=(EditCondition="bIsSubCollection", EditConditionHides))
+	EPCGExGrammarSubCollectionMode SubGrammarMode = EPCGExGrammarSubCollectionMode::Inherit;
+
+	/** Grammar details subcollection overrides.  */
+	UPROPERTY(EditAnywhere, Category = Settings, meta=(EditCondition="bIsSubCollection && SubGrammarMode == EPCGExGrammarSubCollectionMode::Override", EditConditionHides))
+	FPCGExCollectionGrammarDetails CollectionGrammar;
+	
+	UPROPERTY(EditAnywhere, Category = Settings, meta=(EditCondition="!bIsSubCollection", EditConditionHides))
 	FPCGExAssetStagingData Staging;
 
 	UPROPERTY()
@@ -367,6 +227,16 @@ struct PCGEXTENDEDTOOLKIT_API FPCGExAssetCollectionEntry
 
 	template <typename T>
 	T* GetSubCollection() { return Cast<T>(InternalSubCollection); }
+	
+	template <typename T>
+	T* GetSubCollection() const { return Cast<T>(InternalSubCollection); }
+	
+	const FPCGExFittingVariations& GetVariations(const UPCGExAssetCollection* ParentCollection) const;
+	
+	double GetGrammarSize(const UPCGExAssetCollection* Host) const;
+	double GetGrammarSize(const UPCGExAssetCollection* Host, TMap<const FPCGExAssetCollectionEntry*, double>* SizeCache) const;
+	
+	bool FixModuleInfos(const UPCGExAssetCollection* Host, FPCGSubdivisionSubmodule& OutModule, TMap<const FPCGExAssetCollectionEntry*, double>* SizeCache = nullptr) const;
 
 #if WITH_EDITORONLY_DATA
 	UPROPERTY(VisibleAnywhere, Category=Settings, meta=(HideInDetailPanel, EditCondition="false", EditConditionHides))
@@ -383,8 +253,8 @@ struct PCGEXTENDEDTOOLKIT_API FPCGExAssetCollectionEntry
 
 	virtual void GetAssetPaths(TSet<FSoftObjectPath>& OutPaths) const;
 
-	TSharedPtr<PCGExAssetCollection::FMacroCache> MacroCache;
-	virtual void BuildMacroCache();
+	TSharedPtr<PCGExAssetCollection::FMicroCache> MicroCache;
+	virtual void BuildMicroCache();
 
 protected:
 	void ClearManagedSockets();
@@ -413,7 +283,8 @@ namespace PCGExAssetCollection
 
 		~FCategory() = default;
 
-		bool IsEmpty() const;
+		FORCEINLINE bool IsEmpty() const { return Order.IsEmpty(); }
+		FORCEINLINE int32 Num() const { return Order.Num(); }
 
 		int32 GetPick(const int32 Index, const EPCGExIndexPickMode PickMode) const;
 
@@ -431,8 +302,9 @@ namespace PCGExAssetCollection
 		void Compile();
 	};
 
-	struct PCGEXTENDEDTOOLKIT_API FCache
+	class PCGEXTENDEDTOOLKIT_API FCache : public TSharedFromThis<FCache>
 	{
+	public:
 		int32 WeightSum = 0;
 		TSharedPtr<FCategory> Main;
 		TMap<FName, TSharedPtr<FCategory>> Categories;
@@ -447,9 +319,7 @@ namespace PCGExAssetCollection
 		}
 
 		bool IsEmpty() const { return Main ? Main->IsEmpty() : true; }
-
 		void Compile();
-
 		void RegisterEntry(const int32 Index, const FPCGExAssetCollectionEntry* InEntry);
 	};
 
@@ -486,32 +356,34 @@ public:
 
 	virtual PCGExAssetCollection::EType GetType() const { return PCGExAssetCollection::EType::None; }
 
+	virtual void EDITOR_RegisterTrackingKeys(FPCGExContext* Context) const;
+
 #if WITH_EDITOR
 	virtual void PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent) override;
 	virtual void EDITOR_RefreshDisplayNames();
 
 	/** Add Content Browser selection to this collection. */
-	UFUNCTION(CallInEditor, Category = Tools, meta=(DisplayName="Add Selection", ShortToolTip="Add active content browser selection to this collection.", DisplayOrder=-1))
+	UFUNCTION()
 	void EDITOR_AddBrowserSelection();
 
 	void EDITOR_AddBrowserSelectionTyped(const TArray<FAssetData>& InAssetData);
 
 	/** Rebuild Staging data just for this collection. */
-	UFUNCTION(CallInEditor, Category = Tools, meta=(DisplayName="Rebuild Staging", ShortToolTip="Rebuild Staging data just for this collection.", DisplayOrder=0))
+	UFUNCTION()
 	virtual void EDITOR_RebuildStagingData();
 
 	/** Rebuild Staging data for this collection and its sub-collections, recursively. */
-	UFUNCTION(CallInEditor, Category = Tools, meta=(DisplayName="Rebuild Staging (Recursive)", ShortToolTip="Rebuild Staging data for this collection and its sub-collections, recursively.", DisplayOrder=1))
+	UFUNCTION()
 	virtual void EDITOR_RebuildStagingData_Recursive();
 
 	/** Rebuild Staging data for all collection within this project. */
-	UFUNCTION(CallInEditor, Category = Tools, meta=(DisplayName="Rebuild Staging (Project)", ShortToolTip="Rebuild Staging data for all collection within this project.", DisplayOrder=2))
+	UFUNCTION()
 	virtual void EDITOR_RebuildStagingData_Project();
 
 #pragma region Tools
 
 	/** Sort collection by weights in ascending order. */
-	UFUNCTION(CallInEditor, Category = Utils, meta=(DisplayName="⇅ Ascending", ShortToolTip="Sort collection by weights in ascending order.", DisplayOrder=10))
+	UFUNCTION()
 	void EDITOR_SortByWeightAscending();
 
 	virtual void EDITOR_SortByWeightAscendingTyped();
@@ -523,7 +395,7 @@ public:
 	}
 
 	/** Sort collection by weights in descending order. */
-	UFUNCTION(CallInEditor, Category = Utils, meta=(DisplayName="⇅ Descending", ShortToolTip="Sort collection by weights in descending order.", DisplayOrder=11))
+	UFUNCTION()
 	void EDITOR_SortByWeightDescending();
 
 	virtual void EDITOR_SortByWeightDescendingTyped();
@@ -535,7 +407,7 @@ public:
 	}
 
 	/**Sort collection by weights in descending order. */
-	UFUNCTION(CallInEditor, Category = Utils, meta=(DisplayName="W = i", ShortToolTip="Set weigth to the entry index.", DisplayOrder=20))
+	UFUNCTION()
 	void EDITOR_SetWeightIndex();
 
 	virtual void EDITOR_SetWeightIndexTyped();
@@ -547,7 +419,7 @@ public:
 	}
 
 	/** Add 1 to all weights so it's easier to weight down some assets */
-	UFUNCTION(CallInEditor, Category = Utils, meta=(DisplayName="W += 1", ShortToolTip="Add 1 to all weights so it's easier to weight down some assets", DisplayOrder=21))
+	UFUNCTION()
 	void EDITOR_PadWeight();
 
 	virtual void EDITOR_PadWeightTyped();
@@ -559,13 +431,13 @@ public:
 	}
 
 	/** Multiplies all weights by 2 */
-	UFUNCTION(CallInEditor, Category = Utils, meta=(DisplayName="W * 2", ShortToolTip="Multiplies weights by 2", DisplayOrder=21))
+	UFUNCTION()
 	void EDITOR_MultWeight2();
 
 	virtual void EDITOR_MultWeight2Typed();
 
 	/** Multiplies all weights by 10 */
-	UFUNCTION(CallInEditor, Category = Utils, meta=(DisplayName="W * 10", ShortToolTip="Multiplies weights by 10", DisplayOrder=22))
+	UFUNCTION()
 	void EDITOR_MultWeight10();
 
 	virtual void EDITOR_MultWeight10Typed();
@@ -577,7 +449,7 @@ public:
 	}
 
 	/** Reset all weights to 100 */
-	UFUNCTION(CallInEditor, Category = Utils, meta=(DisplayName="W = 100", ShortToolTip="Reset all weights to 100", DisplayOrder=23))
+	UFUNCTION()
 	void EDITOR_WeightOne();
 
 	virtual void EDITOR_WeightOneTyped();
@@ -589,7 +461,7 @@ public:
 	}
 
 	/** Assign random weights to items */
-	UFUNCTION(CallInEditor, Category = Utils, meta=(DisplayName="Randomize Weights", ShortToolTip="Assign random weights to items", DisplayOrder=24))
+	UFUNCTION()
 	void EDITOR_WeightRandom();
 
 	virtual void EDITOR_WeightRandomTyped();
@@ -602,7 +474,7 @@ public:
 	}
 
 	/** Normalize weight sum to 100 */
-	UFUNCTION(CallInEditor, Category = Utils, meta=(DisplayName="Normalized Weights Sum", ShortToolTip="Normalize weight sum to 100", DisplayOrder=25))
+	UFUNCTION()
 	void EDITOR_NormalizedWeightToSum();
 
 	virtual void EDITOR_NormalizedWeightToSumTyped();
@@ -634,6 +506,12 @@ public:
 
 	virtual void BeginDestroy() override;
 
+#if WITH_EDITORONLY_DATA
+	/** Dev notes/comments. Editor-only data.  */
+	UPROPERTY(EditAnywhere, Category = Settings, meta=(DisplayPriority=-1, MultiLine))
+	FString Notes;
+#endif
+	
 	/** Collection tags */
 	UPROPERTY(EditAnywhere, Category = Settings, meta=(DisplayPriority=-1))
 	TSet<FName> CollectionTags;
@@ -652,6 +530,20 @@ public:
 	UPROPERTY(EditAnywhere, Category = Settings)
 	FPCGExFittingVariations GlobalVariations;
 
+	/** Global grammar rule.
+	 * NOTE: Symbol is still defined per-entry. */
+	UPROPERTY(EditAnywhere, Category = Settings)
+	EPCGExGlobalVariationRule GlobalGrammarMode = EPCGExGlobalVariationRule::PerEntry;
+
+	/** Global Mesh Grammar details.
+	 * NOTE: Symbol is still defined per-entry. */
+	UPROPERTY(EditAnywhere, Category = Settings)
+	FPCGExAssetGrammarDetails GlobalAssetGrammar = FPCGExAssetGrammarDetails(FName("N/A"));
+
+	/** Default grammar when this collection is used as a subcollection. Note that this can be superseded by the host. */
+	UPROPERTY(EditAnywhere, Category = Settings)
+	FPCGExCollectionGrammarDetails CollectionGrammar;
+	
 	/** If enabled, empty mesh will still be weighted and picked as valid entries, instead of being ignored. */
 	UPROPERTY(EditAnywhere, Category = Settings)
 	bool bDoNotIgnoreInvalidEntries = false;
@@ -893,7 +785,7 @@ protected:
 	UPROPERTY()
 	bool bCacheNeedsRebuild = true;
 
-	TUniquePtr<PCGExAssetCollection::FCache> Cache;
+	TSharedPtr<PCGExAssetCollection::FCache> Cache;
 
 	template <typename T>
 	bool BuildCache(TArray<T>& InEntries)
@@ -902,7 +794,7 @@ protected:
 
 		if (Cache) { return true; } // Cache needs to be invalidated
 
-		Cache = MakeUnique<PCGExAssetCollection::FCache>();
+		Cache = MakeShared<PCGExAssetCollection::FCache>();
 
 		bCacheNeedsRebuild = false;
 
@@ -941,110 +833,29 @@ protected:
 	{
 		const UPCGMetadata* Metadata = InAttributeSet->Metadata;
 
-		const TSharedPtr<PCGEx::FAttributesInfos> Infos = PCGEx::FAttributesInfos::Get(Metadata);
-		if (Infos->Attributes.IsEmpty()) { return false; }
-
-		const PCGEx::FAttributeIdentity* PathIdentity = Infos->Find(Details.AssetPathSourceAttribute);
-		const PCGEx::FAttributeIdentity* WeightIdentity = Infos->Find(Details.WeightSourceAttribute);
-		const PCGEx::FAttributeIdentity* CategoryIdentity = Infos->Find(Details.CategorySourceAttribute);
-
-		if (!PathIdentity || !PCGExAssetCollection::SupportedPathTypes.Contains(PathIdentity->UnderlyingType))
-		{
-			PCGE_LOG_C(Error, GraphAndLog, InContext, FText::Format(FTEXT("Path attribute '{0}' is either of unsupported type or not in the metadata. Expecting SoftObjectPath/String/Name"), FText::FromName(Details.AssetPathSourceAttribute)));
-			return false;
-		}
-
-		if (WeightIdentity)
-		{
-			if (!PCGExAssetCollection::SupportedWeightTypes.Contains(WeightIdentity->UnderlyingType))
-			{
-				PCGE_LOG_C(Warning, GraphAndLog, InContext, FText::Format(FTEXT("Weight attribute '{0}' is of unsupported type. Expecting Float/Double/int32/int64"), FText::FromName(Details.WeightSourceAttribute)));
-				WeightIdentity = nullptr;
-			}
-			else if (Details.WeightSourceAttribute.IsNone())
-			{
-				CategoryIdentity = nullptr;
-			}
-		}
-
-		if (CategoryIdentity)
-		{
-			if (!PCGExAssetCollection::SupportedCategoryTypes.Contains(CategoryIdentity->UnderlyingType))
-			{
-				PCGE_LOG_C(Warning, GraphAndLog, InContext, FText::Format(FTEXT("Category attribute '{0}' is of unsupported type. Expecting String/Name"), FText::FromName(Details.CategorySourceAttribute)));
-				CategoryIdentity = nullptr;
-			}
-			else if (Details.CategorySourceAttribute.IsNone())
-			{
-				CategoryIdentity = nullptr;
-			}
-		}
-
 		TUniquePtr<FPCGAttributeAccessorKeysEntries> Keys = MakeUnique<FPCGAttributeAccessorKeysEntries>(Metadata);
 
 		const int32 NumEntries = Keys->GetNum();
-		if (NumEntries == 0)
+		if (NumEntries <= 0)
 		{
 			PCGE_LOG_C(Error, GraphAndLog, InContext, FTEXT("Attribute set is empty."));
 			return false;
 		}
 
+		const TSharedPtr<PCGEx::FAttributesInfos> Infos = PCGEx::FAttributesInfos::Get(Metadata);
+		if (Infos->Attributes.IsEmpty()) { return false; }
+
+#define PCGEX_PROCESS_ATTRIBUTE(_TYPE, _NAME, _BODY) \
+		if (const PCGEx::FAttributeIdentity* _NAME = Infos->Find(Details._NAME)){ \
+			if (TUniquePtr<const IPCGAttributeAccessor> Accessor = PCGAttributeAccessorHelpers::CreateConstAccessor(Infos->Attributes[Infos->Map[_NAME->Identifier]], Metadata)){ \
+				TArray<_TYPE> Values; PCGEx::InitArray(Values, NumEntries); \
+				if (Accessor->GetRange<_TYPE>(Values, 0, *Keys.Get(), EPCGAttributeAccessorFlags::AllowBroadcastAndConstructible)){ for (int i = 0; i < NumEntries; i++) { _BODY } } } }
+
 		PCGEx::InitArray(InCollection->Entries, NumEntries);
 
-		// Path value
-
-		auto SetEntryPath = [&](const int32 Index, const FSoftObjectPath& Path) { InCollection->Entries[Index].SetAssetPath(Path); };
-
-#define PCGEX_FOREACH_COLLECTION_ENTRY(_TYPE, _NAME, _BODY)\
-		const FPCGMetadataAttribute<_TYPE>* A = Metadata->GetConstTypedAttribute<_TYPE>(_NAME);\
-		for (int i = 0; i < NumEntries; i++) { _TYPE V = A->GetValueFromItemKey(i); _BODY }
-
-		if (PathIdentity->UnderlyingType == EPCGMetadataTypes::SoftObjectPath)
-		{
-			PCGEX_FOREACH_COLLECTION_ENTRY(FSoftObjectPath, PathIdentity->Identifier, { SetEntryPath(i, V); })
-		}
-		else if (PathIdentity->UnderlyingType == EPCGMetadataTypes::String)
-		{
-			PCGEX_FOREACH_COLLECTION_ENTRY(FString, PathIdentity->Identifier, { SetEntryPath(i, FSoftObjectPath(V)); })
-		}
-		else
-		{
-			PCGEX_FOREACH_COLLECTION_ENTRY(FName, PathIdentity->Identifier, { SetEntryPath(i, FSoftObjectPath(V.ToString())); })
-		}
-
-
-		// Weight value
-		if (WeightIdentity)
-		{
-#define PCGEX_ATT_TOINT32(_NAME, _TYPE)\
-			if (WeightIdentity->UnderlyingType == EPCGMetadataTypes::_NAME){ \
-				PCGEX_FOREACH_COLLECTION_ENTRY(_TYPE, WeightIdentity->Identifier, {  InCollection->Entries[i].Weight = static_cast<int32>(V); }) }
-
-			PCGEX_ATT_TOINT32(Integer32, int32)
-			else
-				PCGEX_ATT_TOINT32(Double, double)
-				else
-					PCGEX_ATT_TOINT32(Float, float)
-					else
-						PCGEX_ATT_TOINT32(Integer64, int64)
-
-#undef PCGEX_ATT_TOINT32
-		}
-
-		// Category value
-		if (CategoryIdentity)
-		{
-			if (CategoryIdentity->UnderlyingType == EPCGMetadataTypes::String)
-			{
-				PCGEX_FOREACH_COLLECTION_ENTRY(FString, WeightIdentity->Identifier, { InCollection->Entries[i].Category = FName(V); })
-			}
-			else if (CategoryIdentity->UnderlyingType == EPCGMetadataTypes::Name)
-			{
-				PCGEX_FOREACH_COLLECTION_ENTRY(FName, WeightIdentity->Identifier, { InCollection->Entries[i].Category = V; })
-			}
-		}
-
-#undef PCGEX_FOREACH_COLLECTION_ENTRY
+		PCGEX_PROCESS_ATTRIBUTE(FSoftObjectPath, AssetPathSourceAttribute, InCollection->Entries[i].SetAssetPath(Values[i]);)
+		PCGEX_PROCESS_ATTRIBUTE(double, WeightSourceAttribute, InCollection->Entries[i].Weight = Values[i];)
+		PCGEX_PROCESS_ATTRIBUTE(FName, CategorySourceAttribute, InCollection->Entries[i].Category = Values[i];)
 
 		if (bBuildStaging) { InCollection->RebuildStagingData(false); }
 
@@ -1068,137 +879,3 @@ protected:
 		return false;
 	}
 };
-
-USTRUCT(BlueprintType)
-struct PCGEXTENDEDTOOLKIT_API FPCGExRoamingAssetCollectionDetails : public FPCGExAssetAttributeSetDetails
-{
-	GENERATED_BODY()
-
-	FPCGExRoamingAssetCollectionDetails() = default;
-
-	explicit FPCGExRoamingAssetCollectionDetails(const TSubclassOf<UPCGExAssetCollection>& InAssetCollectionType);
-
-	UPROPERTY()
-	bool bSupportCustomType = true;
-
-	/** Defines what type of temp collection to build from input attribute set */
-	UPROPERTY(BlueprintReadOnly, EditAnywhere, NoClear, Category = Settings, meta=(PCG_Overridable, EditCondition="bSupportCustomType", EditConditionHides, HideEditConditionToggle))
-	TSubclassOf<UPCGExAssetCollection> AssetCollectionType;
-
-	bool Validate(FPCGExContext* InContext) const;
-
-	UPCGExAssetCollection* TryBuildCollection(FPCGExContext* InContext, const UPCGParamData* InAttributeSet, const bool bBuildStaging = false) const;
-
-	UPCGExAssetCollection* TryBuildCollection(FPCGExContext* InContext, const FName InputPin, const bool bBuildStaging) const;
-};
-
-namespace PCGExAssetCollection
-{
-	template <typename C = UPCGExAssetCollection, typename A = FPCGExAssetCollectionEntry>
-	struct PCGEXTENDEDTOOLKIT_API TDistributionHelper
-	{
-		C* Collection = nullptr;
-		FPCGExAssetDistributionDetails Details;
-
-		TSharedPtr<PCGExDetails::TSettingValue<int32>> IndexGetter;
-
-		int32 MaxIndex = 0;
-		double MaxInputIndex = 0;
-
-		TArray<int32> MinCache;
-		TArray<int32> MaxCache;
-
-		TDistributionHelper(
-			C* InCollection,
-			const FPCGExAssetDistributionDetails& InDetails):
-			Collection(InCollection),
-			Details(InDetails)
-		{
-		}
-
-		bool Init(FPCGExContext* InContext, const TSharedRef<PCGExData::FFacade>& InDataFacade)
-		{
-			if (Collection->LoadCache()->IsEmpty())
-			{
-				PCGE_LOG_C(Error, GraphAndLog, InContext, FTEXT("TDistributionHelper got an empty Collection."));
-				return false;
-			}
-
-			MaxIndex = Collection->LoadCache()->Main->Order.Num() - 1;
-
-			if (Details.Distribution == EPCGExDistribution::Index)
-			{
-				const bool bWantsMinMax = Details.IndexSettings.bRemapIndexToCollectionSize;
-
-				IndexGetter = Details.IndexSettings.GetValueSettingIndex();
-				if (!IndexGetter->Init(InDataFacade, !bWantsMinMax, bWantsMinMax)) { return false; }
-
-				MaxInputIndex = IndexGetter->Max();
-			}
-
-			return true;
-		}
-
-		void GetEntry(const A*& OutEntry, const int32 PointIndex, const int32 Seed, const UPCGExAssetCollection*& OutHost) const
-		{
-			if (Details.Distribution == EPCGExDistribution::WeightedRandom)
-			{
-				Collection->GetEntryWeightedRandom(OutEntry, Seed, OutHost);
-			}
-			else if (Details.Distribution == EPCGExDistribution::Random)
-			{
-				Collection->GetEntryRandom(OutEntry, Seed, OutHost);
-			}
-			else
-			{
-				double PickedIndex = IndexGetter->Read(PointIndex);
-				if (Details.IndexSettings.bRemapIndexToCollectionSize)
-				{
-					PickedIndex = PCGEx::TruncateDbl(
-						MaxInputIndex == 0 ? 0 : PCGExMath::Remap(PickedIndex, 0, MaxInputIndex, 0, MaxIndex),
-						Details.IndexSettings.TruncateRemap);
-				}
-
-				Collection->GetEntry(
-					OutEntry,
-					PCGExMath::SanitizeIndex(static_cast<int32>(PickedIndex), MaxIndex, Details.IndexSettings.IndexSafety),
-					Seed, Details.IndexSettings.PickMode, OutHost);
-			}
-		}
-
-		void GetEntry(const A*& OutEntry, const int32 PointIndex, const int32 Seed, uint8 TagInheritance, TSet<FName>& OutTags, const UPCGExAssetCollection*& OutHost) const
-		{
-			if (TagInheritance == 0)
-			{
-				GetEntry(OutEntry, PointIndex, Seed, OutHost);
-				return;
-			}
-
-			if (TagInheritance & static_cast<uint8>(EPCGExAssetTagInheritance::RootCollection)) { OutTags.Append(Collection->CollectionTags); }
-
-			if (Details.Distribution == EPCGExDistribution::WeightedRandom)
-			{
-				Collection->GetEntryWeightedRandom(OutEntry, Seed, TagInheritance, OutTags, OutHost);
-			}
-			else if (Details.Distribution == EPCGExDistribution::Random)
-			{
-				Collection->GetEntryRandom(OutEntry, Seed, TagInheritance, OutTags, OutHost);
-			}
-			else
-			{
-				double PickedIndex = IndexGetter->Read(PointIndex);
-				if (Details.IndexSettings.bRemapIndexToCollectionSize)
-				{
-					PickedIndex = PCGEx::TruncateDbl(
-						MaxInputIndex == 0 ? 0 : PCGExMath::Remap(PickedIndex, 0, MaxInputIndex, 0, MaxIndex),
-						Details.IndexSettings.TruncateRemap);
-				}
-
-				Collection->GetEntry(
-					OutEntry,
-					PCGExMath::SanitizeIndex(static_cast<int32>(PickedIndex), MaxIndex, Details.IndexSettings.IndexSafety),
-					Seed, Details.IndexSettings.PickMode, TagInheritance, OutTags, OutHost);
-			}
-		}
-	};
-}

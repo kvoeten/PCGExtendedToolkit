@@ -4,11 +4,9 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "PCGExFactoryProvider.h"
 #include "PCGExPointsProcessor.h"
 #include "PCGExTensor.h"
-
-
-#include "Sampling/PCGExSampleNearestSpline.h"
 
 #include "PCGExTensorFactoryProvider.generated.h"
 
@@ -32,6 +30,14 @@ UPCGExFactoryData* UPCGExCreateTensor##_TENSOR##Settings::CreateFactory(FPCGExCo
 
 class PCGExTensorOperation;
 
+USTRUCT(meta=(PCG_DataTypeDisplayName="PCGEx | Tensor"))
+struct FPCGExDataTypeInfoTensor : public FPCGExFactoryDataTypeInfo
+{
+	GENERATED_BODY()
+	PCG_DECLARE_TYPE_INFO(PCGEXTENDEDTOOLKIT_API)
+};
+
+
 UCLASS(Abstract, BlueprintType, ClassGroup = (Procedural), Category="PCGEx|Data")
 class PCGEXTENDEDTOOLKIT_API UPCGExTensorFactoryData : public UPCGExFactoryData
 {
@@ -44,6 +50,8 @@ class PCGEXTENDEDTOOLKIT_API UPCGExTensorFactoryData : public UPCGExFactoryData
 	// We leverage internal point data and pack all needed attributes & computed points inside
 
 public:
+	PCG_ASSIGN_TYPE_INFO(FPCGExDataTypeInfoTensor)
+
 	virtual PCGExFactories::EType GetFactoryType() const override { return PCGExFactories::EType::Tensor; }
 	virtual TSharedPtr<PCGExTensorOperation> CreateOperation(FPCGExContext* InContext) const;
 
@@ -60,11 +68,14 @@ class PCGEXTENDEDTOOLKIT_API UPCGExTensorFactoryProviderSettings : public UPCGEx
 {
 	GENERATED_BODY()
 
+protected:
+	PCGEX_FACTORY_TYPE_ID(FPCGExDataTypeInfoTensor)
+
 public:
 	//~Begin UPCGSettings
 #if WITH_EDITOR
 	PCGEX_NODE_INFOS(Tensor, "Tensor Definition", "Creates a single tensor field definition.")
-	virtual FLinearColor GetNodeTitleColor() const override { return GetDefault<UPCGExGlobalSettings>()->NodeColorTensor; }
+	virtual FLinearColor GetNodeTitleColor() const override { return GetDefault<UPCGExGlobalSettings>()->ColorTensor; }
 #endif
 
 protected:

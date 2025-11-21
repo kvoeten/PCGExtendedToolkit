@@ -9,6 +9,7 @@
 #include "PCGExPointsProcessor.h"
 #include "PCGExSampling.h"
 #include "PCGExTexParamFactoryProvider.h"
+#include "Data/PCGExPointFilter.h"
 #include "Data/PCGTextureData.h"
 
 
@@ -29,7 +30,7 @@ enum class EPCGExTextureFilter : uint8
 	Bilinear UMETA(Tooltip="Bilinearly interpolates the values of the four nearest texels to the sample location.")
 };
 
-class UPCGExFilterFactoryData;
+class UPCGExPointFilterFactoryData;
 
 UCLASS(MinimalAPI, BlueprintType, ClassGroup = (Procedural), Category="PCGEx|Sampling", meta=(PCGExNodeLibraryDoc="sampling/textures/get-texture-data"))
 class UPCGExGetTextureDataSettings : public UPCGExPointsProcessorSettings
@@ -42,7 +43,8 @@ public:
 	//~Begin UPCGSettings
 #if WITH_EDITOR
 	PCGEX_NODE_INFOS(GetTextureData, "Get Texture Data", "Create texture data object from paths.");
-	virtual FLinearColor GetNodeTitleColor() const override { return GetDefault<UPCGExGlobalSettings>()->NodeColorTex; }
+	virtual FLinearColor GetNodeTitleColor() const override { return GetDefault<UPCGExGlobalSettings>()->ColorTexParam; }
+	virtual bool CanDynamicallyTrackKeys() const override { return true; }
 #endif
 
 protected:
@@ -129,6 +131,9 @@ struct FPCGExGetTextureDataContext final : FPCGExPointsProcessorContext
 	TWeakPtr<PCGExMT::FAsyncToken> TextureProcessingToken;
 
 	void AdvanceProcessing(const int32 Index);
+
+protected:
+	PCGEX_ELEMENT_BATCH_POINT_DECL
 };
 
 class FPCGExGetTextureDataElement final : public FPCGExPointsProcessorElement

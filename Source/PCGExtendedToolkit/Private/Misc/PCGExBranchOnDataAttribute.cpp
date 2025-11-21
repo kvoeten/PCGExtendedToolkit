@@ -3,6 +3,11 @@
 
 #include "Misc/PCGExBranchOnDataAttribute.h"
 
+#include "PCGExBroadcast.h"
+#include "PCGExHelpers.h"
+#include "Data/PCGExDataHelpers.h"
+#include "Metadata/PCGMetadata.h"
+
 #define LOCTEXT_NAMESPACE "PCGExBranchOnDataAttributeElement"
 #define PCGEX_NAMESPACE BranchOnDataAttribute
 
@@ -51,7 +56,7 @@ void UPCGExBranchOnDataAttributeSettings::PostEditChangeProperty(FPropertyChange
 TArray<FPCGPinProperties> UPCGExBranchOnDataAttributeSettings::InputPinProperties() const
 {
 	TArray<FPCGPinProperties> PinProperties = Super::InputPinProperties();
-	PCGEX_PIN_ANY(GetMainInputPin(), "Inputs", Required, {})
+	PCGEX_PIN_ANY(GetMainInputPin(), "Inputs", Required)
 	return PinProperties;
 }
 
@@ -59,7 +64,7 @@ TArray<FPCGPinProperties> UPCGExBranchOnDataAttributeSettings::OutputPinProperti
 {
 	TArray<FPCGPinProperties> PinProperties;
 
-	PCGEX_PIN_ANY(GetMainOutputPin(), "Default output -- Any collection that couldn't be dispatched to an output pin will end up here.", Normal, {})
+	PCGEX_PIN_ANY(GetMainOutputPin(), "Default output -- Any collection that couldn't be dispatched to an output pin will end up here.", Normal)
 	for (const FPCGExBranchOnDataPin& OutPin : InternalBranches) { PinProperties.Emplace(OutPin.Label); }
 
 	return PinProperties;
@@ -80,6 +85,7 @@ bool FPCGExBranchOnDataAttributeElement::Boot(FPCGExContext* InContext) const
 	PCGEX_CONTEXT_AND_SETTINGS(BranchOnDataAttribute)
 
 	PCGEX_VALIDATE_NAME(Settings->BranchSource)
+	Context->Dispatch.Init(0, Settings->InternalBranches.Num());
 
 	return true;
 }
@@ -90,6 +96,8 @@ bool FPCGExBranchOnDataAttributeElement::ExecuteInternal(FPCGContext* InContext)
 
 	PCGEX_CONTEXT_AND_SETTINGS(BranchOnDataAttribute)
 	PCGEX_EXECUTION_CHECK
+
+	const int32 NumBranches = Settings->InternalBranches.Num();
 
 	PCGEX_ON_INITIAL_EXECUTION
 	{
@@ -114,10 +122,7 @@ bool FPCGExBranchOnDataAttributeElement::ExecuteInternal(FPCGContext* InContext)
 
 			if (!Attr)
 			{
-				if (!Settings->bQuietMissingAttribute)
-				{
-					PCGE_LOG_C(Warning, GraphAndLog, InContext, FTEXT("Some data are missing the source attribute."));
-				}
+				PCGEX_LOG_INVALID_ATTR_C(Context, Branch Source, Settings->BranchSource)
 			}
 			else
 			{
@@ -132,15 +137,18 @@ bool FPCGExBranchOnDataAttributeElement::ExecuteInternal(FPCGContext* InContext)
 						const double AsNumeric = PCGEx::Convert<T_ATTR, double>(Value);
 						const FString AsString = PCGEx::Convert<T_ATTR, FString>(Value);
 
-						// Loop AFTER the cast, dummy
-						for (const FPCGExBranchOnDataPin& Pin : Settings->InternalBranches)
+
+						for (int i = 0; i < NumBranches; ++i)
 						{
+							const FPCGExBranchOnDataPin& Pin = Settings->InternalBranches[i];
+
 							if (Pin.Check == EPCGExComparisonDataType::Numeric) { bDistributed = PCGExCompare::Compare(Pin.NumericCompare, static_cast<double>(Pin.NumericValue), AsNumeric, Pin.Tolerance); }
 							else { bDistributed = PCGExCompare::Compare(Pin.StringCompare, Pin.StringValue, AsString); }
 
 							if (bDistributed)
 							{
 								OutputPin = Pin.Label;
+								Context->Dispatch[i]++;
 								break;
 							}
 						}
@@ -152,6 +160,8 @@ bool FPCGExBranchOnDataAttributeElement::ExecuteInternal(FPCGContext* InContext)
 				TaggedData.Tags, false, false, false);
 		}
 	}
+
+	for (int i = 0; i < NumBranches; i++) { if (!Context->Dispatch[i]) { Context->OutputData.InactiveOutputPinBitmask |= 1ULL << (i + 1); } }
 
 	Context->Done();
 	return Context->TryComplete();

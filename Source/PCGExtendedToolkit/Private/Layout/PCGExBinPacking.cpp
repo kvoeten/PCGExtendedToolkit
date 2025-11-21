@@ -4,10 +4,14 @@
 #include "Layout/PCGExBinPacking.h"
 
 
+#include "Data/PCGExPointIO.h"
+#include "Details/PCGExDetailsSettings.h"
 #include "Layout/PCGExLayout.h"
 
 #define LOCTEXT_NAMESPACE "PCGExBinPackingElement"
 #define PCGEX_NAMESPACE BinPacking
+
+PCGEX_SETTING_VALUE_IMPL(UPCGExBinPackingSettings, Padding, FVector, OccupationPaddingInput, OccupationPaddingAttribute, OccupationPadding)
 
 bool UPCGExBinPackingSettings::GetSortingRules(FPCGExContext* InContext, TArray<FPCGExSortRuleConfig>& OutRules) const
 {
@@ -18,7 +22,7 @@ bool UPCGExBinPackingSettings::GetSortingRules(FPCGExContext* InContext, TArray<
 TArray<FPCGPinProperties> UPCGExBinPackingSettings::InputPinProperties() const
 {
 	TArray<FPCGPinProperties> PinProperties = Super::InputPinProperties();
-	PCGEX_PIN_POINTS(PCGExLayout::SourceBinsLabel, "List of bins to fit input points into. Each input collection is expected to have a matching collection of bins.", Required, {})
+	PCGEX_PIN_POINTS(PCGExLayout::SourceBinsLabel, "List of bins to fit input points into. Each input collection is expected to have a matching collection of bins.", Required)
 	PCGExSorting::DeclareSortingRulesInputs(PinProperties, EPCGPinStatus::Normal);
 	return PinProperties;
 }
@@ -26,12 +30,16 @@ TArray<FPCGPinProperties> UPCGExBinPackingSettings::InputPinProperties() const
 TArray<FPCGPinProperties> UPCGExBinPackingSettings::OutputPinProperties() const
 {
 	TArray<FPCGPinProperties> PinProperties = Super::OutputPinProperties();
-	PCGEX_PIN_POINTS(PCGExLayout::OutputBinsLabel, "Input bins, with added statistics.", Required, {})
-	PCGEX_PIN_POINTS(PCGExLayout::OutputDiscardedLabel, "Discarded points, one that could not fit into any bin.", Required, {})
+	PCGEX_PIN_POINTS(PCGExLayout::OutputBinsLabel, "Input bins, with added statistics.", Required)
+	PCGEX_PIN_POINTS(PCGExLayout::OutputDiscardedLabel, "Discarded points, one that could not fit into any bin.", Required)
 	return PinProperties;
 }
 
 PCGEX_INITIALIZE_ELEMENT(BinPacking)
+
+PCGExData::EIOInit UPCGExBinPackingSettings::GetMainDataInitializationPolicy() const { return PCGExData::EIOInit::Duplicate; }
+
+PCGEX_ELEMENT_BATCH_POINT_IMPL(BinPacking)
 
 bool FPCGExBinPackingElement::Boot(FPCGExContext* InContext) const
 {
@@ -100,12 +108,12 @@ bool FPCGExBinPackingElement::ExecuteInternal(FPCGContext* InContext) const
 	PCGEX_EXECUTION_CHECK
 	PCGEX_ON_INITIAL_EXECUTION
 	{
-		if (!Context->StartBatchProcessingPoints<PCGExPointsMT::TBatch<PCGExBinPacking::FProcessor>>(
+		if (!Context->StartBatchProcessingPoints(
 			[&](const TSharedPtr<PCGExData::FPointIO>& Entry)
 			{
 				return Context->ValidIOIndices.Contains(Entry->IOIndex);
 			},
-			[&](const TSharedPtr<PCGExPointsMT::TBatch<PCGExBinPacking::FProcessor>>& NewBatch)
+			[&](const TSharedPtr<PCGExPointsMT::IBatch>& NewBatch)
 			{
 				TArray<FPCGExSortRuleConfig> OutRules;
 				Settings->GetSortingRules(Context, OutRules);
@@ -298,7 +306,7 @@ namespace PCGExBinPacking
 		{
 			if (!SeedGetter->Prepare(Settings->SeedPositionAttribute, TargetBins.ToSharedRef()))
 			{
-				PCGE_LOG_C(Error, GraphAndLog, Context, FText::Format(FTEXT("A bin pool is missing the seed position attribute : {0}."), FText::FromName(Settings->SeedPositionAttribute.GetName())));
+				PCGEX_LOG_INVALID_SELECTOR_C(Context, Seed Position, Settings->SeedPositionAttribute)
 				return false;
 			}
 		}
@@ -307,7 +315,7 @@ namespace PCGExBinPacking
 			bRelativeSeed = true;
 			if (!SeedGetter->Prepare(Settings->SeedUVWAttribute, TargetBins.ToSharedRef()))
 			{
-				PCGE_LOG_C(Error, GraphAndLog, Context, FText::Format(FTEXT("A bin pool is missing the seed UVW attribute : {0}."), FText::FromName(Settings->SeedUVWAttribute.GetName())));
+				PCGEX_LOG_INVALID_SELECTOR_C(Context, Seed UVW, Settings->SeedUVWAttribute)
 				return false;
 			}
 		}

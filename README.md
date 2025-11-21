@@ -1,4 +1,4 @@
-![UE 5.6](https://img.shields.io/badge/UE-5.6-darkgreen) ![5.5](https://img.shields.io/badge/5.5-darkgreen) ![5.4](https://img.shields.io/badge/5.4-darkgreen) ![5.3](https://img.shields.io/badge/5.3-darkgreen) [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/Nebukam/PCGExtendedToolkit)
+![UE 5.7](https://img.shields.io/badge/UE-5.7-green) ![5.6](https://img.shields.io/badge/5.6-darkgreen) ![5.5](https://img.shields.io/badge/5.5-darkgreen) ![5.4](https://img.shields.io/badge/5.4-darkgreen) ![5.3](https://img.shields.io/badge/5.3-darkgreen) [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/Nebukam/PCGExtendedToolkit)
 # PCG Extended Toolkit 
 
 ![PCGEx](https://raw.githubusercontent.com/Nebukam/PCGExtendedToolkit/refs/heads/docs/_sources/smol-logo.png)
@@ -11,12 +11,12 @@ It also comes with a set of lower-level, more generic features to manipulate att
 
 ## Getting Started
 — **[Documentation](https://pcgex.gitbook.io/pcgex)**  
-— **[Installation](https://nebukam.github.io/PCGExtendedToolkit/installation.html) in your own project**  
+— **[Installation](https://nebukam.github.io/PCGExtendedToolkit/installation.html) in your own project** | Or get it from [FAB](https://www.fab.com/listings/3f0bea1c-7406-4441-951b-8b2ca155f624)  
 — Overview of [All the Nodes](https://nebukam.github.io/PCGExtendedToolkit/all-nodes.html)  
 
 For questions & support, join the [PCGEx Discord Server](https://discord.gg/mde2vC5gbE)!
 
-#### *You can also get it from [FAB](https://www.fab.com/listings/3f0bea1c-7406-4441-951b-8b2ca155f624)!*
+— Support the project on **[Patreon](https://www.patreon.com/c/pcgex)**  
 
 ## **[Example Project](https://pcgex.gitbook.io/pcgex/basics/quickstart/example-project)**
 ![image](https://github.com/user-attachments/assets/b8bd713e-0b60-4cdc-84d9-dd776d452bf8)
@@ -53,11 +53,20 @@ A lot of simple yet powerful utility nodes ranging from complex sorting, complex
 
 #### *And so much more -- PCGEx has 180+ nodes!*
 
+# Interops
+PCGEx has a few additional interops plugins to interfaces with "other things":
+
+— **[PCGEx + Zone Graph](https://github.com/Nebukam/PCGExtendedToolkitZoneGraph)**  
+— **[PCGEx + Watabou](https://github.com/Nebukam/PCGExtendedToolkitWatabou)**  
+
+---
+
 ### [Contributing](https://github.com/Nebukam/PCGExtendedToolkit/blob/main/CONTRIBUTING.md)
 ### Disclaimer
 This software is provided under the MIT License. It is freely available for use & modifications, and may be incorporated into commercial products without the necessity of attribution (*though it is appreciated*). **The contents of this project are entirely original, comprising no AI-generated materials, including but not limited to code and assets.**
 
-### Credits
+### Supporters
+-Check out the [Supporters](https://pcgex.gitbook.io/pcgex/supporters) page on gitbook!
 - Thanks to [Sine Nomine Associates](https://sinenomine.net/) for generously providing and maintaining the automated Linux build infrastructure that helps keep this project running smoothly.
 
 ### Special Thanks

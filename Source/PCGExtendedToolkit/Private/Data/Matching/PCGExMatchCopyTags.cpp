@@ -3,6 +3,9 @@
 
 #include "Data/Matching/PCGExMatchCopyTags.h"
 
+#include "Data/PCGExDataTag.h"
+#include "Data/PCGExPointIO.h"
+
 
 #define LOCTEXT_NAMESPACE "PCGExMatchCopyTags"
 #define PCGEX_NAMESPACE MatchCopyTags

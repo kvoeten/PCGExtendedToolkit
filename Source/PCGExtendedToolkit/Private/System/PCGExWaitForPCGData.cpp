@@ -12,6 +12,10 @@
 #include "Misc/PCGExSortPoints.h"
 #include "Tasks/Task.h"
 #include "Async/Async.h"
+#include "Data/PCGExData.h"
+#include "Data/PCGExDataHelpers.h"
+#include "Data/PCGExDataTag.h"
+#include "Data/PCGExPointIO.h"
 
 #define LOCTEXT_NAMESPACE "PCGExWaitForPCGDataElement"
 #define PCGEX_NAMESPACE WaitForPCGData
@@ -38,11 +42,22 @@ void UPCGExWaitForPCGDataSettings::PostEditChangeProperty(FPropertyChangedEvent&
 }
 #endif
 
+bool UPCGExWaitForPCGDataSettings::IsPinUsedByNodeExecution(const UPCGPin* InPin) const
+{
+	return true;
+}
+
 TArray<FPCGPinProperties> UPCGExWaitForPCGDataSettings::OutputPinProperties() const
 {
-	if (!bOutputRoaming) { return CachedPins; }
-	TArray<FPCGPinProperties> PinProperties = CachedPins;
-	PCGEX_PIN_ANY(RoamingPin, "Roaming data that isn't part of the template output but still exists.", Normal, {})
+	TArray<FPCGPinProperties> PinProperties;
+
+	FPCGPinProperties& DependencyPin = PinProperties.Emplace_GetRef(PCGPinConstants::DefaultExecutionDependencyLabel, EPCGDataType::Any, /*bInAllowMultipleConnections=*/true, /*bAllowMultipleData=*/true);
+	DependencyPin.Usage = EPCGPinUsage::DependencyOnly;
+
+	if (bOutputRoaming) { PCGEX_PIN_ANY(RoamingPin, "Roaming data that isn't part of the template output but still exists.", Normal) }
+
+	PinProperties.Append(CachedPins);
+
 	return PinProperties;
 }
 
@@ -85,6 +100,7 @@ void FPCGExWaitForPCGDataContext::RegisterAssetDependencies()
 }
 
 PCGEX_INITIALIZE_ELEMENT(WaitForPCGData)
+PCGEX_ELEMENT_BATCH_POINT_IMPL(WaitForPCGData)
 
 void UPCGExWaitForPCGDataSettings::GetTargetGraphPins(TArray<FPCGPinProperties>& OutPins) const
 {
@@ -156,9 +172,9 @@ bool FPCGExWaitForPCGDataElement::ExecuteInternal(FPCGContext* InContext) const
 	PCGEX_EXECUTION_CHECK
 	PCGEX_ON_INITIAL_EXECUTION
 	{
-		if (!Context->StartBatchProcessingPoints<PCGExPointsMT::TBatch<PCGExWaitForPCGData::FProcessor>>(
+		if (!Context->StartBatchProcessingPoints(
 			[&](const TSharedPtr<PCGExData::FPointIO>& Entry) { return true; },
-			[&](const TSharedPtr<PCGExPointsMT::TBatch<PCGExWaitForPCGData::FProcessor>>& NewBatch)
+			[&](const TSharedPtr<PCGExPointsMT::IBatch>& NewBatch)
 			{
 			}))
 		{
@@ -401,7 +417,7 @@ namespace PCGExWaitForPCGData
 						PCGEX_ASYNC_THIS
 						This->Inspect(Index);
 					},
-					LowLevelTasks::ETaskPriority::BackgroundLow
+					UE::Tasks::ETaskPriority::BackgroundLow
 				);
 		}
 	}
@@ -561,21 +577,21 @@ namespace PCGExWaitForPCGData
 				}
 
 				// Make sure to not wait on cancelled generation
-				This->Context->ManagedObjects->New<UPCGExPCGComponentCallback>()->Bind(
-					TargetComponent->OnPCGGraphCancelledExternal, [AsyncThis, Idx](UPCGComponent* InComponent)
+				TargetComponent->OnPCGGraphCancelledDelegate.AddLambda(
+					[AsyncThis, Idx](UPCGComponent* InComponent)
 					{
 						PCGEX_ASYNC_NESTED_THIS
 						NestedThis->ValidComponents[Idx] = nullptr;
 						NestedThis->WatcherTracker->IncrementCompleted();
-					}, true);
+					});
 
 				// Wait for generated callback
-				This->Context->ManagedObjects->New<UPCGExPCGComponentCallback>()->Bind(
-					TargetComponent->OnPCGGraphGeneratedExternal, [AsyncThis, Idx](UPCGComponent* InComponent)
+				TargetComponent->OnPCGGraphGeneratedDelegate.AddLambda(
+					[AsyncThis, Idx](UPCGComponent* InComponent)
 					{
 						PCGEX_ASYNC_NESTED_THIS
 						NestedThis->ScheduleComponentDataStaging(Idx);
-					}, true);
+					});
 			});
 	}
 

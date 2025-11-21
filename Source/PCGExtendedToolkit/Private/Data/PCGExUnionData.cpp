@@ -4,14 +4,45 @@
 #include "Data/PCGExUnionData.h"
 
 #include "PCGExPointsMT.h"
+#include "Data/PCGExData.h"
+#include "Data/PCGExPointIO.h"
+#include "Details/PCGExDetailsDistances.h"
 
 namespace PCGExData
 {
 #pragma region Union Data
 
+	void IUnionData::Add(const FElement& Point)
+	{
+		FWriteScopeLock WriteScopeLock(UnionLock);
+		Add_Unsafe(Point.Index, Point.IO);
+	}
+
+	void IUnionData::Add(const int32 Index, const int32 IO)
+	{
+		FWriteScopeLock WriteScopeLock(UnionLock);
+		Add_Unsafe(Index, IO);
+	}
+
+	void IUnionData::Add_Unsafe(const int32 IOIndex, const TArray<int32>& PointIndices)
+	{
+		IOSet.Add(IOIndex);
+		Elements.Reserve(Elements.Num() + PointIndices.Num());
+		for (const int32 A : PointIndices) { Elements.Add(FElement(A, IOIndex)); }
+	}
+
+	void IUnionData::Add(const int32 IOIndex, const TArray<int32>& PointIndices)
+	{
+		FWriteScopeLock WriteScopeLock(UnionLock);
+		Add_Unsafe(IOIndex, PointIndices);
+	}
+
 	int32 IUnionData::ComputeWeights(
-		const TArray<const UPCGBasePointData*>& Sources, const TSharedPtr<PCGEx::FIndexLookup>& IdxLookup, const FConstPoint& Target,
-		const TSharedPtr<PCGExDetails::FDistances>& InDistanceDetails, TArray<FWeightedPoint>& OutWeightedPoints) const
+		const TArray<const UPCGBasePointData*>& Sources,
+		const TSharedPtr<PCGEx::FIndexLookup>& IdxLookup,
+		const FPoint& Target,
+		const TSharedPtr<PCGExDetails::FDistances>& InDistanceDetails,
+		TArray<FWeightedPoint>& OutWeightedPoints) const
 	{
 		const int32 NumElements = Elements.Num();
 		OutWeightedPoints.Reset(NumElements);
@@ -56,34 +87,6 @@ namespace PCGExData
 		return Index;
 	}
 
-
-	void IUnionData::Add_Unsafe(const FElement& Point)
-	{
-		IOSet.Add(Point.IO);
-		Elements.Add(FElement(Point.Index == -1 ? 0 : Point.Index, Point.IO));
-	}
-
-	void IUnionData::Add(const FElement& Point)
-	{
-		FWriteScopeLock WriteScopeLock(UnionLock);
-		IOSet.Add(Point.IO);
-		Elements.Add(FElement(Point.Index == -1 ? 0 : Point.Index, Point.IO));
-	}
-
-
-	void IUnionData::Add_Unsafe(const int32 IOIndex, const TArray<int32>& PointIndices)
-	{
-		IOSet.Add(IOIndex);
-		Elements.Reserve(Elements.Num() + PointIndices.Num());
-		for (const int32 A : PointIndices) { Elements.Add(FElement(A, IOIndex)); }
-	}
-
-	void IUnionData::Add(const int32 IOIndex, const TArray<int32>& PointIndices)
-	{
-		FWriteScopeLock WriteScopeLock(UnionLock);
-		Add_Unsafe(IOIndex, PointIndices);
-	}
-
 	void FUnionMetadata::SetNum(const int32 InNum)
 	{
 		// To be used only with NewEntryAt / NewEntryAt_Unsafe
@@ -93,7 +96,7 @@ namespace PCGExData
 	TSharedPtr<IUnionData> FUnionMetadata::NewEntry_Unsafe(const FConstPoint& Point)
 	{
 		TSharedPtr<IUnionData> NewUnionData = Entries.Add_GetRef(MakeShared<IUnionData>());
-		NewUnionData->Add(Point);
+		NewUnionData->Add_Unsafe(Point);
 		return NewUnionData;
 	}
 
@@ -103,34 +106,28 @@ namespace PCGExData
 		return Entries[ItemIndex];
 	}
 
-	void FUnionMetadata::Append(const int32 Index, const FPoint& Point)
-	{
-		Entries[Index]->Add(Point);
-	}
-
 	bool FUnionMetadata::IOIndexOverlap(const int32 InIdx, const TSet<int32>& InIndices)
 	{
 		const TSet<int32> Overlap = Entries[InIdx]->IOSet.Intersect(InIndices);
 		return Overlap.Num() > 0;
 	}
 
-	TSharedPtr<FFacade> TryGetSingleFacade(FPCGExContext* InContext, const FName InputPinLabel, const bool bTransactional, const bool bThrowError)
+	TSharedPtr<FFacade> TryGetSingleFacade(FPCGExContext* InContext, const FName InputPinLabel, const bool bTransactional, const bool bRequired)
 	{
-		TSharedPtr<FFacade> SingleFacade;
-		if (const TSharedPtr<FPointIO> SingleIO = TryGetSingleInput(InContext, InputPinLabel, bTransactional, bThrowError))
+		if (const TSharedPtr<FPointIO> SingleIO = TryGetSingleInput(InContext, InputPinLabel, bTransactional, bRequired))
 		{
-			SingleFacade = MakeShared<FFacade>(SingleIO.ToSharedRef());
+			return MakeShared<FFacade>(SingleIO.ToSharedRef());
 		}
 
-		return SingleFacade;
+		return nullptr;
 	}
 
-	bool TryGetFacades(FPCGExContext* InContext, const FName InputPinLabel, TArray<TSharedPtr<FFacade>>& OutFacades, const bool bThrowError, const bool bIsTransactional)
+	bool TryGetFacades(FPCGExContext* InContext, const FName InputPinLabel, TArray<TSharedPtr<FFacade>>& OutFacades, const bool bRequired, const bool bIsTransactional)
 	{
 		TSharedPtr<FPointIOCollection> TargetsCollection = MakeShared<FPointIOCollection>(InContext, InputPinLabel, EIOInit::NoInit, bIsTransactional);
 		if (TargetsCollection->IsEmpty())
 		{
-			if (bThrowError) { PCGE_LOG_C(Error, GraphAndLog, InContext, FText::Format(FText::FromString(TEXT("Missing or zero-points '{0}' inputs")), FText::FromName(InputPinLabel))); }
+			if (bRequired) { PCGEX_LOG_MISSING_INPUT(InContext, FText::Format(FText::FromString(TEXT("Missing or zero-points '{0}' inputs")), FText::FromName(InputPinLabel))) }
 			return false;
 		}
 

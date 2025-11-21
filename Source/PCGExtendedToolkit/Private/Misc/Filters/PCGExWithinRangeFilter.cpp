@@ -3,6 +3,9 @@
 
 #include "Misc/Filters/PCGExWithinRangeFilter.h"
 
+#include "PCGExHelpers.h"
+#include "Data/PCGExData.h"
+#include "Data/PCGExDataHelpers.h"
 #include "Misc/Pickers/PCGExPickerAttributeSetRanges.h"
 
 
@@ -42,8 +45,8 @@ TArray<FPCGPinProperties> UPCGExWithinRangeFilterProviderSettings::InputPinPrope
 {
 	TArray<FPCGPinProperties> PinProperties = Super::InputPinProperties();
 
-	if (Config.Source == EPCGExRangeSource::AttributeSet) { PCGEX_PIN_ANY(FName("Ranges"), "Data to read attribute ranges from", Required, {}) }
-	else { PCGEX_PIN_ANY(FName("Ranges"), "Data to read attribute ranges from", Advanced, {}) }
+	if (Config.Source == EPCGExRangeSource::AttributeSet) { PCGEX_PIN_ANY(FName("Ranges"), "Data to read attribute ranges from", Required) }
+	else { PCGEX_PIN_ANY(FName("Ranges"), "Data to read attribute ranges from", Advanced) }
 
 	return PinProperties;
 }
@@ -52,11 +55,11 @@ bool PCGExPointFilter::FWithinRangeFilter::Init(FPCGExContext* InContext, const 
 {
 	if (!IFilter::Init(InContext, InPointDataFacade)) { return false; }
 
-	OperandA = PointDataFacade->GetBroadcaster<double>(TypedFilterFactory->Config.OperandA, true);
+	OperandA = PointDataFacade->GetBroadcaster<double>(TypedFilterFactory->Config.OperandA, true, false, PCGEX_QUIET_HANDLING);
 
 	if (!OperandA)
 	{
-		PCGEX_LOG_INVALID_SELECTOR_C(InContext, Operand A, TypedFilterFactory->Config.OperandA)
+		PCGEX_LOG_INVALID_SELECTOR_HANDLED_C(InContext, Operand A, TypedFilterFactory->Config.OperandA)
 		return false;
 	}
 
@@ -82,7 +85,7 @@ bool PCGExPointFilter::FWithinRangeFilter::Test(const int32 PointIndex) const
 bool PCGExPointFilter::FWithinRangeFilter::Test(const TSharedPtr<PCGExData::FPointIO>& IO, const TSharedPtr<PCGExData::FPointIOCollection>& ParentCollection) const
 {
 	double A = 0;
-	if (!PCGExDataHelpers::TryReadDataValue(IO, TypedFilterFactory->Config.OperandA, A)) { return false; }
+	if (!PCGExDataHelpers::TryReadDataValue(IO, TypedFilterFactory->Config.OperandA, A, PCGEX_QUIET_HANDLING)) { PCGEX_QUIET_HANDLING_RET }
 
 	if (bInclusive)
 	{

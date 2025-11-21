@@ -24,13 +24,15 @@ public:
 	//~Begin UPCGSettings
 #if WITH_EDITOR
 	PCGEX_NODE_INFOS(BatchActions, "Batch Actions", "Batch various actions together.");
-	virtual FLinearColor GetNodeTitleColor() const override { return GetDefault<UPCGExGlobalSettings>()->NodeColorMisc; }
+	virtual FLinearColor GetNodeTitleColor() const override { return GetDefault<UPCGExGlobalSettings>()->ColorAction; }
 #endif
 
 protected:
 	virtual TArray<FPCGPinProperties> InputPinProperties() const override;
 	virtual FPCGElementPtr CreateElement() const override;
 	//~End UPCGSettings
+
+	virtual PCGExData::EIOInit GetMainDataInitializationPolicy() const override;
 
 	//~Begin UPCGExPointsProcessorSettings
 public:
@@ -56,6 +58,9 @@ struct FPCGExBatchActionsContext final : FPCGExPointsProcessorContext
 
 	TSharedPtr<PCGEx::FAttributesInfos> DefaultAttributes;
 	TArray<TObjectPtr<const UPCGExActionFactoryData>> ActionsFactories;
+
+protected:
+	PCGEX_ELEMENT_BATCH_POINT_DECL
 };
 
 class FPCGExBatchActionsElement final : public FPCGExPointsProcessorElement

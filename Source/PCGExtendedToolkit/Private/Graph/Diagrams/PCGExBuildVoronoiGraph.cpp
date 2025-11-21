@@ -4,6 +4,8 @@
 #include "Graph/Diagrams/PCGExBuildVoronoiGraph.h"
 
 #include "PCGExRandom.h"
+#include "Data/PCGExData.h"
+#include "Data/PCGExPointIO.h"
 
 
 #include "Elements/Metadata/PCGMetadataElementCommon.h"
@@ -22,12 +24,13 @@ namespace PCGExGeoTask
 TArray<FPCGPinProperties> UPCGExBuildVoronoiGraphSettings::OutputPinProperties() const
 {
 	TArray<FPCGPinProperties> PinProperties = Super::OutputPinProperties();
-	PCGEX_PIN_POINTS(PCGExGraph::OutputEdgesLabel, "Point data representing edges.", Required, {})
-	//PCGEX_PIN_POINTS(PCGExGraph::OutputSitesLabel, "Complete delaunay sites.", Required, {})
+	PCGEX_PIN_POINTS(PCGExGraph::OutputEdgesLabel, "Point data representing edges.", Required)
+	//PCGEX_PIN_POINTS(PCGExGraph::OutputSitesLabel, "Complete delaunay sites.", Required)
 	return PinProperties;
 }
 
 PCGEX_INITIALIZE_ELEMENT(BuildVoronoiGraph)
+PCGEX_ELEMENT_BATCH_POINT_IMPL(BuildVoronoiGraph)
 
 bool FPCGExBuildVoronoiGraphElement::Boot(FPCGExContext* InContext) const
 {
@@ -54,7 +57,7 @@ bool FPCGExBuildVoronoiGraphElement::ExecuteInternal(
 	{
 		PCGEX_ON_INVALILD_INPUTS(FTEXT("Some inputs have less than 4 points and won't be processed."))
 
-		if (!Context->StartBatchProcessingPoints<PCGExPointsMT::TBatch<PCGExBuildVoronoi::FProcessor>>(
+		if (!Context->StartBatchProcessingPoints(
 			[&](const TSharedPtr<PCGExData::FPointIO>& Entry)
 			{
 				if (Entry->GetNum() < 4)
@@ -66,7 +69,7 @@ bool FPCGExBuildVoronoiGraphElement::ExecuteInternal(
 				Context->SitesOutput->Emplace_GetRef(Entry, PCGExData::EIOInit::New);
 				return true;
 			},
-			[&](const TSharedPtr<PCGExPointsMT::TBatch<PCGExBuildVoronoi::FProcessor>>& NewBatch)
+			[&](const TSharedPtr<PCGExPointsMT::IBatch>& NewBatch)
 			{
 				NewBatch->bRequiresWriteStep = true;
 			}))
@@ -84,7 +87,7 @@ bool FPCGExBuildVoronoiGraphElement::ExecuteInternal(
 	return Context->TryComplete();
 }
 
-namespace PCGExBuildVoronoi
+namespace PCGExBuildVoronoiGraph
 {
 	FProcessor::~FProcessor()
 	{
@@ -92,7 +95,7 @@ namespace PCGExBuildVoronoi
 
 	bool FProcessor::Process(const TSharedPtr<PCGExMT::FTaskManager>& InAsyncManager)
 	{
-		TRACE_CPUPROFILER_EVENT_SCOPE(PCGExBuildVoronoi::Process);
+		TRACE_CPUPROFILER_EVENT_SCOPE(PCGExBuildVoronoiGraph::Process);
 
 		if (!IProcessor::Process(InAsyncManager)) { return false; }
 
@@ -105,7 +108,10 @@ namespace PCGExBuildVoronoi
 
 		if (!Voronoi->Process(ActivePositions))
 		{
-			PCGE_LOG_C(Warning, GraphAndLog, ExecutionContext, FTEXT("Some inputs generated invalid results. Are points coplanar? If so, use Voronoi 2D instead."));
+			if (!Context->bQuietInvalidInputWarning)
+			{
+				PCGE_LOG_C(Warning, GraphAndLog, ExecutionContext, FTEXT("Some inputs generated invalid results. Are points coplanar? If so, use Voronoi 2D instead."));
+			}
 			return false;
 		}
 

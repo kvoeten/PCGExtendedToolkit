@@ -3,8 +3,12 @@
 
 #include "Graph/Edges/PCGExRelaxClusters.h"
 
-
+#include "PCGParamData.h"
+#include "Data/Blending/PCGExBlendLerp.h"
 #include "Graph/Edges/Relaxing/PCGExRelaxClusterOperation.h"
+#include "Data/PCGExPointFilter.h"
+#include "Details/PCGExDetailsRelax.h"
+#include "Graph/Filters/PCGExClusterFilter.h"
 
 #define LOCTEXT_NAMESPACE "PCGExRelaxClusters"
 #define PCGEX_NAMESPACE RelaxClusters
@@ -15,12 +19,13 @@ PCGExData::EIOInit UPCGExRelaxClustersSettings::GetEdgeOutputInitMode() const { 
 TArray<FPCGPinProperties> UPCGExRelaxClustersSettings::InputPinProperties() const
 {
 	TArray<FPCGPinProperties> PinProperties = Super::InputPinProperties();
-	PCGEX_PIN_FACTORIES(PCGExGraph::SourceVtxFiltersLabel, "Vtx filters.", Normal, {})
+	PCGEX_PIN_FILTERS(PCGExGraph::SourceVtxFiltersLabel, "Vtx filters.", Normal)
 	PCGEX_PIN_OPERATION_OVERRIDES(PCGExRelaxClusters::SourceOverridesRelaxing)
 	return PinProperties;
 }
 
 PCGEX_INITIALIZE_ELEMENT(RelaxClusters)
+PCGEX_ELEMENT_BATCH_EDGE_IMPL_ADV(RelaxClusters)
 
 bool FPCGExRelaxClustersElement::Boot(FPCGExContext* InContext) const
 {
@@ -47,9 +52,9 @@ bool FPCGExRelaxClustersElement::ExecuteInternal(FPCGContext* InContext) const
 	PCGEX_EXECUTION_CHECK
 	PCGEX_ON_INITIAL_EXECUTION
 	{
-		if (!Context->StartProcessingClusters<PCGExRelaxClusters::FBatch>(
+		if (!Context->StartProcessingClusters(
 			[](const TSharedPtr<PCGExData::FPointIOTaggedEntries>& Entries) { return true; },
-			[&](const TSharedPtr<PCGExRelaxClusters::FBatch>& NewBatch)
+			[&](const TSharedPtr<PCGExClusterMT::IBatch>& NewBatch)
 			{
 				NewBatch->bRequiresWriteStep = true;
 				NewBatch->AllocateVtxProperties = EPCGPointNativeProperties::Transform;
@@ -298,11 +303,13 @@ namespace PCGExRelaxClusters
 		}
 	}
 
-	bool FBatch::PrepareSingle(const TSharedPtr<FProcessor>& ClusterProcessor)
+	bool FBatch::PrepareSingle(const TSharedPtr<PCGExClusterMT::IProcessor>& InProcessor)
 	{
-		if (!TBatch<FProcessor>::PrepareSingle(ClusterProcessor)) { return false; }
+		if (!TBatch<FProcessor>::PrepareSingle(InProcessor)) { return false; }
 
-#define PCGEX_OUTPUT_FWD_TO(_NAME, _TYPE, _DEFAULT_VALUE) if(_NAME##Writer){ ClusterProcessor->_NAME##Writer = _NAME##Writer; }
+		PCGEX_TYPED_PROCESSOR
+
+#define PCGEX_OUTPUT_FWD_TO(_NAME, _TYPE, _DEFAULT_VALUE) if(_NAME##Writer){ TypedProcessor->_NAME##Writer = _NAME##Writer; }
 		PCGEX_FOREACH_FIELD_RELAX_CLUSTER(PCGEX_OUTPUT_FWD_TO)
 #undef PCGEX_OUTPUT_FWD_TO
 

@@ -4,15 +4,11 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "PCGExBroadcast.h"
 #include "PCGExDataValue.h"
 #include "UObject/Object.h"
 
-#include "PCGExMacros.h"
+#include "Details/PCGExMacros.h"
 #include "PCGExHelpers.h"
-//#include "Kismet/KismetStringLibrary.h"
-
-//#include "Data/PCGExDataTag.generated.h"
 
 #define PCGEX_FOREACH_SUPPORTEDTAGTYPE(MACRO) \
 MACRO(Integer, int64) \
@@ -35,7 +31,7 @@ enum class EPCGExSupportedTagValue : uint8
 
 namespace PCGExData
 {
-	const FString TagSeparator = FSTRING(":");
+	const FString TagSeparator = TEXT(":");
 
 	class PCGEXTENDEDTOOLKIT_API FTags : public TSharedFromThis<FTags>
 	{
@@ -148,27 +144,5 @@ namespace PCGExData
 
 		// NAME:VALUE
 		static bool GetTagFromString(const FString& Input, FString& OutKey, FString& OutValue);
-	};
-
-	struct FTaggedData
-	{
-		const UPCGData* Data = nullptr;
-		TWeakPtr<FTags> Tags;
-		TSharedPtr<IPCGAttributeAccessorKeys> Keys = nullptr;
-
-		FTaggedData() = default;
-
-		FTaggedData(const UPCGData* InData, const TSharedPtr<FTags>& InTags, const TSharedPtr<IPCGAttributeAccessorKeys>& InKeys)
-			: Data(InData), Tags(InTags), Keys(InKeys)
-		{
-		}
-
-		FORCEINLINE TSharedPtr<FTags> GetTags() const { return Tags.Pin(); }
-
-		void Dump(FPCGTaggedData& InOut) const
-		{
-			InOut.Data = Data;
-			if (const TSharedPtr<FTags> PinnedTags = Tags.Pin(); PinnedTags.IsValid()) { PinnedTags->DumpTo(InOut.Tags); }
-		}
 	};
 }

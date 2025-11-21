@@ -3,13 +3,15 @@
 
 #include "Transform/PCGExBoundsAxisToPoints.h"
 
-#include "PCGExDataMath.h"
+#include "PCGExMathBounds.h"
+#include "Data/PCGExPointIO.h"
 
 
 #define LOCTEXT_NAMESPACE "PCGExBoundsAxisToPointsElement"
 #define PCGEX_NAMESPACE BoundsAxisToPoints
 
 PCGEX_INITIALIZE_ELEMENT(BoundsAxisToPoints)
+PCGEX_ELEMENT_BATCH_POINT_IMPL(BoundsAxisToPoints)
 
 bool FPCGExBoundsAxisToPointsElement::Boot(FPCGExContext* InContext) const
 {
@@ -28,9 +30,9 @@ bool FPCGExBoundsAxisToPointsElement::ExecuteInternal(FPCGContext* InContext) co
 	PCGEX_EXECUTION_CHECK
 	PCGEX_ON_INITIAL_EXECUTION
 	{
-		if (!Context->StartBatchProcessingPoints<PCGExPointsMT::TBatch<PCGExBoundsAxisToPoints::FProcessor>>(
+		if (!Context->StartBatchProcessingPoints(
 			[&](const TSharedPtr<PCGExData::FPointIO>& Entry) { return true; },
-			[&](const TSharedPtr<PCGExPointsMT::TBatch<PCGExBoundsAxisToPoints::FProcessor>>& NewBatch)
+			[&](const TSharedPtr<PCGExPointsMT::IBatch>& NewBatch)
 			{
 				//NewBatch->bRequiresWriteStep = true;
 			}))

@@ -6,6 +6,7 @@
 #include "GameFramework/Actor.h"
 #include "Materials/MaterialInterface.h"
 #include "PCGComponent.h"
+#include "PCGExHelpers.h"
 #include "Data/PCGRenderTargetData.h"
 #include "Data/PCGTextureData.h"
 #include "Engine/TextureRenderTarget2D.h"
@@ -13,6 +14,7 @@
 #include "Helpers/PCGHelpers.h"
 #include "TextureResource.h"
 #include "PCGExSubSystem.h"
+#include "Data/PCGExPointIO.h"
 
 
 #include "Engine/Texture.h"
@@ -29,18 +31,19 @@ UPCGExGetTextureDataSettings::UPCGExGetTextureDataSettings(const FObjectInitiali
 TArray<FPCGPinProperties> UPCGExGetTextureDataSettings::InputPinProperties() const
 {
 	TArray<FPCGPinProperties> PinProperties = Super::InputPinProperties();
-	if (SourceType == EPCGExGetTexturePathType::MaterialPath) { PCGEX_PIN_FACTORIES(PCGExTexture::SourceTexLabel, "Texture params to extract from reference materials.", Required, {}) }
+	if (SourceType == EPCGExGetTexturePathType::MaterialPath) { PCGEX_PIN_FACTORIES(PCGExTexture::SourceTexLabel, "Texture params to extract from reference materials.", Required, FPCGExDataTypeInfoTexParam::AsId()) }
 	return PinProperties;
 }
 
 TArray<FPCGPinProperties> UPCGExGetTextureDataSettings::OutputPinProperties() const
 {
 	TArray<FPCGPinProperties> PinProperties = Super::OutputPinProperties();
-	if (SourceType == EPCGExGetTexturePathType::TexturePath || bBuildTextureData) { PCGEX_PIN_TEXTURES(PCGExTexture::OutputTextureDataLabel, "Texture data.", Required, {}) }
+	if (SourceType == EPCGExGetTexturePathType::TexturePath || bBuildTextureData) { PCGEX_PIN_TEXTURES(PCGExTexture::OutputTextureDataLabel, "Texture data.", Required) }
 	return PinProperties;
 }
 
 PCGEX_INITIALIZE_ELEMENT(GetTextureData)
+PCGEX_ELEMENT_BATCH_POINT_IMPL(GetTextureData)
 
 bool FPCGExGetTextureDataElement::Boot(FPCGExContext* InContext) const
 {
@@ -63,7 +66,12 @@ bool FPCGExGetTextureDataElement::Boot(FPCGExContext* InContext) const
 
 	if (Settings->SourceType == EPCGExGetTexturePathType::MaterialPath)
 	{
-		if (!PCGExFactories::GetInputFactories(InContext, PCGExTexture::SourceTexLabel, Context->TexParamsFactories, {PCGExFactories::EType::TexParam}, true)) { return false; }
+		if (!PCGExFactories::GetInputFactories(
+			InContext, PCGExTexture::SourceTexLabel, Context->TexParamsFactories,
+			{PCGExFactories::EType::TexParam}))
+		{
+			return false;
+		}
 
 		if (Settings->bOutputTextureIds)
 		{
@@ -84,9 +92,9 @@ bool FPCGExGetTextureDataElement::ExecuteInternal(FPCGContext* InContext) const
 	PCGEX_EXECUTION_CHECK
 	PCGEX_ON_INITIAL_EXECUTION
 	{
-		if (!Context->StartBatchProcessingPoints<PCGExPointsMT::TBatch<PCGExGetTextureData::FProcessor>>(
+		if (!Context->StartBatchProcessingPoints(
 			[&](const TSharedPtr<PCGExData::FPointIO>& Entry) { return true; },
-			[&](const TSharedPtr<PCGExPointsMT::TBatch<PCGExGetTextureData::FProcessor>>& NewBatch)
+			[&](const TSharedPtr<PCGExPointsMT::IBatch>& NewBatch)
 			{
 			}))
 		{

@@ -4,6 +4,8 @@
 #include "Sampling/PCGExSampleTexture.h"
 
 
+#include "Data/PCGExDataTag.h"
+#include "Data/PCGExPointIO.h"
 #include "Sampling/PCGExTexParamFactoryProvider.h"
 
 
@@ -19,12 +21,16 @@ UPCGExSampleTextureSettings::UPCGExSampleTextureSettings(const FObjectInitialize
 TArray<FPCGPinProperties> UPCGExSampleTextureSettings::InputPinProperties() const
 {
 	TArray<FPCGPinProperties> PinProperties = Super::InputPinProperties();
-	PCGEX_PIN_TEXTURES(PCGExTexture::SourceTextureDataLabel, "Texture objects referenced by input points.", Required, {})
-	PCGEX_PIN_FACTORIES(PCGExTexture::SourceTexLabel, "Texture params to extract from reference materials.", Required, {})
+	PCGEX_PIN_TEXTURES(PCGExTexture::SourceTextureDataLabel, "Texture objects referenced by input points.", Required)
+	PCGEX_PIN_FACTORIES(PCGExTexture::SourceTexLabel, "Texture params to extract from reference materials.", Required, FPCGExDataTypeInfoTexParam::AsId())
 	return PinProperties;
 }
 
 PCGEX_INITIALIZE_ELEMENT(SampleTexture)
+
+PCGExData::EIOInit UPCGExSampleTextureSettings::GetMainDataInitializationPolicy() const { return PCGExData::EIOInit::Duplicate; }
+
+PCGEX_ELEMENT_BATCH_POINT_IMPL(SampleTexture)
 
 bool FPCGExSampleTextureElement::Boot(FPCGExContext* InContext) const
 {
@@ -32,7 +38,12 @@ bool FPCGExSampleTextureElement::Boot(FPCGExContext* InContext) const
 
 	PCGEX_CONTEXT_AND_SETTINGS(SampleTexture)
 
-	if (!PCGExFactories::GetInputFactories(InContext, PCGExTexture::SourceTexLabel, Context->TexParamsFactories, {PCGExFactories::EType::TexParam}, true)) { return false; }
+	if (!PCGExFactories::GetInputFactories(
+		InContext, PCGExTexture::SourceTexLabel, Context->TexParamsFactories,
+		{PCGExFactories::EType::TexParam}))
+	{
+		return false;
+	}
 
 	TSet<FName> UniqueSampleNames;
 	for (const TObjectPtr<const UPCGExTexParamFactoryData>& Factory : Context->TexParamsFactories)
@@ -68,9 +79,9 @@ bool FPCGExSampleTextureElement::ExecuteInternal(FPCGContext* InContext) const
 	PCGEX_EXECUTION_CHECK
 	PCGEX_ON_INITIAL_EXECUTION
 	{
-		if (!Context->StartBatchProcessingPoints<PCGExPointsMT::TBatch<PCGExSampleTexture::FProcessor>>(
+		if (!Context->StartBatchProcessingPoints(
 			[&](const TSharedPtr<PCGExData::FPointIO>& Entry) { return true; },
-			[&](const TSharedPtr<PCGExPointsMT::TBatch<PCGExSampleTexture::FProcessor>>& NewBatch)
+			[&](const TSharedPtr<PCGExPointsMT::IBatch>& NewBatch)
 			{
 				if (Settings->bPruneFailedSamples) { NewBatch->bRequiresWriteStep = true; }
 			}))

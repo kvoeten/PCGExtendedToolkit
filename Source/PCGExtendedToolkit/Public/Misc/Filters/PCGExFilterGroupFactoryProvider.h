@@ -19,6 +19,9 @@ class PCGEXTENDEDTOOLKIT_API UPCGExFilterGroupProviderSettings : public UPCGExFa
 {
 	GENERATED_BODY()
 
+protected:
+	PCGEX_FACTORY_TYPE_ID(FPCGExDataTypeInfoFilter)
+
 public:
 	//~Begin UPCGSettings
 #if WITH_EDITOR
@@ -26,7 +29,7 @@ public:
 		FilterGroup, "Filter Group", "Creates an Filter Group.",
 		PCGEX_FACTORY_NAME_PRIORITY)
 	virtual EPCGSettingsType GetType() const override { return EPCGSettingsType::Filter; }
-	virtual FLinearColor GetNodeTitleColor() const override { return GetDefault<UPCGExGlobalSettings>()->WantsColor(GetDefault<UPCGExGlobalSettings>()->NodeColorFilterHub); }
+	virtual FLinearColor GetNodeTitleColor() const override { return GetDefault<UPCGExGlobalSettings>()->WantsColor(GetDefault<UPCGExGlobalSettings>()->ColorFilterHub); }
 	virtual TArray<FPCGPreConfiguredSettingsInfo> GetPreconfiguredInfo() const override;
 #endif
 	//~End UPCGSettings
@@ -35,6 +38,7 @@ public:
 
 protected:
 	virtual TArray<FPCGPinProperties> InputPinProperties() const override;
+	virtual TArray<FPCGPinProperties> OutputPinProperties() const override;
 
 public:
 	virtual FName GetMainOutputPin() const override { return PCGExPointFilter::OutputFilterLabel; }
@@ -44,11 +48,11 @@ public:
 	virtual FString GetDisplayName() const override;
 #endif
 
-	/** Filter Priority.*/
+	/** Filter Priority. Will use the highest value between the one set here and from the connected filters. */
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta=(PCG_Overridable, DisplayPriority=-1), AdvancedDisplay)
 	int32 Priority = 0;
 
-	/** Filter Priority.*/
+	/** Filter Mode.*/
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta=(PCG_Overridable, DisplayPriority=-1))
 	EPCGExFilterGroupMode Mode = EPCGExFilterGroupMode::AND;
 

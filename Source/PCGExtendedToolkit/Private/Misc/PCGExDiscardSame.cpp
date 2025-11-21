@@ -4,6 +4,8 @@
 #include "Misc/PCGExDiscardSame.h"
 
 
+#include "Data/PCGExData.h"
+#include "Data/PCGExPointIO.h"
 #include "Misc/PCGExDiscardByPointCount.h"
 
 
@@ -13,11 +15,12 @@
 TArray<FPCGPinProperties> UPCGExDiscardSameSettings::OutputPinProperties() const
 {
 	TArray<FPCGPinProperties> PinProperties = Super::OutputPinProperties();
-	PCGEX_PIN_POINTS(PCGExDiscardByPointCount::OutputDiscardedLabel, "Discarded outputs.", Normal, {})
+	PCGEX_PIN_POINTS(PCGExDiscardByPointCount::OutputDiscardedLabel, "Discarded outputs.", Normal)
 	return PinProperties;
 }
 
 PCGEX_INITIALIZE_ELEMENT(DiscardSame)
+PCGEX_ELEMENT_BATCH_POINT_IMPL(DiscardSame)
 
 bool FPCGExDiscardSameElement::Boot(FPCGExContext* InContext) const
 {
@@ -36,9 +39,9 @@ bool FPCGExDiscardSameElement::ExecuteInternal(FPCGContext* InContext) const
 	PCGEX_EXECUTION_CHECK
 	PCGEX_ON_INITIAL_EXECUTION
 	{
-		if (!Context->StartBatchProcessingPoints<PCGExPointsMT::TBatch<PCGExDiscardSame::FProcessor>>(
+		if (!Context->StartBatchProcessingPoints(
 			[&](const TSharedPtr<PCGExData::FPointIO>& Entry) { return true; },
-			[&](const TSharedPtr<PCGExPointsMT::TBatch<PCGExDiscardSame::FProcessor>>& NewBatch)
+			[&](const TSharedPtr<PCGExPointsMT::IBatch>& NewBatch)
 			{
 			}))
 		{
@@ -81,7 +84,7 @@ namespace PCGExDiscardSame
 			if (Hasher->RequiresCompilation()) { Hasher->Compile(AsyncManager, nullptr); }
 		}
 
-		TSet<uint32> PositionHashes;
+		TSet<uint64> PositionHashes;
 		const FVector PosCWTolerance = FVector(1 / Settings->TestPositionTolerance);
 
 		const UPCGBasePointData* InPoints = PointDataFacade->GetIn();
@@ -102,10 +105,10 @@ namespace PCGExDiscardSame
 
 		if (Settings->bTestPositions)
 		{
-			TArray<uint32> PosHashes = PositionHashes.Array();
+			TArray<uint64> PosHashes = PositionHashes.Array();
 			PositionHashes.Empty();
 			PosHashes.Sort();
-			for (int32 i = 0; i < PosHashes.Num(); i++) { HashPositions = HashCombineFast(HashPositions, PosHashes[i]); }
+			HashPositions = CityHash64(reinterpret_cast<const char*>(PosHashes.GetData()), PosHashes.Num() * sizeof(int64));
 		}
 		else
 		{
@@ -140,8 +143,9 @@ namespace PCGExDiscardSame
 
 		if (Settings->TestMode == EPCGExFilterGroupMode::AND)
 		{
-			for (TSharedRef<FProcessor> P : Batch->Processors)
+			for (int Pi = 0; Pi < Batch->GetNumProcessors(); Pi++)
 			{
+				const TSharedRef<FProcessor> P = Batch->GetProcessorRef<FProcessor>(Pi);
 				if (P == ThisPtr) { continue; }
 
 				if (Settings->bTestBounds && P->HashBounds != HashBounds) { continue; }
@@ -154,8 +158,9 @@ namespace PCGExDiscardSame
 		}
 		else
 		{
-			for (TSharedRef<FProcessor> P : Batch->Processors)
+			for (int Pi = 0; Pi < Batch->GetNumProcessors(); Pi++)
 			{
+				const TSharedRef<FProcessor> P = Batch->GetProcessorRef<FProcessor>(Pi);
 				if (P == ThisPtr) { continue; }
 
 				if ((Settings->bTestBounds && P->HashBounds == HashBounds) ||

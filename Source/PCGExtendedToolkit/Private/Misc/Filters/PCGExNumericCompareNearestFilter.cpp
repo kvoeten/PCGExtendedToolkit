@@ -3,9 +3,14 @@
 
 #include "Misc/Filters/PCGExNumericCompareNearestFilter.h"
 
+#include "PCGExHelpers.h"
+#include "Details/PCGExDetailsSettings.h"
+
 
 #define LOCTEXT_NAMESPACE "PCGExCompareFilterDefinition"
 #define PCGEX_NAMESPACE CompareFilterDefinition
+
+PCGEX_SETTING_VALUE_IMPL(FPCGExNumericCompareNearestFilterConfig, OperandB, double, CompareAgainst, OperandB, OperandBConstant)
 
 bool UPCGExNumericCompareNearestFilterFactory::Init(FPCGExContext* InContext)
 {
@@ -54,6 +59,12 @@ TSharedPtr<PCGExPointFilter::IFilter> UPCGExNumericCompareNearestFilterFactory::
 	return MakeShared<PCGExPointFilter::FNumericCompareNearestFilter>(this);
 }
 
+void UPCGExNumericCompareNearestFilterFactory::RegisterBuffersDependencies(FPCGExContext* InContext, PCGExData::FFacadePreloader& FacadePreloader) const
+{
+	Super::RegisterBuffersDependencies(InContext, FacadePreloader);
+	if (Config.CompareAgainst == EPCGExInputValueType::Attribute) { FacadePreloader.Register<double>(InContext, Config.OperandB); }
+}
+
 bool UPCGExNumericCompareNearestFilterFactory::RegisterConsumableAttributesWithData(FPCGExContext* InContext, const UPCGData* InData) const
 {
 	if (!Super::RegisterConsumableAttributesWithData(InContext, InData)) { return false; }
@@ -76,7 +87,7 @@ bool PCGExPointFilter::FNumericCompareNearestFilter::Init(FPCGExContext* InConte
 
 	if (!TargetsHandler || TargetsHandler->IsEmpty()) { return false; }
 
-	OperandB = TypedFilterFactory->Config.GetValueSettingOperandB();
+	OperandB = TypedFilterFactory->Config.GetValueSettingOperandB(PCGEX_QUIET_HANDLING);
 	if (!OperandB->Init(PointDataFacade, false)) { return false; }
 
 	if (TypedFilterFactory->Config.bIgnoreSelf) { IgnoreList.Add(InPointDataFacade->GetIn()); }
@@ -101,7 +112,7 @@ bool PCGExPointFilter::FNumericCompareNearestFilter::Test(const int32 PointIndex
 TArray<FPCGPinProperties> UPCGExNumericCompareNearestFilterProviderSettings::InputPinProperties() const
 {
 	TArray<FPCGPinProperties> PinProperties = Super::InputPinProperties();
-	PCGEX_PIN_POINTS(PCGEx::SourceTargetsLabel, TEXT("Target points to read operand B from"), Required, {})
+	PCGEX_PIN_POINTS(PCGEx::SourceTargetsLabel, TEXT("Target points to read operand B from"), Required)
 	return PinProperties;
 }
 

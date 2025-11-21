@@ -27,7 +27,7 @@ public:
 	//~Begin UPCGSettings
 #if WITH_EDITOR
 	PCGEX_NODE_INFOS(FindClusterHull, "Pathfinding : Find Cluster Hull", "Output a single hull per cluster, as a path.");
-	virtual FLinearColor GetNodeTitleColor() const override { return GetDefault<UPCGExGlobalSettings>()->NodeColorPathfinding; }
+	virtual FLinearColor GetNodeTitleColor() const override { return GetDefault<UPCGExGlobalSettings>()->ColorPathfinding; }
 #endif
 
 protected:
@@ -77,9 +77,12 @@ struct FPCGExFindClusterHullContext final : FPCGExEdgesProcessorContext
 
 	FPCGExCellArtifactsDetails Artifacts;
 
-	TSharedPtr<PCGExData::FPointIOCollection> Paths;
+	TSharedPtr<PCGExData::FPointIOCollection> OutputPaths;
 
 	mutable FRWLock SeedOutputLock;
+
+protected:
+	PCGEX_ELEMENT_BATCH_EDGE_DECL
 };
 
 class FPCGExFindClusterHullElement final : public FPCGExEdgesProcessorElement

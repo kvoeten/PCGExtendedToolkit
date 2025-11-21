@@ -4,8 +4,8 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "PCGExDetails.h"
 #include "Data/PCGExDataForward.h"
+#include "Details/PCGExDetailsFiltering.h"
 
 #include "Graph/PCGExEdgesProcessor.h"
 #include "PCGExPickClosestClusters.generated.h"
@@ -26,7 +26,7 @@ public:
 	//~Begin UPCGSettings
 #if WITH_EDITOR
 	PCGEX_NODE_INFOS(PickClosestClusters, "Cluster : Pick Closest", "Pick the clusters closest to input targets.");
-	virtual FLinearColor GetNodeTitleColor() const override { return GetDefault<UPCGExGlobalSettings>()->NodeColorCluster; }
+	virtual FLinearColor GetNodeTitleColor() const override { return GetDefault<UPCGExGlobalSettings>()->ColorClusterOp; }
 #endif
 
 protected:
@@ -94,6 +94,9 @@ struct FPCGExPickClosestClustersContext final : FPCGExEdgesProcessorContext
 	TSharedPtr<PCGExData::FDataForwardHandler> TargetForwardHandler;
 
 	virtual void ClusterProcessing_InitialProcessingDone() override;
+
+protected:
+	PCGEX_ELEMENT_BATCH_EDGE_DECL
 };
 
 class FPCGExPickClosestClustersElement final : public FPCGExEdgesProcessorElement

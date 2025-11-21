@@ -5,13 +5,11 @@
 
 #include "CoreMinimal.h"
 #include "PCGExPathProcessor.h"
-
-#include "PCGExPointsProcessor.h"
-
-
-#include "Tangents/PCGExTangentsInstancedFactory.h"
+#include "Details/PCGExSettingsMacros.h"
 #include "PCGExWriteTangents.generated.h"
 
+class UPCGExTangentsInstancedFactory;
+class FPCGExTangentsOperation;
 /**
  * 
  */
@@ -28,10 +26,18 @@ public:
 	PCGEX_NODE_INFOS(PathWriteTangents, "Path : Write Tangents", "Computes & writes points tangents.");
 #endif
 
+#if WITH_EDITORONLY_DATA
+	// UObject interface
+	virtual void PostInitProperties() override;
+	// End of UObject interface
+#endif
+
 protected:
 	virtual TArray<FPCGPinProperties> InputPinProperties() const override;
 	virtual FPCGElementPtr CreateElement() const override;
 	//~End UPCGSettings
+
+	virtual PCGExData::EIOInit GetMainDataInitializationPolicy() const override;
 
 public:
 	virtual FName GetPointFilterPin() const override;
@@ -63,7 +69,7 @@ public:
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = "Settings|Scaling", meta=(PCG_Overridable, DisplayName="Arrive Scale", EditCondition="ArriveScaleInput == EPCGExInputValueType::Constant", EditConditionHides))
 	double ArriveScaleConstant = 1;
 
-	PCGEX_SETTING_VALUE_GET(ArriveScale, FVector, ArriveScaleInput, ArriveScaleAttribute, FVector(ArriveScaleConstant))
+	PCGEX_SETTING_VALUE_DECL(ArriveScale, FVector)
 
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = "Settings|Scaling", meta=(PCG_NotOverridable))
 	EPCGExInputValueType LeaveScaleInput = EPCGExInputValueType::Constant;
@@ -74,7 +80,7 @@ public:
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = "Settings|Scaling", meta=(PCG_Overridable, DisplayName="Leave Scale", EditCondition="LeaveScaleInput == EPCGExInputValueType::Constant", EditConditionHides))
 	double LeaveScaleConstant = 1;
 
-	PCGEX_SETTING_VALUE_GET(LeaveScale, FVector, LeaveScaleInput, LeaveScaleAttribute, FVector(LeaveScaleConstant))
+	PCGEX_SETTING_VALUE_DECL(LeaveScale, FVector)
 };
 
 struct FPCGExWriteTangentsContext final : FPCGExPathProcessorContext
@@ -84,6 +90,9 @@ struct FPCGExWriteTangentsContext final : FPCGExPathProcessorContext
 	UPCGExTangentsInstancedFactory* Tangents = nullptr;
 	UPCGExTangentsInstancedFactory* StartTangents = nullptr;
 	UPCGExTangentsInstancedFactory* EndTangents = nullptr;
+
+protected:
+	PCGEX_ELEMENT_BATCH_POINT_DECL
 };
 
 class FPCGExWriteTangentsElement final : public FPCGExPathProcessorElement

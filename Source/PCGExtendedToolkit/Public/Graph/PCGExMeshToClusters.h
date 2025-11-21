@@ -33,8 +33,11 @@ public:
 	//~Begin UPCGSettings
 #if WITH_EDITOR
 	PCGEX_NODE_INFOS(MeshToClusters, "Mesh to Clusters", "Creates clusters from mesh topology.");
-	virtual FLinearColor GetNodeTitleColor() const override { return GetDefault<UPCGExGlobalSettings>()->NodeColorClusterGen; }
+	virtual FLinearColor GetNodeTitleColor() const override { return GetDefault<UPCGExGlobalSettings>()->ColorClusterGenerator; }
+	virtual bool CanDynamicallyTrackKeys() const override { return true; }
 #endif
+
+	virtual TArray<FPCGPinProperties> InputPinProperties() const override;
 	virtual TArray<FPCGPinProperties> OutputPinProperties() const override;
 
 protected:
@@ -58,7 +61,7 @@ public:
 
 	/** Static mesh path attribute -- Either FString, FName or FSoftObjectPath*/
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta = (PCG_Overridable, DisplayName="Static Mesh (Attr)", EditCondition="StaticMeshInput != EPCGExInputValueType::Constant", EditConditionHides))
-	FName StaticMeshAttribute;
+	FName StaticMeshAttribute = "Mesh";
 
 	/** Static mesh constant */
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta = (PCG_Overridable, DisplayName="Static Mesh", EditCondition="StaticMeshInput == EPCGExInputValueType::Constant", EditConditionHides))
@@ -71,6 +74,10 @@ public:
 	/** Target inherit behavior */
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta = (PCG_Overridable))
 	FPCGExTransformDetails TransformDetails;
+
+	/** Which data should be imported from the static mesh onto the generated points */
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta = (PCG_Overridable))
+	FPCGExGeoMeshImportDetails ImportDetails;
 
 	/** Skip invalid meshes & do not throw warning about them. */
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta = (PCG_Overridable))
@@ -94,6 +101,7 @@ struct FPCGExMeshToClustersContext final : FPCGExPointsProcessorContext
 
 	FPCGExGraphBuilderDetails GraphBuilderDetails;
 	FPCGExTransformDetails TransformDetails;
+	FPCGExGeoMeshImportDetails ImportDetails;
 
 	TSharedPtr<PCGExData::FFacade> TargetsDataFacade;
 	TSharedPtr<PCGExGeo::FGeoStaticMeshMap> StaticMeshMap;
@@ -105,6 +113,8 @@ struct FPCGExMeshToClustersContext final : FPCGExPointsProcessorContext
 	TSharedPtr<PCGExData::FPointIOCollection> BaseMeshDataCollection;
 
 	TArray<TSharedPtr<PCGExGraph::FGraphBuilder>> GraphBuilders;
+
+	bool bWantsImport = false;
 };
 
 

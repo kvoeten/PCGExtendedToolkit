@@ -29,13 +29,20 @@ public:
 	PCGEX_NODE_INFOS(PathCrossings, "Path × Path Crossings", "Find crossing points between & inside paths.");
 #endif
 
+#if WITH_EDITORONLY_DATA
+	// UObject interface
+	virtual void PostInitProperties() override;
+	// End of UObject interface
+#endif
+
 protected:
 	virtual TArray<FPCGPinProperties> InputPinProperties() const override;
 	virtual FPCGElementPtr CreateElement() const override;
 	//~End UPCGSettings
 
 public:
-	/** If enabled, crossings are only computed per path, against themselves only. Note: this ignores the "bEnableSelfIntersection" from details below. */
+	/** If enabled, crossings are only computed per path, against themselves only.
+	 * Note: this ignores the "bEnableSelfIntersection" from details below. */
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta=(PCG_Overridable, ClampMin=0))
 	bool bSelfIntersectionOnly = false;
 
@@ -123,6 +130,10 @@ public:
 
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = "Settings|Tagging", meta=(EditCondition="bTagIfHasNoCrossings"))
 	FString HasNoCrossingsTag = TEXT("HasNoCrossings");
+
+	/** If enabled, paths that are only "cutters" (paths that will cut but won't be cut). */
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta=(PCG_NotOverridable))
+	bool bOmitUncuttableFromOutput = false;
 };
 
 struct FPCGExPathCrossingsContext final : FPCGExPathProcessorContext
@@ -132,13 +143,16 @@ struct FPCGExPathCrossingsContext final : FPCGExPathProcessorContext
 	FString CanCutTag = TEXT("");
 	FString CanBeCutTag = TEXT("");
 
-	TArray<TObjectPtr<const UPCGExFilterFactoryData>> CanCutFilterFactories;
-	TArray<TObjectPtr<const UPCGExFilterFactoryData>> CanBeCutFilterFactories;
+	TArray<TObjectPtr<const UPCGExPointFilterFactoryData>> CanCutFilterFactories;
+	TArray<TObjectPtr<const UPCGExPointFilterFactoryData>> CanBeCutFilterFactories;
 
 	UPCGExSubPointsBlendInstancedFactory* Blending = nullptr;
 
 	TSharedPtr<PCGExDetails::FDistances> Distances;
 	FPCGExBlendingDetails CrossingBlending;
+
+protected:
+	PCGEX_ELEMENT_BATCH_POINT_DECL
 };
 
 class FPCGExPathCrossingsElement final : public FPCGExPathProcessorElement

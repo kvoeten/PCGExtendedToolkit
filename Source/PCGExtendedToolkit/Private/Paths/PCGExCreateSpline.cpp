@@ -5,6 +5,10 @@
 
 
 #include "PCGComponent.h"
+#include "Data/PCGExDataTag.h"
+#include "Data/PCGExPointIO.h"
+#include "Details/PCGExVersion.h"
+#include "Paths/PCGExPaths.h"
 
 #define LOCTEXT_NAMESPACE "PCGExCreateSplineElement"
 #define PCGEX_NAMESPACE CreateSpline
@@ -12,17 +16,22 @@
 #if WITH_EDITOR
 void UPCGExCreateSplineSettings::ApplyDeprecation(UPCGNode* InOutNode)
 {
-	Tangents.ApplyDeprecation(bApplyCustomTangents_DEPRECATED, ArriveTangentAttribute_DEPRECATED, LeaveTangentAttribute_DEPRECATED);
+	PCGEX_UPDATE_TO_DATA_VERSION(1, 70, 11)
+	{
+		Tangents.ApplyDeprecation(bApplyCustomTangents_DEPRECATED, ArriveTangentAttribute_DEPRECATED, LeaveTangentAttribute_DEPRECATED);
+	}
+
 	Super::ApplyDeprecation(InOutNode);
 }
 #endif
 
 PCGEX_INITIALIZE_ELEMENT(CreateSpline)
+PCGEX_ELEMENT_BATCH_POINT_IMPL_ADV(CreateSpline)
 
 TArray<FPCGPinProperties> UPCGExCreateSplineSettings::OutputPinProperties() const
 {
 	TArray<FPCGPinProperties> PinProperties;
-	PCGEX_PIN_POLYLINES(GetMainOutputPin(), "Spline data.", Required, {})
+	PCGEX_PIN_POLYLINES(GetMainOutputPin(), "Spline data.", Required)
 	return PinProperties;
 }
 
@@ -51,7 +60,7 @@ bool FPCGExCreateSplineElement::ExecuteInternal(FPCGContext* InContext) const
 	PCGEX_ON_INITIAL_EXECUTION
 	{
 		PCGEX_ON_INVALILD_INPUTS(FTEXT("Some input have less than 2 points and will be ignored."))
-		if (!Context->StartBatchProcessingPoints<PCGExCreateSpline::FBatch>(
+		if (!Context->StartBatchProcessingPoints(
 			[&](const TSharedPtr<PCGExData::FPointIO>& Entry)
 			{
 				if (Entry->GetNum() < 2)
@@ -61,7 +70,7 @@ bool FPCGExCreateSplineElement::ExecuteInternal(FPCGContext* InContext) const
 				}
 				return true;
 			},
-			[&](const TSharedPtr<PCGExCreateSpline::FBatch>& NewBatch)
+			[&](const TSharedPtr<PCGExPointsMT::IBatch>& NewBatch)
 			{
 			}))
 		{
@@ -81,6 +90,16 @@ bool FPCGExCreateSplineElement::IsCacheable(const UPCGSettings* InSettings) cons
 {
 	const UPCGCreateSplineSettings* Settings = Cast<const UPCGCreateSplineSettings>(InSettings);
 	return !Settings || Settings->Mode == EPCGCreateSplineMode::CreateDataOnly;
+}
+
+bool FPCGExCreateSplineElement::CanExecuteOnlyOnMainThread(FPCGContext* Context) const
+{
+	if (Context)
+	{
+		const UPCGExCreateSplineSettings* Settings = Context->GetInputSettings<UPCGExCreateSplineSettings>();
+		if (Settings && Settings->Mode != EPCGCreateSplineMode::CreateDataOnly) { return true; }
+	}
+	return FPCGExPathProcessorElement::CanExecuteOnlyOnMainThread(Context);
 }
 
 namespace PCGExCreateSpline
@@ -103,7 +122,7 @@ namespace PCGExCreateSpline
 			CustomPointType = PointDataFacade->GetBroadcaster<int32>(Settings->PointTypeAttribute, true);
 			if (!CustomPointType)
 			{
-				PCGE_LOG_C(Warning, GraphAndLog, Context, FTEXT("Missing custom point type attribute"));
+				PCGEX_LOG_INVALID_ATTR_C(Context, Point Type, Settings->PointTypeAttribute)
 				return false;
 			}
 		}
@@ -223,11 +242,12 @@ namespace PCGExCreateSpline
 		TProcessor<FPCGExCreateSplineContext, UPCGExCreateSplineSettings>::Cleanup();
 	}
 
-	bool FBatch::PrepareSingle(const TSharedPtr<FProcessor>& PointsProcessor)
+	bool FBatch::PrepareSingle(const TSharedRef<PCGExPointsMT::IProcessor>& InProcessor)
 	{
 		if (!TargetActor) { return false; }
-		if (!TBatch<FProcessor>::PrepareSingle(PointsProcessor)) { return false; }
-		PointsProcessor->SplineActor = TargetActor;
+		if (!TBatch<FProcessor>::PrepareSingle(InProcessor)) { return false; }
+		PCGEX_TYPED_PROCESSOR_REF
+		TypedProcessor->SplineActor = TargetActor;
 		return true;
 	}
 }

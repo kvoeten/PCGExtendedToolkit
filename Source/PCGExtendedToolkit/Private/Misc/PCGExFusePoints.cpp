@@ -3,7 +3,11 @@
 
 #include "Misc/PCGExFusePoints.h"
 
+#include "Data/PCGExPointIO.h"
 #include "Data/Blending/PCGExUnionBlender.h"
+#include "Details/PCGExDetailsDistances.h"
+#include "Graph/PCGExGraph.h"
+#include "Async/ParallelFor.h"
 
 
 #include "Graph/PCGExIntersections.h"
@@ -28,6 +32,7 @@ namespace PCGExFuse
 }
 
 PCGEX_INITIALIZE_ELEMENT(FusePoints)
+PCGEX_ELEMENT_BATCH_POINT_IMPL(FusePoints)
 
 bool FPCGExFusePointsElement::Boot(FPCGExContext* InContext) const
 {
@@ -53,11 +58,11 @@ bool FPCGExFusePointsElement::ExecuteInternal(FPCGContext* InContext) const
 	PCGEX_EXECUTION_CHECK
 	PCGEX_ON_INITIAL_EXECUTION
 	{
-		if (!Context->StartBatchProcessingPoints<PCGExPointsMT::TBatch<PCGExFusePoints::FProcessor>>(
+		if (!Context->StartBatchProcessingPoints(
 			[&](const TSharedPtr<PCGExData::FPointIO>& Entry) { return true; },
-			[&](const TSharedPtr<PCGExPointsMT::TBatch<PCGExFusePoints::FProcessor>>& NewBatch)
+			[&](const TSharedPtr<PCGExPointsMT::IBatch>& NewBatch)
 			{
-				NewBatch->bRequiresWriteStep = true;
+				NewBatch->bRequiresWriteStep = Settings->Mode != EPCGExFusedPointOutput::MostCentral;
 			}))
 		{
 			return Context->CancelExecution(TEXT("Could not find any points to fuse."));
@@ -93,6 +98,7 @@ namespace PCGExFusePoints
 
 		// TODO : See if we can support scoped get
 		if (!UnionGraph->Init(Context, PointDataFacade, false)) { return false; }
+		UnionGraph->Reserve(PointDataFacade->GetNum(), 0);
 
 		// Register fetch-able buffers for chunked reads
 		TArray<PCGEx::FAttributeIdentity> SourceAttributes;
@@ -102,7 +108,7 @@ namespace PCGExFusePoints
 
 		PointDataFacade->CreateReadables(SourceAttributes);
 
-		bDaisyChainProcessPoints = Settings->PointPointIntersectionDetails.FuseDetails.DoInlineInsertion();
+		bForceSingleThreadedProcessPoints = Settings->PointPointIntersectionDetails.FuseDetails.DoInlineInsertion();
 		StartParallelLoopForPoints(PCGExData::EIOSide::In);
 
 		return true;
@@ -114,7 +120,14 @@ namespace PCGExFusePoints
 
 		PointDataFacade->Fetch(Scope);
 
-		PCGEX_SCOPE_LOOP(Index) { UnionGraph->InsertPoint(PointDataFacade->GetInPoint(Index)); }
+		if (bForceSingleThreadedProcessPoints)
+		{
+			PCGEX_SCOPE_LOOP(Index) { UnionGraph->InsertPoint_Unsafe(PointDataFacade->GetInPoint(Index)); }
+		}
+		else
+		{
+			PCGEX_SCOPE_LOOP(Index) { UnionGraph->InsertPoint(PointDataFacade->GetInPoint(Index)); }
+		}
 	}
 
 	void FProcessor::ProcessRange(const PCGExMT::FScope& Scope)
@@ -160,6 +173,38 @@ namespace PCGExFusePoints
 
 		UPCGBasePointData* OutData = PointDataFacade->GetOut();
 		PCGEx::SetNumPointsAllocated(OutData, NumUnionNodes, PointDataFacade->GetAllocations());
+
+		if (Settings->Mode == EPCGExFusedPointOutput::MostCentral)
+		{
+			TArray<int32>& IdxMapping = PointDataFacade->Source->GetIdxMapping(NumUnionNodes);
+			const PCGPointOctree::FPointOctree& Octree = PointDataFacade->GetIn()->GetPointOctree();
+			const TConstPCGValueRange<FTransform> OutTransforms = PointDataFacade->GetIn()->GetConstTransformValueRange();
+			ParallelFor(
+				NumUnionNodes, [&](int32 Index)
+				{
+					const FVector Center = UnionGraph->Nodes[Index]->UpdateCenter(UnionGraph->NodesUnion, Context->MainPoints);
+					double BestDist = MAX_dbl;
+					int32 BestIndex = -1;
+
+					Octree.FindNearbyElements(
+						Center, [&](const PCGPointOctree::FPointRef& PointRef)
+						{
+							const double Dist = FVector::DistSquared(Center, OutTransforms[PointRef.Index].GetLocation());
+							if (Dist < BestDist)
+							{
+								BestDist = Dist;
+								BestIndex = PointRef.Index;
+							}
+						});
+
+					if (BestIndex == -1) { BestIndex = UnionGraph->Nodes[Index]->Point.Index; }
+					IdxMapping[Index] = BestIndex;
+				});
+
+			PointDataFacade->Source->ConsumeIdxMapping(PointDataFacade->GetAllocations());
+
+			return;
+		}
 
 		const TSharedPtr<PCGExDataBlending::FUnionBlender> TypedBlender = MakeShared<PCGExDataBlending::FUnionBlender>(const_cast<FPCGExBlendingDetails*>(&Settings->BlendingDetails), &Context->CarryOverDetails, Context->Distances);
 		UnionBlender = TypedBlender;

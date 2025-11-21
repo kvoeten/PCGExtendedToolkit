@@ -3,8 +3,10 @@
 
 #include "Paths/PCGExSplitPath.h"
 
-#include "Data/PCGExPointFilter.h"
-
+#include "Data/PCGExData.h"
+#include "Data/PCGExDataTag.h"
+#include "Data/PCGExPointIO.h"
+#include "Paths/PCGExPaths.h"
 
 #define LOCTEXT_NAMESPACE "PCGExSplitPathElement"
 #define PCGEX_NAMESPACE SplitPath
@@ -20,6 +22,7 @@ void UPCGExSplitPathSettings::PostEditChangeProperty(FPropertyChangedEvent& Prop
 #endif
 
 PCGEX_INITIALIZE_ELEMENT(SplitPath)
+PCGEX_ELEMENT_BATCH_POINT_IMPL(SplitPath)
 
 bool FPCGExSplitPathElement::Boot(FPCGExContext* InContext) const
 {
@@ -43,7 +46,7 @@ bool FPCGExSplitPathElement::ExecuteInternal(FPCGContext* InContext) const
 	{
 		PCGEX_ON_INVALILD_INPUTS(FTEXT("Some inputs have less than 2 points and won't be processed."))
 
-		if (!Context->StartBatchProcessingPoints<PCGExPointsMT::TBatch<PCGExSplitPath::FProcessor>>(
+		if (!Context->StartBatchProcessingPoints(
 			[&](const TSharedPtr<PCGExData::FPointIO>& Entry)
 			{
 				if (Entry->GetNum() < 2)
@@ -54,7 +57,7 @@ bool FPCGExSplitPathElement::ExecuteInternal(FPCGContext* InContext) const
 				}
 				return true;
 			},
-			[&](const TSharedPtr<PCGExPointsMT::TBatch<PCGExSplitPath::FProcessor>>& NewBatch)
+			[&](const TSharedPtr<PCGExPointsMT::IBatch>& NewBatch)
 			{
 			}))
 		{
@@ -67,8 +70,8 @@ bool FPCGExSplitPathElement::ExecuteInternal(FPCGContext* InContext) const
 	Context->MainPaths->Pairs.Reserve(Context->MainPaths->Pairs.Num() + Context->MainBatch->GetNumProcessors());
 	Context->MainBatch->Output();
 
-	Context->MainPaths->StageOutputs();
-	Context->MainPoints->StageOutputs();
+	PCGEX_OUTPUT_VALID_PATHS(MainPaths)
+	PCGEX_OUTPUT_VALID_PATHS(MainPoints)
 
 	return Context->TryComplete();
 }
@@ -366,8 +369,28 @@ namespace PCGExSplitPath
 	{
 		if (SubPaths.IsEmpty() || (SubPaths.Num() == 1 && SubPaths[0].Count == PointDataFacade->GetNum()))
 		{
-			// No splits, forward
-			PCGEX_INIT_IO_VOID(PointDataFacade->Source, PCGExData::EIOInit::Forward)
+			bool bHasFilteredOutPoints = false;
+			for (const int8 Filtered : PointFilterCache)
+			{
+				if (Filtered)
+				{
+					bHasFilteredOutPoints = true;
+					break;
+				}
+			}
+
+			if (!bHasFilteredOutPoints)
+			{
+				// No splits, forward
+				PCGEX_INIT_IO_VOID(PointDataFacade->Source, PCGExData::EIOInit::Forward)
+			}
+			else if ((SubPaths.Num() == 1 && SubPaths[0].Count == PointDataFacade->GetNum()) && bClosedLoop)
+			{
+				// Disconnecting closed loop last point will produce an open path
+				PCGEX_INIT_IO_VOID(PointDataFacade->Source, PCGExData::EIOInit::Duplicate)
+				PCGExPaths::SetClosedLoop(PointDataFacade->GetOut(), false);
+			}
+
 			return;
 		}
 

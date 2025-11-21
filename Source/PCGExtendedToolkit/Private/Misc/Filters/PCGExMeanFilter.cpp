@@ -3,6 +3,10 @@
 
 #include "Misc/Filters/PCGExMeanFilter.h"
 
+#include "PCGExHelpers.h"
+#include "Data/PCGExData.h"
+#include "Data/PCGExPointIO.h"
+
 
 #define LOCTEXT_NAMESPACE "PCGExMeanFilterDefinition"
 #define PCGEX_NAMESPACE MeanFilterDefinition
@@ -32,11 +36,11 @@ bool PCGExPointFilter::FMeanFilter::Init(FPCGExContext* InContext, const TShared
 {
 	if (!IFilter::Init(InContext, InPointDataFacade)) { return false; }
 
-	const TSharedPtr<PCGExData::TBuffer<double>> Buffer = PointDataFacade->GetBroadcaster<double>(TypedFilterFactory->Config.Target, false, true);
+	const TSharedPtr<PCGExData::TBuffer<double>> Buffer = PointDataFacade->GetBroadcaster<double>(TypedFilterFactory->Config.Target, false, true, PCGEX_QUIET_HANDLING);
 
 	if (!Buffer)
 	{
-		PCGEX_LOG_INVALID_SELECTOR_C(InContext, Target, TypedFilterFactory->Config.Target)
+		PCGEX_LOG_INVALID_SELECTOR_HANDLED_C(InContext, Target, TypedFilterFactory->Config.Target)
 		return false;
 	}
 
@@ -82,16 +86,16 @@ void PCGExPointFilter::FMeanFilter::PostInit()
 		ReferenceValue = SumValue / NumPoints;
 		break;
 	case EPCGExMeanMethod::Median:
-		ReferenceValue = PCGExMath::GetMedian(Values);
+		ReferenceValue = PCGExMean::GetMedian(Values);
 		break;
 	case EPCGExMeanMethod::Fixed:
 		ReferenceValue = TypedFilterFactory->Config.MeanValue;
 		break;
 	case EPCGExMeanMethod::ModeMin:
-		ReferenceValue = PCGExMath::GetMode(Values, false, TypedFilterFactory->Config.ModeTolerance);
+		ReferenceValue = PCGExMean::GetMode(Values, false, TypedFilterFactory->Config.ModeTolerance);
 		break;
 	case EPCGExMeanMethod::ModeMax:
-		ReferenceValue = PCGExMath::GetMode(Values, true, TypedFilterFactory->Config.ModeTolerance);
+		ReferenceValue = PCGExMean::GetMode(Values, true, TypedFilterFactory->Config.ModeTolerance);
 		break;
 	case EPCGExMeanMethod::Central:
 		ReferenceValue = DataMin + (DataMax - DataMin) * 0.5;

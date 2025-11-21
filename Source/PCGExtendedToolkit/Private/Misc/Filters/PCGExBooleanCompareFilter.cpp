@@ -3,9 +3,16 @@
 
 #include "Misc/Filters/PCGExBooleanCompareFilter.h"
 
+#include "PCGExHelpers.h"
+#include "Data/PCGExDataHelpers.h"
+#include "Data/PCGExDataPreloader.h"
+#include "Details/PCGExDetailsSettings.h"
+
 
 #define LOCTEXT_NAMESPACE "PCGExCompareFilterDefinition"
 #define PCGEX_NAMESPACE CompareFilterDefinition
+
+PCGEX_SETTING_VALUE_IMPL(FPCGExBooleanCompareFilterConfig, OperandB, bool, CompareAgainst, OperandB, OperandBConstant)
 
 bool UPCGExBooleanCompareFilterFactory::DomainCheck()
 {
@@ -17,6 +24,13 @@ bool UPCGExBooleanCompareFilterFactory::DomainCheck()
 TSharedPtr<PCGExPointFilter::IFilter> UPCGExBooleanCompareFilterFactory::CreateFilter() const
 {
 	return MakeShared<PCGExPointFilter::FBooleanCompareFilter>(this);
+}
+
+void UPCGExBooleanCompareFilterFactory::RegisterBuffersDependencies(FPCGExContext* InContext, PCGExData::FFacadePreloader& FacadePreloader) const
+{
+	Super::RegisterBuffersDependencies(InContext, FacadePreloader);
+	FacadePreloader.Register<bool>(InContext, Config.OperandA);
+	if (Config.CompareAgainst == EPCGExInputValueType::Attribute) { FacadePreloader.Register<bool>(InContext, Config.OperandB); }
 }
 
 bool UPCGExBooleanCompareFilterFactory::RegisterConsumableAttributesWithData(FPCGExContext* InContext, const UPCGData* InData) const
@@ -34,15 +48,15 @@ bool PCGExPointFilter::FBooleanCompareFilter::Init(FPCGExContext* InContext, con
 {
 	if (!IFilter::Init(InContext, InPointDataFacade)) { return false; }
 
-	OperandA = PointDataFacade->GetBroadcaster<bool>(TypedFilterFactory->Config.OperandA, true);
+	OperandA = PointDataFacade->GetBroadcaster<bool>(TypedFilterFactory->Config.OperandA, true, false, PCGEX_QUIET_HANDLING);
 
 	if (!OperandA)
 	{
-		PCGEX_LOG_INVALID_SELECTOR_C(InContext, Operand A, TypedFilterFactory->Config.OperandA)
+		PCGEX_LOG_INVALID_SELECTOR_HANDLED_C(InContext, Operand A, TypedFilterFactory->Config.OperandA)
 		return false;
 	}
 
-	OperandB = TypedFilterFactory->Config.GetValueSettingOperandB();
+	OperandB = TypedFilterFactory->Config.GetValueSettingOperandB(PCGEX_QUIET_HANDLING);
 	if (!OperandB->Init(PointDataFacade)) { return false; }
 
 	return true;
@@ -50,8 +64,8 @@ bool PCGExPointFilter::FBooleanCompareFilter::Init(FPCGExContext* InContext, con
 
 bool PCGExPointFilter::FBooleanCompareFilter::Test(const int32 PointIndex) const
 {
-	const double A = OperandA->Read(PointIndex);
-	const double B = OperandB->Read(PointIndex);
+	const bool A = OperandA->Read(PointIndex);
+	const bool B = OperandB->Read(PointIndex);
 	return TypedFilterFactory->Config.Comparison == EPCGExEquality::Equal ? A == B : A != B;
 }
 
@@ -60,8 +74,10 @@ bool PCGExPointFilter::FBooleanCompareFilter::Test(const TSharedPtr<PCGExData::F
 	bool A = false;
 	bool B = false;
 
-	if (!PCGExDataHelpers::TryReadDataValue(IO, TypedFilterFactory->Config.OperandA, A)) { return false; }
-	if (!PCGExDataHelpers::TryGetSettingDataValue(IO, TypedFilterFactory->Config.CompareAgainst, TypedFilterFactory->Config.OperandB, TypedFilterFactory->Config.OperandBConstant, B)) { return false; }
+	if (!PCGExDataHelpers::TryReadDataValue(IO, TypedFilterFactory->Config.OperandA, A, PCGEX_QUIET_HANDLING)) { PCGEX_QUIET_HANDLING_RET }
+	if (!PCGExDataHelpers::TryGetSettingDataValue(
+		IO, TypedFilterFactory->Config.CompareAgainst,
+		TypedFilterFactory->Config.OperandB, TypedFilterFactory->Config.OperandBConstant, B, PCGEX_QUIET_HANDLING)) { PCGEX_QUIET_HANDLING_RET }
 
 	return TypedFilterFactory->Config.Comparison == EPCGExEquality::Equal ? A == B : A != B;
 }

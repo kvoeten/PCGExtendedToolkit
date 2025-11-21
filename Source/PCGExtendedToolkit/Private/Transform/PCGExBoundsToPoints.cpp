@@ -3,11 +3,14 @@
 
 #include "Transform/PCGExBoundsToPoints.h"
 
+#include "Data/PCGExPointIO.h"
+
 
 #define LOCTEXT_NAMESPACE "PCGExBoundsToPointsElement"
 #define PCGEX_NAMESPACE BoundsToPoints
 
 PCGEX_INITIALIZE_ELEMENT(BoundsToPoints)
+PCGEX_ELEMENT_BATCH_POINT_IMPL(BoundsToPoints)
 
 bool FPCGExBoundsToPointsElement::Boot(FPCGExContext* InContext) const
 {
@@ -26,9 +29,9 @@ bool FPCGExBoundsToPointsElement::ExecuteInternal(FPCGContext* InContext) const
 	PCGEX_EXECUTION_CHECK
 	PCGEX_ON_INITIAL_EXECUTION
 	{
-		if (!Context->StartBatchProcessingPoints<PCGExPointsMT::TBatch<PCGExBoundsToPoints::FProcessor>>(
+		if (!Context->StartBatchProcessingPoints(
 			[&](const TSharedPtr<PCGExData::FPointIO>& Entry) { return true; },
-			[&](const TSharedPtr<PCGExPointsMT::TBatch<PCGExBoundsToPoints::FProcessor>>& NewBatch)
+			[&](const TSharedPtr<PCGExPointsMT::IBatch>& NewBatch)
 			{
 				//NewBatch->bRequiresWriteStep = true;
 			}))
@@ -49,6 +52,8 @@ namespace PCGExBoundsToPoints
 	bool FProcessor::Process(const TSharedPtr<PCGExMT::FTaskManager>& InAsyncManager)
 	{
 		TRACE_CPUPROFILER_EVENT_SCOPE(PCGExBoundsToPoints::Process);
+
+		PointDataFacade->bSupportsScopedGet = Context->bScopedAttributeGet;
 
 		if (!IProcessor::Process(InAsyncManager)) { return false; }
 
@@ -95,6 +100,7 @@ namespace PCGExBoundsToPoints
 			}
 			else
 			{
+				PCGEx::SetNumPointsAllocated(PointDataFacade->GetOut(), NumPoints);
 			}
 		}
 
@@ -108,6 +114,7 @@ namespace PCGExBoundsToPoints
 		TRACE_CPUPROFILER_EVENT_SCOPE(PCGEx::BoundsToPoints::ProcessPoints);
 
 		const TSharedRef<PCGExData::FPointIO>& PointIO = PointDataFacade->Source;
+		PointDataFacade->Fetch(Scope);
 
 		PCGEX_SCOPE_LOOP(Index)
 		{
@@ -131,8 +138,8 @@ namespace PCGExBoundsToPoints
 
 				if (bSetExtents)
 				{
-					BoundsMin[A] = -Extents;
-					BoundsMax[A] = Extents;
+					BoundsMin[A] = -FinalExtents;
+					BoundsMax[A] = FinalExtents;
 				}
 
 				Transforms[A].SetLocation(UVW.GetPosition(Index));
@@ -143,8 +150,8 @@ namespace PCGExBoundsToPoints
 				{
 					if (bSetExtents)
 					{
-						BoundsMin[B] = -Extents;
-						BoundsMax[B] = Extents;
+						BoundsMin[B] = -FinalExtents;
+						BoundsMax[B] = FinalExtents;
 					}
 
 					Transforms[B].SetLocation(UVW.GetPosition(Index, Axis, true));
@@ -165,8 +172,8 @@ namespace PCGExBoundsToPoints
 
 				if (bSetExtents)
 				{
-					BoundsMin[A] = -Extents;
-					BoundsMax[A] = Extents;
+					BoundsMin[A] = -FinalExtents;
+					BoundsMax[A] = FinalExtents;
 				}
 
 				Transforms[A].SetLocation(UVW.GetPosition(Index));
@@ -177,8 +184,8 @@ namespace PCGExBoundsToPoints
 				{
 					if (bSetExtents)
 					{
-						BoundsMin[B] = -Extents;
-						BoundsMax[B] = Extents;
+						BoundsMin[B] = -FinalExtents;
+						BoundsMax[B] = FinalExtents;
 					}
 
 					Transforms[B].SetLocation(UVW.GetPosition(Index, Axis, true));

@@ -4,6 +4,7 @@
 #include "Data/PCGExAttributeHasher.h"
 
 #include "PCGExGlobalSettings.h"
+#include "Data/PCGExPointIO.h"
 
 namespace PCGEx
 {
@@ -21,7 +22,7 @@ namespace PCGEx
 		ValuesGetter = MakeShared<TAttributeBroadcaster<int32>>();
 		if (!ValuesGetter->Prepare(Config.SourceAttribute, InPointIO))
 		{
-			PCGE_LOG_C(Warning, GraphAndLog, InContext, FText::Format(FTEXT("Missing attribute {0}."), FText::FromName(Config.SourceAttribute.GetName())));
+			PCGEX_LOG_INVALID_SELECTOR_C(InContext, , Config.SourceAttribute)
 			return false;
 		}
 

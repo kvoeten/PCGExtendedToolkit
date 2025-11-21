@@ -4,9 +4,12 @@
 #include "Paths/PCGExPathToClusters.h"
 
 
+#include "Data/PCGExPointIO.h"
+#include "Data/PCGExUnionData.h"
 #include "Graph/PCGExGraph.h"
 #include "Graph/Data/PCGExClusterData.h"
 #include "Graph/PCGExUnionProcessor.h"
+#include "Paths/PCGExPaths.h"
 
 #define LOCTEXT_NAMESPACE "PCGExPathToClustersElement"
 #define PCGEX_NAMESPACE BuildCustomGraph
@@ -15,15 +18,18 @@ TArray<FPCGPinProperties>
 UPCGExPathToClustersSettings::OutputPinProperties() const
 {
 	TArray<FPCGPinProperties> PinProperties = Super::OutputPinProperties();
-	PCGEX_PIN_POINTS(
-		PCGExGraph::OutputEdgesLabel,
-		"Point data representing edges.",
-		Required,
-		{})
+	PCGEX_PIN_POINTS(PCGExGraph::OutputEdgesLabel, "Point data representing edges.", Required)
 	return PinProperties;
 }
 
 PCGEX_INITIALIZE_ELEMENT(PathToClusters)
+
+TSharedPtr<PCGExPointsMT::IBatch> FPCGExPathToClustersContext::CreatePointBatchInstance(const TArray<TWeakPtr<PCGExData::FPointIO>>& InData) const
+{
+	PCGEX_SETTINGS_LOCAL(PathToClusters)
+	if (Settings->bFusePaths) { return MakeShared<PCGExPointsMT::TBatch<PCGExPathToClusters::FFusingProcessor>>(const_cast<FPCGExPathToClustersContext*>(this), InData); }
+	return MakeShared<PCGExPointsMT::TBatch<PCGExPathToClusters::FNonFusingProcessor>>(const_cast<FPCGExPathToClustersContext*>(this), InData);
+}
 
 bool FPCGExPathToClustersElement::Boot(FPCGExContext* InContext) const
 {
@@ -49,6 +55,7 @@ bool FPCGExPathToClustersElement::Boot(FPCGExContext* InContext) const
 
 		// TODO : Support local fuse distance, requires access to all input facades
 		if (!Context->UnionGraph->Init(Context)) { return false; }
+		Context->UnionGraph->Reserve(Context->MainPoints->GetInNumPoints(), -1);
 
 		Context->UnionGraph->EdgesUnion->bIsAbstract = true; // Because we don't have edge data
 
@@ -95,7 +102,7 @@ bool FPCGExPathToClustersElement::ExecuteInternal(FPCGContext* InContext) const
 		if (Settings->bFusePaths)
 		{
 			PCGEX_ON_INVALILD_INPUTS(FTEXT("Some input have less than 2 points and will be ignored."))
-			if (!Context->StartBatchProcessingPoints<PCGExPointsMT::TBatch<PCGExPathToClusters::FFusingProcessor>>(
+			if (!Context->StartBatchProcessingPoints(
 				[&](const TSharedPtr<PCGExData::FPointIO>& Entry)
 				{
 					if (Entry->GetNum() < 2)
@@ -105,10 +112,10 @@ bool FPCGExPathToClustersElement::ExecuteInternal(FPCGContext* InContext) const
 					}
 					return true;
 				},
-				[&](const TSharedPtr<PCGExPointsMT::TBatch<PCGExPathToClusters::FFusingProcessor>>& NewBatch)
+				[&](const TSharedPtr<PCGExPointsMT::IBatch>& NewBatch)
 				{
 					NewBatch->bSkipCompletion = true;
-					NewBatch->bDaisyChainProcessing = Settings->PointPointIntersectionDetails.FuseDetails.DoInlineInsertion();
+					NewBatch->bForceSingleThreadedProcessing = Settings->PointPointIntersectionDetails.FuseDetails.DoInlineInsertion();
 				}))
 			{
 				return Context->CancelExecution(TEXT("Could not build any clusters."));
@@ -117,7 +124,7 @@ bool FPCGExPathToClustersElement::ExecuteInternal(FPCGContext* InContext) const
 		else
 		{
 			PCGEX_ON_INVALILD_INPUTS(FTEXT("Some input have less than 2 points and will be ignored."))
-			if (!Context->StartBatchProcessingPoints<PCGExPointsMT::TBatch<PCGExPathToClusters::FNonFusingProcessor>>(
+			if (!Context->StartBatchProcessingPoints(
 				[&](const TSharedPtr<PCGExData::FPointIO>& Entry)
 				{
 					if (Entry->GetNum() < 2)
@@ -127,7 +134,7 @@ bool FPCGExPathToClustersElement::ExecuteInternal(FPCGContext* InContext) const
 					}
 					return true;
 				},
-				[&](const TSharedPtr<PCGExPointsMT::TBatch<PCGExPathToClusters::FNonFusingProcessor>>& NewBatch)
+				[&](const TSharedPtr<PCGExPointsMT::IBatch>& NewBatch)
 				{
 				}))
 			{
@@ -148,10 +155,12 @@ bool FPCGExPathToClustersElement::ExecuteInternal(FPCGContext* InContext) const
 			Context->PathsFacades.Reserve(NumFacades);
 
 			PCGExPointsMT::TBatch<PCGExPathToClusters::FFusingProcessor>* MainBatch = static_cast<PCGExPointsMT::TBatch<PCGExPathToClusters::FFusingProcessor>*>(Context->MainBatch.Get());
-			for (const TSharedRef<PCGExPathToClusters::FFusingProcessor>& Processor : MainBatch->Processors)
+
+			for (int Pi = 0; Pi < MainBatch->GetNumProcessors(); Pi++)
 			{
-				if (!Processor->bIsProcessorValid) { continue; }
-				Context->PathsFacades.Add(Processor->PointDataFacade);
+				const TSharedPtr<PCGExPointsMT::IProcessor> P = MainBatch->GetProcessor<PCGExPointsMT::IProcessor>(Pi);
+				if (!P->bIsProcessorValid) { continue; }
+				Context->PathsFacades.Add(P->PointDataFacade);
 			}
 
 			Context->MainBatch.Reset();
@@ -250,9 +259,9 @@ namespace PCGExPathToClusters
 
 		UnionGraph = Context->UnionGraph;
 		bClosedLoop = PCGExPaths::GetClosedLoop(PointDataFacade->GetIn());
-		bDaisyChainProcessPoints = Settings->PointPointIntersectionDetails.FuseDetails.DoInlineInsertion();
+		bForceSingleThreadedProcessPoints = Settings->PointPointIntersectionDetails.FuseDetails.DoInlineInsertion();
 
-		if (bDaisyChainProcessPoints)
+		if (bForceSingleThreadedProcessPoints)
 		{
 			// Blunt insert since processor don't have a "wait"
 			InsertEdges(PCGExMT::FScope(0, NumPoints), true);

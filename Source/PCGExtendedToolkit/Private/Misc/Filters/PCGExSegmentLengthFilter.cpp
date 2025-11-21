@@ -3,11 +3,16 @@
 
 #include "Misc/Filters/PCGExSegmentLengthFilter.h"
 
+#include "PCGExHelpers.h"
+#include "Data/PCGExDataPreloader.h"
+#include "Details/PCGExDetailsSettings.h"
 #include "Paths/PCGExPaths.h"
-
 
 #define LOCTEXT_NAMESPACE "PCGExSegmentLengthFilterDefinition"
 #define PCGEX_NAMESPACE PCGExSegmentLengthFilterDefinition
+
+PCGEX_SETTING_VALUE_IMPL(FPCGExSegmentLengthFilterConfig, Threshold, double, ThresholdInput, ThresholdAttribute, ThresholdConstant)
+PCGEX_SETTING_VALUE_IMPL(FPCGExSegmentLengthFilterConfig, Index, int32, CompareAgainst, IndexAttribute, IndexConstant)
 
 bool UPCGExSegmentLengthFilterFactory::Init(FPCGExContext* InContext)
 {
@@ -25,6 +30,13 @@ bool UPCGExSegmentLengthFilterFactory::DomainCheck()
 TSharedPtr<PCGExPointFilter::IFilter> UPCGExSegmentLengthFilterFactory::CreateFilter() const
 {
 	return MakeShared<PCGExPointFilter::FSegmentLengthFilter>(this);
+}
+
+void UPCGExSegmentLengthFilterFactory::RegisterBuffersDependencies(FPCGExContext* InContext, PCGExData::FFacadePreloader& FacadePreloader) const
+{
+	Super::RegisterBuffersDependencies(InContext, FacadePreloader);
+	if (Config.ThresholdInput == EPCGExInputValueType::Attribute) { FacadePreloader.Register<double>(InContext, Config.ThresholdAttribute); }
+	if (Config.CompareAgainst == EPCGExInputValueType::Attribute) { FacadePreloader.Register<double>(InContext, Config.IndexAttribute); }
 }
 
 bool UPCGExSegmentLengthFilterFactory::RegisterConsumableAttributesWithData(FPCGExContext* InContext, const UPCGData* InData) const
@@ -50,10 +62,10 @@ bool PCGExPointFilter::FSegmentLengthFilter::Init(FPCGExContext* InContext, cons
 	if (TypedFilterFactory->Config.bForceTileIfClosedLoop && bClosedLoop) { IndexSafety = EPCGExIndexSafety::Tile; }
 	else { IndexSafety = TypedFilterFactory->Config.IndexSafety; }
 
-	Threshold = TypedFilterFactory->Config.GetValueSettingThreshold();
+	Threshold = TypedFilterFactory->Config.GetValueSettingThreshold(PCGEX_QUIET_HANDLING);
 	if (!Threshold->Init(PointDataFacade)) { return false; }
 
-	Index = TypedFilterFactory->Config.GetValueSettingIndex();
+	Index = TypedFilterFactory->Config.GetValueSettingIndex(PCGEX_QUIET_HANDLING);
 	if (!Index->Init(PointDataFacade)) { return false; }
 
 	return true;

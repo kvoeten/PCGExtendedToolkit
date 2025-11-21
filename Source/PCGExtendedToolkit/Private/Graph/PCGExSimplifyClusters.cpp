@@ -4,10 +4,11 @@
 #include "Graph/PCGExSimplifyClusters.h"
 
 
+#include "PCGExMath.h"
+#include "Data/PCGExData.h"
+#include "Data/PCGExPointIO.h"
 #include "Data/PCGExUnionData.h"
 #include "Graph/PCGExChain.h"
-#include "Graph/Filters/PCGExClusterFilter.h"
-
 
 #define LOCTEXT_NAMESPACE "PCGExGraphSettings"
 
@@ -20,11 +21,12 @@ PCGExData::EIOInit UPCGExSimplifyClustersSettings::GetEdgeOutputInitMode() const
 TArray<FPCGPinProperties> UPCGExSimplifyClustersSettings::InputPinProperties() const
 {
 	TArray<FPCGPinProperties> PinProperties = Super::InputPinProperties();
-	PCGEX_PIN_FACTORIES(PCGExGraph::SourceEdgeFiltersLabel, "Optional edge filters.", Normal, {})
+	PCGEX_PIN_FILTERS(PCGExGraph::SourceEdgeFiltersLabel, "Optional edge filters.", Normal)
 	return PinProperties;
 }
 
 PCGEX_INITIALIZE_ELEMENT(SimplifyClusters)
+PCGEX_ELEMENT_BATCH_EDGE_IMPL_ADV(SimplifyClusters)
 
 bool FPCGExSimplifyClustersElement::Boot(FPCGExContext* InContext) const
 {
@@ -52,9 +54,9 @@ bool FPCGExSimplifyClustersElement::ExecuteInternal(FPCGContext* InContext) cons
 	PCGEX_EXECUTION_CHECK
 	PCGEX_ON_INITIAL_EXECUTION
 	{
-		if (!Context->StartProcessingClusters<PCGExSimplifyClusters::FBatch>(
+		if (!Context->StartProcessingClusters(
 			[&](const TSharedPtr<PCGExData::FPointIOTaggedEntries>& Entries) { return true; },
-			[&](const TSharedPtr<PCGExSimplifyClusters::FBatch>& NewBatch)
+			[&](const TSharedPtr<PCGExClusterMT::IBatch>& NewBatch)
 			{
 			}))
 		{
@@ -219,8 +221,8 @@ namespace PCGExSimplifyClusters
 				LastPosition = CurrentPosition;
 
 				GraphBuilder->Graph->InsertEdge(
-					Cluster->GetNode(LastIndex)->PointIndex,
-					Cluster->GetNode(Lk)->PointIndex,
+					Cluster->GetNodePointIndex(LastIndex),
+					Cluster->GetNodePointIndex(Lk),
 					OutEdge, IOIndex);
 
 				PCGExGraph::FGraphEdgeMetadata& EdgeMetadata = GraphBuilder->Graph->GetOrCreateEdgeMetadata(OutEdge.Index);
@@ -238,8 +240,8 @@ namespace PCGExSimplifyClusters
 				UnionCount++;
 
 				GraphBuilder->Graph->InsertEdge(
-					Cluster->GetNode(LastIndex)->PointIndex,
-					Cluster->GetNode(Link.Node)->PointIndex,
+					Cluster->GetNodePointIndex(LastIndex),
+					Cluster->GetNodePointIndex(Link.Node),
 					OutEdge, IOIndex);
 
 				MergedEdges.Add(Link.Edge);
@@ -322,10 +324,11 @@ namespace PCGExSimplifyClusters
 		TBatch<FProcessor>::Process();
 	}
 
-	bool FBatch::PrepareSingle(const TSharedPtr<FProcessor>& ClusterProcessor)
+	bool FBatch::PrepareSingle(const TSharedPtr<PCGExClusterMT::IProcessor>& InProcessor)
 	{
-		ClusterProcessor->Breakpoints = Breakpoints;
-		return TBatch<FProcessor>::PrepareSingle(ClusterProcessor);
+		PCGEX_TYPED_PROCESSOR
+		TypedProcessor->Breakpoints = Breakpoints;
+		return TBatch<FProcessor>::PrepareSingle(InProcessor);
 	}
 }
 

@@ -2,22 +2,27 @@
 // Released under the MIT license https://opensource.org/license/MIT/
 
 #include "Paths/PCGExPathInsert.h"
-#include "Data/Blending/PCGExUnionBlender.h"
 
+#include "Data/PCGExPointIO.h"
+#include "Details/PCGExDetailsDistances.h"
+#include "Details/PCGExDetailsSettings.h"
 
 #include "Paths/SubPoints/DataBlending/PCGExSubPointsBlendInterpolate.h"
 
 #define LOCTEXT_NAMESPACE "PCGExPathInsertElement"
 #define PCGEX_NAMESPACE PathInsert
 
+PCGEX_SETTING_VALUE_IMPL(UPCGExPathInsertSettings, Range, int32, RangeInput, RangeAttribute, Range)
+
 TArray<FPCGPinProperties> UPCGExPathInsertSettings::InputPinProperties() const
 {
 	TArray<FPCGPinProperties> PinProperties = Super::InputPinProperties();
-	PCGEX_PIN_POINTS(PCGEx::SourceTargetsLabel, "The point data set to insert.", Required, {})
+	PCGEX_PIN_POINTS(PCGEx::SourceTargetsLabel, "The point data set to insert.", Required)
 	return PinProperties;
 }
 
 PCGEX_INITIALIZE_ELEMENT(PathInsert)
+PCGEX_ELEMENT_BATCH_POINT_IMPL(PathInsert)
 
 bool FPCGExPathInsertElement::Boot(FPCGExContext* InContext) const
 {
@@ -42,7 +47,7 @@ bool FPCGExPathInsertElement::ExecuteInternal(FPCGContext* InContext) const
 
 		const bool bIsCanBeCutTagValid = PCGEx::IsValidStringTag(Context->CanBeCutTag);
 
-		if (!Context->StartBatchProcessingPoints<PCGExPointsMT::TBatch<PCGExPathInsert::FProcessor>>(
+		if (!Context->StartBatchProcessingPoints(
 			[&](const TSharedPtr<PCGExData::FPointIO>& Entry)
 			{
 				if (Entry->GetNum() < 2)
@@ -53,7 +58,7 @@ bool FPCGExPathInsertElement::ExecuteInternal(FPCGContext* InContext) const
 				}
 				return true;
 			},
-			[&](const TSharedPtr<PCGExPointsMT::TBatch<PCGExPathInsert::FProcessor>>& NewBatch)
+			[&](const TSharedPtr<PCGExPointsMT::IBatch>& NewBatch)
 			{
 				//NewBatch->SetPointsFilterData(&Context->FilterFactories);
 				//NewBatch->bRequiresWriteStep = Settings->bDoCrossBlending;
@@ -65,7 +70,7 @@ bool FPCGExPathInsertElement::ExecuteInternal(FPCGContext* InContext) const
 
 	PCGEX_POINTS_BATCH_PROCESSING(PCGExCommon::State_Done)
 
-	Context->MainPoints->StageOutputs();
+	PCGEX_OUTPUT_VALID_PATHS(MainPoints)
 
 	return Context->TryComplete();
 }

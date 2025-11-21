@@ -3,8 +3,19 @@
 
 #include "Transform/PCGExTransform.h"
 
-#include "PCGExDataMath.h"
+#include "PCGExHelpers.h"
+#include "PCGExMathBounds.h"
+#include "Data/PCGExData.h"
+#include "Data/PCGExPointElements.h"
+#include "Details/PCGExDetailsSettings.h"
 #include "Engine/EngineTypes.h"
+#include "Sampling/PCGExSampling.h"
+
+
+FPCGExAttachmentRules::FPCGExAttachmentRules(EAttachmentRule InLoc, EAttachmentRule InRot, EAttachmentRule InScale)
+	: LocationRule(InLoc), RotationRule(InRot), ScaleRule(InScale)
+{
+}
 
 FAttachmentTransformRules FPCGExAttachmentRules::GetRules() const
 {
@@ -21,11 +32,13 @@ FPCGExSocket::FPCGExSocket(const FName& InSocketName, const FTransform& InRelati
 {
 }
 
+PCGEX_SETTING_VALUE_IMPL(FPCGExSocketFitDetails, SocketName, FName, SocketNameInput, SocketNameAttribute, SocketName)
+
 bool FPCGExSocketFitDetails::Init(const TSharedPtr<PCGExData::FFacade>& InFacade)
 {
 	if (!bEnabled ||
 		(SocketNameInput == EPCGExInputValueType::Constant && SocketName.IsNone()) ||
-		SocketNameInput == EPCGExInputValueType::Attribute && SocketNameAttribute.IsNone())
+		(SocketNameInput == EPCGExInputValueType::Attribute && SocketNameAttribute.IsNone()))
 	{
 		bMutate = false;
 		return true;
@@ -53,13 +66,17 @@ void FPCGExSocketFitDetails::Mutate(const int32 Index, const TArray<FPCGExSocket
 	}
 }
 
+PCGEX_SETTING_VALUE_IMPL(FPCGExUVW, U, double, UInput, UAttribute, UConstant)
+PCGEX_SETTING_VALUE_IMPL(FPCGExUVW, V, double, VInput, VAttribute, VConstant)
+PCGEX_SETTING_VALUE_IMPL(FPCGExUVW, W, double, WInput, WAttribute, WConstant)
+
 bool FPCGExUVW::Init(FPCGExContext* InContext, const TSharedRef<PCGExData::FFacade>& InDataFacade)
 {
 	UGetter = GetValueSettingU();
 	if (!UGetter->Init(InDataFacade)) { return false; }
 
 	VGetter = GetValueSettingV();
-	if (!UGetter->Init(InDataFacade)) { return false; }
+	if (!VGetter->Init(InDataFacade)) { return false; }
 
 	WGetter = GetValueSettingW();
 	if (!WGetter->Init(InDataFacade)) { return false; }
@@ -68,6 +85,11 @@ bool FPCGExUVW::Init(FPCGExContext* InContext, const TSharedRef<PCGExData::FFaca
 	if (!PointData) { return false; }
 
 	return true;
+}
+
+FVector FPCGExUVW::GetUVW(const int32 PointIndex) const
+{
+	return FVector(UGetter->Read(PointIndex), VGetter->Read(PointIndex), WGetter->Read(PointIndex));
 }
 
 FVector FPCGExUVW::GetPosition(const int32 PointIndex) const
@@ -80,10 +102,8 @@ FVector FPCGExUVW::GetPosition(const int32 PointIndex) const
 FVector FPCGExUVW::GetPosition(const int32 PointIndex, FVector& OutOffset) const
 {
 	const FBox Bounds = PCGExMath::GetLocalBounds(PCGExData::FConstPoint(PointData, PointIndex), BoundsReference);
-	const FVector LocalPosition = Bounds.GetCenter() + (Bounds.GetExtent() * GetUVW(PointIndex));
-	const FTransform& Transform = PointData->GetTransform(PointIndex);
-	OutOffset = Transform.TransformVectorNoScale(LocalPosition - Bounds.GetCenter());
-	return Transform.TransformPositionNoScale(LocalPosition);
+	OutOffset = Bounds.GetExtent() * GetUVW(PointIndex);
+	return PointData->GetTransform(PointIndex).TransformPositionNoScale(Bounds.GetCenter() + OutOffset);
 }
 
 FVector FPCGExUVW::GetUVW(const int32 PointIndex, const EPCGExMinimalAxis Axis, const bool bMirrorAxis) const
@@ -120,10 +140,8 @@ FVector FPCGExUVW::GetPosition(const int32 PointIndex, const EPCGExMinimalAxis A
 FVector FPCGExUVW::GetPosition(const int32 PointIndex, FVector& OutOffset, const EPCGExMinimalAxis Axis, const bool bMirrorAxis) const
 {
 	const FBox Bounds = PCGExMath::GetLocalBounds(PCGExData::FConstPoint(PointData, PointIndex), BoundsReference);
-	const FVector LocalPosition = Bounds.GetCenter() + (Bounds.GetExtent() * GetUVW(PointIndex, Axis, bMirrorAxis));
-	const FTransform& Transform = PointData->GetTransform(PointIndex);
-	OutOffset = Transform.TransformVectorNoScale(LocalPosition - Bounds.GetCenter());
-	return Transform.TransformPositionNoScale(LocalPosition);
+	OutOffset = (Bounds.GetExtent() * GetUVW(PointIndex, Axis, bMirrorAxis));
+	return PointData->GetTransform(PointIndex).TransformPositionNoScale(Bounds.GetCenter() + OutOffset);
 }
 
 FPCGExAxisDeformDetails::FPCGExAxisDeformDetails(const FString InFirst, const FString InSecond, const double InFirstValue, const double InSecondValue)
@@ -135,6 +153,12 @@ FPCGExAxisDeformDetails::FPCGExAxisDeformDetails(const FString InFirst, const FS
 	SecondAlphaConstant = InSecondValue;
 }
 
+PCGEX_SETTING_DATA_VALUE_IMPL_BOOL(FPCGExAxisDeformDetails, FirstAlpha, double, FirstAlphaInput != EPCGExSampleSource::Constant, FirstAlphaAttribute, FirstAlphaConstant)
+PCGEX_SETTING_VALUE_IMPL_BOOL(FPCGExAxisDeformDetails, FirstAlpha, double, FirstAlphaInput != EPCGExSampleSource::Constant, FirstAlphaAttribute, FirstAlphaConstant)
+
+PCGEX_SETTING_DATA_VALUE_IMPL_BOOL(FPCGExAxisDeformDetails, SecondAlpha, double, SecondAlphaInput != EPCGExSampleSource::Constant, SecondAlphaAttribute, SecondAlphaConstant)
+PCGEX_SETTING_VALUE_IMPL_BOOL(FPCGExAxisDeformDetails, SecondAlpha, double, SecondAlphaInput != EPCGExSampleSource::Constant, SecondAlphaAttribute, SecondAlphaConstant)
+
 bool FPCGExAxisDeformDetails::Validate(FPCGExContext* InContext, const bool bSupportPoints) const
 {
 	if (FirstAlphaInput != EPCGExSampleSource::Constant)
@@ -142,7 +166,7 @@ bool FPCGExAxisDeformDetails::Validate(FPCGExContext* InContext, const bool bSup
 		PCGEX_VALIDATE_NAME_C(InContext, FirstAlphaAttribute)
 		if (!bSupportPoints && !PCGExHelpers::IsDataDomainAttribute(FirstAlphaAttribute))
 		{
-			PCGE_LOG_C(Error, GraphAndLog, InContext, FTEXT( "Only @Data attributes are supported."));
+			PCGE_LOG_C(Error, GraphAndLog, InContext, FTEXT("Only @Data attributes are supported."));
 			PCGEX_LOG_INVALID_ATTR_C(InContext, First Alpha, FirstAlphaAttribute)
 			return false;
 		}
@@ -153,7 +177,7 @@ bool FPCGExAxisDeformDetails::Validate(FPCGExContext* InContext, const bool bSup
 		PCGEX_VALIDATE_NAME_C(InContext, SecondAlphaAttribute)
 		if (!bSupportPoints && !PCGExHelpers::IsDataDomainAttribute(SecondAlphaAttribute))
 		{
-			PCGE_LOG_C(Error, GraphAndLog, InContext, FTEXT( "Only @Data attributes are supported."));
+			PCGE_LOG_C(Error, GraphAndLog, InContext, FTEXT("Only @Data attributes are supported."));
 			PCGEX_LOG_INVALID_ATTR_C(InContext, Second Alpha, SecondAlphaAttribute)
 			return false;
 		}
@@ -167,13 +191,13 @@ bool FPCGExAxisDeformDetails::Init(FPCGExContext* InContext, const TArray<PCGExD
 	if (FirstAlphaInput == EPCGExSampleSource::Target)
 	{
 		TargetsFirstValueGetter.Init(nullptr, InTargets.Num());
-		for (int i = 0; i < InTargets.Num(); i++) { TargetsFirstValueGetter[i] = GetDataValueSettingFirstAlpha(InContext, InTargets[i].Data); }
+		for (int i = 0; i < InTargets.Num(); i++) { TargetsFirstValueGetter[i] = GetValueSettingFirstAlpha(InContext, InTargets[i].Data); }
 	}
 
 	if (SecondAlphaInput == EPCGExSampleSource::Target)
 	{
 		TargetsSecondValueGetter.Init(nullptr, InTargets.Num());
-		for (int i = 0; i < InTargets.Num(); i++) { TargetsSecondValueGetter[i] = GetDataValueSettingSecondAlpha(InContext, InTargets[i].Data); }
+		for (int i = 0; i < InTargets.Num(); i++) { TargetsSecondValueGetter[i] = GetValueSettingSecondAlpha(InContext, InTargets[i].Data); }
 	}
 
 	return true;
@@ -200,7 +224,7 @@ bool FPCGExAxisDeformDetails::Init(FPCGExContext* InContext, const FPCGExAxisDef
 			}
 			else
 			{
-				FirstValueGetter = Parent.GetDataValueSettingFirstAlpha(InContext, InDataFacade->GetIn());
+				FirstValueGetter = Parent.GetValueSettingFirstAlpha(InContext, InDataFacade->GetIn());
 			}
 		}
 	}
@@ -224,7 +248,7 @@ bool FPCGExAxisDeformDetails::Init(FPCGExContext* InContext, const FPCGExAxisDef
 			}
 			else
 			{
-				SecondValueGetter = Parent.GetDataValueSettingSecondAlpha(InContext, InDataFacade->GetIn());
+				SecondValueGetter = Parent.GetValueSettingSecondAlpha(InContext, InDataFacade->GetIn());
 			}
 		}
 	}

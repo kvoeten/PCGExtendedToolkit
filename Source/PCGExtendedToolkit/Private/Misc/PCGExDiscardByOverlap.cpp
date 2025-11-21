@@ -3,7 +3,11 @@
 
 #include "Misc/PCGExDiscardByOverlap.h"
 
-#include "PCGExDataMath.h"
+#include "PCGExMathBounds.h"
+#include "Data/PCGExData.h"
+#include "Data/PCGExDataHelpers.h"
+#include "Data/PCGExDataTag.h"
+#include "Data/PCGExPointIO.h"
 
 
 #define LOCTEXT_NAMESPACE "PCGExDiscardByOverlapElement"
@@ -140,6 +144,7 @@ void FPCGExDiscardByOverlapContext::Prune()
 }
 
 PCGEX_INITIALIZE_ELEMENT(DiscardByOverlap)
+PCGEX_ELEMENT_BATCH_POINT_IMPL(DiscardByOverlap)
 
 bool FPCGExDiscardByOverlapElement::Boot(FPCGExContext* InContext) const
 {
@@ -175,9 +180,9 @@ bool FPCGExDiscardByOverlapElement::ExecuteInternal(FPCGContext* InContext) cons
 	PCGEX_EXECUTION_CHECK
 	PCGEX_ON_INITIAL_EXECUTION
 	{
-		if (!Context->StartBatchProcessingPoints<PCGExPointsMT::TBatch<PCGExDiscardByOverlap::FProcessor>>(
+		if (!Context->StartBatchProcessingPoints(
 			[&](const TSharedPtr<PCGExData::FPointIO>& Entry) { return true; },
-			[&](const TSharedPtr<PCGExPointsMT::TBatch<PCGExDiscardByOverlap::FProcessor>>& NewBatch)
+			[&](const TSharedPtr<PCGExPointsMT::IBatch>& NewBatch)
 			{
 				NewBatch->bRequiresWriteStep = true; // Not really but we need the step
 			}))

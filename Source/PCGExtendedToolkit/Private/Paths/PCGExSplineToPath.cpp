@@ -4,9 +4,14 @@
 #include "Paths/PCGExSplineToPath.h"
 
 #include "PCGExRandom.h"
+#include "Data/PCGExDataHelpers.h"
+#include "Data/PCGExDataTag.h"
+#include "Data/PCGExPointIO.h"
+#include "Data/PCGSplineData.h"
+#include "Metadata/Accessors/PCGAttributeAccessorHelpers.h"
 #include "Misc/Filters/PCGExPolyPathFilterFactory.h"
+#include "Paths/PCGExPathProcessor.h"
 #include "Paths/PCGExPaths.h"
-#include "Sampling/PCGExSampleNearestSpline.h"
 
 #define LOCTEXT_NAMESPACE "PCGExSplineToPathElement"
 #define PCGEX_NAMESPACE SplineToPath
@@ -16,7 +21,7 @@ PCGEX_INITIALIZE_ELEMENT(SplineToPath)
 TArray<FPCGPinProperties> UPCGExSplineToPathSettings::InputPinProperties() const
 {
 	TArray<FPCGPinProperties> PinProperties = TArray<FPCGPinProperties>();
-	PCGEX_PIN_POLYLINES(PCGExSplineToPath::SourceSplineLabel, "The splines to convert to paths.", Required, {})
+	PCGEX_PIN_POLYLINES(PCGExSplineToPath::SourceSplineLabel, "The splines to convert to paths.", Required)
 	return PinProperties;
 }
 
@@ -38,11 +43,13 @@ bool FPCGExSplineToPathElement::Boot(FPCGExContext* InContext) const
 	Context->MainPoints = MakeShared<PCGExData::FPointIOCollection>(Context);
 	Context->MainPoints->OutputPin = Settings->GetMainOutputPin();
 
-	auto AddTags = [&](const TSet<FString>& SourceTags)
+	// Seems there is a bug with Static Analysis where lambda's result in false positive warnings with dereferenced pointers. The Context ptr was being referenced directly
+	// To bypass this, we dereference the pointer ourselves passing in the reference instead
+	auto AddTags = [&ContextRef = *Context](const TSet<FString>& SourceTags)
 	{
 		TArray<FString> Tags = SourceTags.Array();
-		Context->TagForwarding.Prune(Tags);
-		Context->Tags.Add(Tags);
+		ContextRef.TagForwarding.Prune(Tags);
+		ContextRef.Tags.Add(Tags);
 	};
 
 	if (!Targets.IsEmpty())
@@ -117,7 +124,7 @@ bool FPCGExSplineToPathElement::ExecuteInternal(FPCGContext* InContext) const
 
 	PCGEX_ON_ASYNC_STATE_READY(PCGExCommon::State_WaitingOnAsyncWork)
 	{
-		Context->MainPoints->StageOutputs();
+		PCGEX_OUTPUT_VALID_PATHS(MainPoints)
 		Context->Done();
 	}
 
@@ -271,6 +278,8 @@ namespace PCGExSplineToPath
 					});
 			}
 		}
+
+		PCGEx::TagsToData(PointDataFacade->Source, Settings->TagsToData);
 
 		PointDataFacade->WriteFastest(AsyncManager);
 	}

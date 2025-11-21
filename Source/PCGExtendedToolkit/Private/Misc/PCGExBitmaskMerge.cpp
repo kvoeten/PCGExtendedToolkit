@@ -3,8 +3,11 @@
 
 #include "Misc/PCGExBitmaskMerge.h"
 
+#include "PCGParamData.h"
 #include "PCGPin.h"
-#include "Misc/PCGExBitmask.h"
+#include "Data/PCGExAttributeHelpers.h"
+#include "Data/PCGExDataHelpers.h"
+#include "Constants/PCGExBitmask.h"
 
 #define LOCTEXT_NAMESPACE "PCGExGraphSettings"
 #define PCGEX_NAMESPACE BitmaskMerge
@@ -14,14 +17,14 @@
 TArray<FPCGPinProperties> UPCGExBitmaskMergeSettings::InputPinProperties() const
 {
 	TArray<FPCGPinProperties> PinProperties;
-	PCGEX_PIN_PARAMS(FName("Bitmasks"), TEXT("Bitmask."), Required, {})
+	PCGEX_PIN_PARAMS(FName("Bitmasks"), TEXT("Bitmask."), Required)
 	return PinProperties;
 }
 
 TArray<FPCGPinProperties> UPCGExBitmaskMergeSettings::OutputPinProperties() const
 {
 	TArray<FPCGPinProperties> PinProperties;
-	PCGEX_PIN_PARAM(FName("Bitmask"), TEXT("Bitmask."), Required, {})
+	PCGEX_PIN_PARAM(FName("Bitmask"), TEXT("Bitmask."), Required)
 	return PinProperties;
 }
 
@@ -65,7 +68,7 @@ bool FPCGExBitmaskMergeElement::ExecuteInternal(FPCGContext* Context) const
 		}
 	}
 
-	UPCGParamData* Bitmask = NewObject<UPCGParamData>();
+	UPCGParamData* Bitmask = FPCGContext::NewObject_AnyThread<UPCGParamData>(Context);
 	Bitmask->Metadata->CreateAttribute<int64>(FName("Bitmask"), OutputMask, false, true);
 	Bitmask->Metadata->AddEntry();
 	FPCGTaggedData& OutData = Context->OutputData.TaggedData.Emplace_GetRef();

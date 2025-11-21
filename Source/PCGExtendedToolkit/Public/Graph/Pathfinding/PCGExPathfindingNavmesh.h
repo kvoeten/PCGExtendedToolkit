@@ -5,11 +5,9 @@
 
 #include "CoreMinimal.h"
 #include "PCGExNavmesh.h"
-#include "PCGExPathfinding.h"
 #include "PCGExPointsProcessor.h"
 #include "Data/PCGExDataForward.h"
 #include "AI/Navigation/NavigationTypes.h"
-#include "Graph/PCGExGraph.h"
 
 
 #include "Paths/SubPoints/DataBlending/PCGExSubPointsBlendInterpolate.h"
@@ -31,7 +29,7 @@ public:
 	//~Begin UPCGSettings
 #if WITH_EDITOR
 	PCGEX_NODE_INFOS(PathfindingNavmesh, "Pathfinding : Navmesh", "Extract paths from navmesh.");
-	virtual FLinearColor GetNodeTitleColor() const override { return GetDefault<UPCGExGlobalSettings>()->NodeColorPathfinding; }
+	virtual FLinearColor GetNodeTitleColor() const override { return GetDefault<UPCGExGlobalSettings>()->ColorPathfinding; }
 #endif
 
 protected:
@@ -43,13 +41,13 @@ protected:
 	//~Begin UObject interface
 public:
 #if WITH_EDITOR
-
+	virtual void PostInitProperties() override;
 	virtual void PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent) override;
 #endif
 	//~End UObject interface
 
 	//~Begin UPCGExPointsProcessorSettings
-	virtual FName GetMainInputPin() const override { return PCGExGraph::SourceSeedsLabel; }
+	virtual FName GetMainInputPin() const override;
 	virtual FName GetMainOutputPin() const override { return PCGExPaths::OutputPathsLabel; }
 	//~End UPCGExPointsProcessorSettings
 
@@ -140,10 +138,7 @@ class FSampleNavmeshTask final : public FPCGExPathfindingTask
 public:
 	FSampleNavmeshTask(const int32 InTaskIndex,
 	                   const TSharedPtr<PCGExData::FPointIO>& InPointIO,
-	                   const TArray<PCGExPathfinding::FSeedGoalPair>* InQueries)
-		: FPCGExPathfindingTask(InTaskIndex, InPointIO, InQueries)
-	{
-	}
+	                   const TArray<PCGExPathfinding::FSeedGoalPair>* InQueries);
 
 	virtual void ExecuteTask(const TSharedPtr<PCGExMT::FTaskManager>& AsyncManager) override;
 };

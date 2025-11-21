@@ -5,14 +5,27 @@
 
 #include "CoreMinimal.h"
 
-#include "PCGExGraph.h"
-#include "PCGExCluster.h"
 #include "PCGExEdgeDirectionSettings.h"
-#include "Data/PCGExData.h"
 #include "Geometry/PCGExGeo.h"
 
-#include "Pathfinding/Heuristics/PCGExHeuristics.h"
+namespace PCGEx
+{
+	class FIntTracker;
+}
 
+namespace PCGExCluster
+{
+	struct FNode;
+}
+
+class UPCGExPointFilterFactoryData;
+
+namespace PCGExHeuristics
+{
+	class FHeuristicsHandler;
+}
+
+class UPCGExHeuristicsFactoryData;
 
 namespace PCGExClusterFilter
 {
@@ -62,6 +75,8 @@ namespace PCGExClusterMT
 
 	protected:
 		FPCGExContext* ExecutionContext = nullptr;
+		UPCGSettings* ExecutionSettings = nullptr;
+
 		TWeakPtr<PCGEx::FWorkPermit> WorkPermit;
 		TSharedPtr<PCGExMT::FTaskManager> AsyncManager;
 
@@ -75,9 +90,9 @@ namespace PCGExClusterMT
 		bool bBuildCluster = true;
 		bool bWantsHeuristics = false;
 
-		bool bDaisyChainProcessNodes = false;
-		bool bDaisyChainProcessEdges = false;
-		bool bDaisyChainProcessRange = false;
+		bool bForceSingleThreadedProcessNodes = false;
+		bool bForceSingleThreadedProcessEdges = false;
+		bool bForceSingleThreadedProcessRange = false;
 
 		int32 NumNodes = 0;
 		int32 NumEdges = 0;
@@ -157,22 +172,22 @@ namespace PCGExClusterMT
 		virtual void Output();
 		virtual void Cleanup();
 
-		const TArray<TObjectPtr<const UPCGExFilterFactoryData>>* VtxFilterFactories = nullptr;
+		const TArray<TObjectPtr<const UPCGExPointFilterFactoryData>>* VtxFilterFactories = nullptr;
 		TSharedPtr<TArray<int8>> VtxFilterCache;
 
-		const TArray<TObjectPtr<const UPCGExFilterFactoryData>>* EdgeFilterFactories = nullptr;
+		const TArray<TObjectPtr<const UPCGExPointFilterFactoryData>>* EdgeFilterFactories = nullptr;
 		TArray<int8> EdgeFilterCache;
 
 	protected:
 		TSharedPtr<PCGExClusterFilter::FManager> VtxFiltersManager;
-		virtual bool InitVtxFilters(const TArray<TObjectPtr<const UPCGExFilterFactoryData>>* InFilterFactories);
+		virtual bool InitVtxFilters(const TArray<TObjectPtr<const UPCGExPointFilterFactoryData>>* InFilterFactories);
 		virtual void FilterVtxScope(const PCGExMT::FScope& Scope);
 
-		FORCEINLINE bool IsNodePassingFilters(const PCGExCluster::FNode& Node) const { return static_cast<bool>(*(VtxFilterCache->GetData() + Node.PointIndex)); }
+		bool IsNodePassingFilters(const PCGExCluster::FNode& Node) const;
 
 		bool DefaultEdgeFilterValue = true;
 		TSharedPtr<PCGExClusterFilter::FManager> EdgesFiltersManager;
-		virtual bool InitEdgesFilters(const TArray<TObjectPtr<const UPCGExFilterFactoryData>>* InFilterFactories);
+		virtual bool InitEdgesFilters(const TArray<TObjectPtr<const UPCGExPointFilterFactoryData>>* InFilterFactories);
 		virtual void FilterEdgeScope(const PCGExMT::FScope& Scope);
 	};
 
@@ -226,9 +241,17 @@ namespace PCGExClusterMT
 		FPCGExGeo2DProjectionDetails ProjectionDetails;
 		TSharedPtr<TArray<FVector2D>> ProjectedVtxPositions;
 
+		virtual TSharedPtr<IProcessor> NewProcessorInstance(const TSharedRef<PCGExData::FFacade>& InVtxDataFacade, const TSharedRef<PCGExData::FFacade>& InEdgeDataFacade) const;
+
 	public:
+		TArray<TSharedRef<IProcessor>> Processors;
+		std::atomic<PCGExCommon::ContextState> CurrentState{PCGExCommon::State_InitialExecution};
+		int32 GetNumProcessors() const { return Processors.Num(); }
+
 		bool bIsBatchValid = true;
 		FPCGExContext* ExecutionContext = nullptr;
+		UPCGSettings* ExecutionSettings = nullptr;
+
 		TWeakPtr<PCGEx::FWorkPermit> WorkPermit;
 		const TArray<TObjectPtr<const UPCGExHeuristicsFactoryData>>* HeuristicsFactories = nullptr;
 
@@ -249,21 +272,19 @@ namespace PCGExClusterMT
 
 		TArray<TSharedPtr<PCGExCluster::FCluster>> ValidClusters;
 
-		const TArray<TObjectPtr<const UPCGExFilterFactoryData>>* VtxFilterFactories = nullptr;
-		const TArray<TObjectPtr<const UPCGExFilterFactoryData>>* EdgeFilterFactories = nullptr;
+		const TArray<TObjectPtr<const UPCGExPointFilterFactoryData>>* VtxFilterFactories = nullptr;
+		const TArray<TObjectPtr<const UPCGExPointFilterFactoryData>>* EdgeFilterFactories = nullptr;
 		bool DefaultVtxFilterValue = true;
 		TSharedPtr<TArray<int8>> VtxFilterCache;
-
-		virtual int32 GetNumProcessors() const { return -1; }
 
 		bool PreparationSuccessful() const { return bPreparationSuccessful; }
 		bool RequiresGraphBuilder() const { return bRequiresGraphBuilder; }
 		bool WantsHeuristics() const { return bWantsHeuristics; }
 		virtual void SetWantsHeuristics(const bool bRequired) { bWantsHeuristics = bRequired; }
 
-		bool bDaisyChainProcessing = false;
-		bool bDaisyChainCompletion = false;
-		bool bDaisyChainWrite = false;
+		bool bForceSingleThreadedProcessing = false;
+		bool bForceSingleThreadedCompletion = false;
+		bool bForceSingleThreadedWrite = false;
 
 		IBatch(FPCGExContext* InContext, const TSharedRef<PCGExData::FPointIO>& InVtx, TArrayView<TSharedRef<PCGExData::FPointIO>> InEdges);
 
@@ -274,20 +295,30 @@ namespace PCGExClusterMT
 		template <typename T>
 		T* GetContext() { return static_cast<T*>(ExecutionContext); }
 
+		template <typename T>
+		TSharedPtr<T> GetProcessor(const int32 Index) { return StaticCastSharedPtr<T>(Processors[Index].ToSharedPtr()); }
+
+		template <typename T>
+		TSharedRef<T> GetProcessorRef(const int32 Index) { return StaticCastSharedRef<T>(Processors[Index]); }
+
 		bool WantsProjection() const { return bWantsProjection; }
 		bool WantsPerClusterProjection() const { return bWantsPerClusterProjection; }
 		virtual void SetProjectionDetails(const FPCGExGeo2DProjectionDetails& InProjectionDetails);
 
 		virtual void PrepareProcessing(const TSharedPtr<PCGExMT::FTaskManager> AsyncManagerPtr, const bool bScopedIndexLookupBuild);
+		virtual bool PrepareSingle(const TSharedPtr<IProcessor>& InProcessor);
 		virtual void RegisterBuffersDependencies(PCGExData::FFacadePreloader& FacadePreloader);
 		virtual void OnProcessingPreparationComplete();
 
 		virtual void Process();
+		virtual void StartProcessing();
 
 	protected:
 		virtual void OnInitialPostProcess();
 
 	public:
+		int32 GatherValidClusters();
+
 		virtual void CompleteWork();
 		virtual void Write();
 
@@ -299,130 +330,32 @@ namespace PCGExClusterMT
 		virtual void Cleanup();
 
 	protected:
-		void InternalInitProcessor(const TSharedPtr<IProcessor>& InProcessor, const int32 InIndex);
-
 		virtual void AllocateVtxPoints();
 	};
 
 	template <typename T>
 	class TBatch : public IBatch
 	{
+	protected:
+		virtual TSharedPtr<IProcessor> NewProcessorInstance(const TSharedRef<PCGExData::FFacade>& InVtxDataFacade, const TSharedRef<PCGExData::FFacade>& InEdgeDataFacade) const override
+		{
+			TSharedPtr<IProcessor> NewInstance = MakeShared<T>(InVtxDataFacade, InEdgeDataFacade);
+			return NewInstance;
+		}
+
 	public:
-		TArray<TSharedRef<T>> Processors;
-		TArray<TSharedRef<T>> TrivialProcessors;
-
-		std::atomic<PCGExCommon::ContextState> CurrentState{PCGExCommon::State_InitialExecution};
-
-		virtual int32 GetNumProcessors() const override { return Processors.Num(); }
-
 		TBatch(FPCGExContext* InContext, const TSharedRef<PCGExData::FPointIO>& InVtx, const TArrayView<TSharedRef<PCGExData::FPointIO>> InEdges):
 			IBatch(InContext, InVtx, InEdges)
 		{
 		}
-
-		int32 GatherValidClusters()
-		{
-			ValidClusters.Empty();
-
-			for (const TSharedPtr<T>& P : Processors)
-			{
-				if (!P->Cluster) { continue; }
-				ValidClusters.Add(P->Cluster);
-			}
-			return ValidClusters.Num();
-		}
-
-		virtual void Process() override
-		{
-			if (!bIsBatchValid) { return; }
-
-			IBatch::Process();
-			if (!bIsBatchValid) { return; }
-
-			CurrentState.store(PCGExCommon::State_Processing, std::memory_order_release);
-
-			for (const TSharedPtr<PCGExData::FPointIO>& IO : Edges)
-			{
-				const TSharedPtr<T> NewProcessor = MakeShared<T>(VtxDataFacade, (*EdgesDataFacades)[IO->IOIndex]);
-
-				InternalInitProcessor(NewProcessor, Processors.Num());
-
-				if (!PrepareSingle(NewProcessor)) { continue; }
-
-				Processors.Add(NewProcessor.ToSharedRef());
-
-				NewProcessor->bIsTrivial = IO->GetNum() < GetDefault<UPCGExGlobalSettings>()->SmallClusterSize;
-				if (NewProcessor->IsTrivial()) { TrivialProcessors.Add(NewProcessor.ToSharedRef()); }
-			}
-
-			StartProcessing();
-		}
-
-		virtual void StartProcessing()
-		{
-			if (!bIsBatchValid) { return; }
-
-			InitializationTracker = MakeShared<PCGEx::FIntTracker>(
-				[PCGEX_ASYNC_THIS_CAPTURE]()
-				{
-					PCGEX_ASYNC_THIS
-					This->OnInitialPostProcess();
-				});
-
-			PCGEX_ASYNC_MT_LOOP_TPL(Process, bDaisyChainProcessing, { Processor->bIsProcessorValid = Processor->Process(This->AsyncManager); }, InitializationTracker)
-		}
-
-		virtual bool PrepareSingle(const TSharedPtr<T>& ClusterProcessor) { return true; }
-
-		virtual void CompleteWork() override
-		{
-			if (bSkipCompletion) { return; }
-			if (!bIsBatchValid) { return; }
-
-			CurrentState.store(PCGExCommon::State_Completing, std::memory_order_release);
-			PCGEX_ASYNC_MT_LOOP_VALID_PROCESSORS(CompleteWork, bDaisyChainCompletion, { Processor->CompleteWork(); })
-			IBatch::CompleteWork();
-		}
-
-		virtual void Write() override
-		{
-			if (!bIsBatchValid) { return; }
-
-			CurrentState.store(PCGExCommon::State_Writing, std::memory_order_release);
-			PCGEX_ASYNC_MT_LOOP_VALID_PROCESSORS(Write, bDaisyChainWrite, { Processor->Write(); })
-			IBatch::Write();
-		}
-
-		virtual void Output() override
-		{
-			if (!bIsBatchValid) { return; }
-			for (const TSharedPtr<T>& P : Processors)
-			{
-				if (!P->bIsProcessorValid) { continue; }
-				P->Output();
-			}
-		}
-
-		virtual void Cleanup() override
-		{
-			IBatch::Cleanup();
-			for (const TSharedRef<T>& P : Processors) { P->Cleanup(); }
-			Processors.Empty();
-		}
 	};
 
-	static void ScheduleBatch(const TSharedPtr<PCGExMT::FTaskManager>& AsyncManager, const TSharedPtr<IBatch>& Batch, const bool bScopedIndexLookupBuild)
-	{
-		PCGEX_LAUNCH(FStartClusterBatchProcessing<IBatch>, Batch, bScopedIndexLookupBuild)
-	}
+	PCGEXTENDEDTOOLKIT_API
+	void ScheduleBatch(const TSharedPtr<PCGExMT::FTaskManager>& AsyncManager, const TSharedPtr<IBatch>& Batch, const bool bScopedIndexLookupBuild);
 
-	static void CompleteBatches(const TArrayView<TSharedPtr<IBatch>> Batches)
-	{
-		for (const TSharedPtr<IBatch>& Batch : Batches) { Batch->CompleteWork(); }
-	}
+	PCGEXTENDEDTOOLKIT_API
+	void CompleteBatches(const TArrayView<TSharedPtr<IBatch>> Batches);
 
-	static void WriteBatches(const TArrayView<TSharedPtr<IBatch>> Batches)
-	{
-		for (const TSharedPtr<IBatch>& Batch : Batches) { Batch->Write(); }
-	}
+	PCGEXTENDEDTOOLKIT_API
+	void WriteBatches(const TArrayView<TSharedPtr<IBatch>> Batches);
 }

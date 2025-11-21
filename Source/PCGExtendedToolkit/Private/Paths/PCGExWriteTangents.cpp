@@ -3,12 +3,30 @@
 
 #include "Paths/PCGExWriteTangents.h"
 
-
+#include "PCGParamData.h"
+#include "Data/PCGExData.h"
 #include "Data/PCGExPointFilter.h"
-#include "Paths/Tangents/PCGExTangentsZero.h"
+#include "Data/PCGExPointIO.h"
+#include "Details/PCGExDetailsSettings.h"
+#include "Paths/PCGExPaths.h"
+#include "Paths/Tangents/PCGExTangentsAuto.h"
 
 #define LOCTEXT_NAMESPACE "PCGExWriteTangentsElement"
 #define PCGEX_NAMESPACE BuildCustomGraph
+
+PCGEX_SETTING_VALUE_IMPL(UPCGExWriteTangentsSettings, ArriveScale, FVector, ArriveScaleInput, ArriveScaleAttribute, FVector(ArriveScaleConstant))
+PCGEX_SETTING_VALUE_IMPL(UPCGExWriteTangentsSettings, LeaveScale, FVector, LeaveScaleInput, LeaveScaleAttribute, FVector(LeaveScaleConstant))
+
+#if WITH_EDITORONLY_DATA
+void UPCGExWriteTangentsSettings::PostInitProperties()
+{
+	if (!HasAnyFlags(RF_ClassDefaultObject) && IsInGameThread())
+	{
+		if (!Tangents) { Tangents = NewObject<UPCGExAutoTangents>(this, TEXT("Tangents")); }
+	}
+	Super::PostInitProperties();
+}
+#endif
 
 TArray<FPCGPinProperties> UPCGExWriteTangentsSettings::InputPinProperties() const
 {
@@ -20,6 +38,10 @@ TArray<FPCGPinProperties> UPCGExWriteTangentsSettings::InputPinProperties() cons
 }
 
 PCGEX_INITIALIZE_ELEMENT(WriteTangents)
+
+PCGExData::EIOInit UPCGExWriteTangentsSettings::GetMainDataInitializationPolicy() const { return PCGExData::EIOInit::Duplicate; }
+
+PCGEX_ELEMENT_BATCH_POINT_IMPL(WriteTangents)
 
 FName UPCGExWriteTangentsSettings::GetPointFilterPin() const
 {
@@ -62,7 +84,7 @@ bool FPCGExWriteTangentsElement::ExecuteInternal(FPCGContext* InContext) const
 	{
 		PCGEX_ON_INVALILD_INPUTS(FTEXT("Some inputs have less than 2 points and won't be processed."))
 
-		if (!Context->StartBatchProcessingPoints<PCGExPointsMT::TBatch<PCGExWriteTangents::FProcessor>>(
+		if (!Context->StartBatchProcessingPoints(
 			[&](const TSharedPtr<PCGExData::FPointIO>& Entry)
 			{
 				if (Entry->GetNum() < 2)
@@ -73,7 +95,7 @@ bool FPCGExWriteTangentsElement::ExecuteInternal(FPCGContext* InContext) const
 				}
 				return true;
 			},
-			[&](const TSharedPtr<PCGExPointsMT::TBatch<PCGExWriteTangents::FProcessor>>& NewBatch)
+			[&](const TSharedPtr<PCGExPointsMT::IBatch>& NewBatch)
 			{
 			}))
 		{
@@ -83,7 +105,7 @@ bool FPCGExWriteTangentsElement::ExecuteInternal(FPCGContext* InContext) const
 
 	PCGEX_POINTS_BATCH_PROCESSING(PCGExCommon::State_Done)
 
-	Context->MainPoints->StageOutputs();
+	PCGEX_OUTPUT_VALID_PATHS(MainPoints)
 
 	return Context->TryComplete();
 }

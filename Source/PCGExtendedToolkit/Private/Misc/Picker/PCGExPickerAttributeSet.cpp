@@ -3,6 +3,12 @@
 
 #include "Misc/Pickers/PCGExPickerAttributeSet.h"
 
+#include "PCGExHelpers.h"
+#include "PCGExMath.h"
+#include "Data/PCGExAttributeHelpers.h"
+#include "Data/PCGExData.h"
+#include "Data/PCGExPointIO.h"
+
 #define LOCTEXT_NAMESPACE "PCGExCreatePickerConstantSet"
 #define PCGEX_NAMESPACE CreatePickerConstantSet
 
@@ -36,7 +42,7 @@ void UPCGExPickerAttributeSetFactory::AddPicks(const int32 InNum, TSet<int32>& O
 		OutPicks.Reserve(OutPicks.Num() + RelativePicks.Num());
 		for (const double Pick : RelativePicks)
 		{
-			TargetIndex = PCGEx::TruncateDbl(static_cast<double>(MaxIndex) * Pick, Config.TruncateMode);
+			TargetIndex = PCGExMath::TruncateDbl(static_cast<double>(MaxIndex) * Pick, Config.TruncateMode);
 
 			if (TargetIndex < 0) { TargetIndex = InNum + TargetIndex; }
 			TargetIndex = PCGExMath::SanitizeIndex(TargetIndex, MaxIndex, Config.Safety);
@@ -85,7 +91,7 @@ PCGExFactories::EPreparationResult UPCGExPickerAttributeSetFactory::InitInternal
 					continue;
 				}
 
-				const TSharedPtr<PCGEx::TAttributeBroadcaster<double>> Values = PCGEx::TAttributeBroadcaster<double>::Make(Infos->Attributes[0]->Name, Facade->Source);
+				const TSharedPtr<PCGEx::TAttributeBroadcaster<double>> Values = PCGEx::MakeTypedBroadcaster<double>(Infos->Attributes[0]->Name, Facade->Source);
 				if (!Values) { continue; }
 				Values->GrabUniqueValues(UniqueIndices);
 			}
@@ -93,7 +99,7 @@ PCGExFactories::EPreparationResult UPCGExPickerAttributeSetFactory::InitInternal
 			{
 				for (const FPCGAttributePropertyInputSelector& Selector : Config.Attributes)
 				{
-					const TSharedPtr<PCGEx::TAttributeBroadcaster<double>> Values = PCGEx::TAttributeBroadcaster<double>::Make(Selector, Facade->Source);
+					const TSharedPtr<PCGEx::TAttributeBroadcaster<double>> Values = PCGEx::MakeTypedBroadcaster<double>(Selector, Facade->Source);
 					if (!Values) { continue; }
 					Values->GrabUniqueValues(UniqueIndices);
 				}
@@ -116,7 +122,7 @@ PCGExFactories::EPreparationResult UPCGExPickerAttributeSetFactory::InitInternal
 					continue;
 				}
 
-				const TSharedPtr<PCGEx::TAttributeBroadcaster<int32>> Values = PCGEx::TAttributeBroadcaster<int32>::Make(Infos->Attributes[0]->Name, Facade->Source);
+				const TSharedPtr<PCGEx::TAttributeBroadcaster<int32>> Values = PCGEx::MakeTypedBroadcaster<int32>(Infos->Attributes[0]->Name, Facade->Source);
 				if (!Values) { continue; }
 				Values->GrabUniqueValues(UniqueIndices);
 			}
@@ -124,7 +130,7 @@ PCGExFactories::EPreparationResult UPCGExPickerAttributeSetFactory::InitInternal
 			{
 				for (const FPCGAttributePropertyInputSelector& Selector : Config.Attributes)
 				{
-					const TSharedPtr<PCGEx::TAttributeBroadcaster<int32>> Values = PCGEx::TAttributeBroadcaster<int32>::Make(Selector, Facade->Source);
+					const TSharedPtr<PCGEx::TAttributeBroadcaster<int32>> Values = PCGEx::MakeTypedBroadcaster<int32>(Selector, Facade->Source);
 					if (!Values) { continue; }
 					Values->GrabUniqueValues(UniqueIndices);
 				}
@@ -140,7 +146,7 @@ PCGExFactories::EPreparationResult UPCGExPickerAttributeSetFactory::InitInternal
 TArray<FPCGPinProperties> UPCGExPickerAttributeSetSettings::InputPinProperties() const
 {
 	TArray<FPCGPinProperties> PinProperties = Super::InputPinProperties();
-	PCGEX_PIN_ANY(FName("Indices"), "Data to read attribute from", Required, {})
+	PCGEX_PIN_ANY(FName("Indices"), "Data to read attribute from", Required)
 	return PinProperties;
 }
 

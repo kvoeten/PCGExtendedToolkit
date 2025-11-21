@@ -4,6 +4,8 @@
 #include "PCGExSubSystem.h"
 
 #include "Data/Sharing/PCGExDataSharing.h"
+#include "Helpers/PCGAsync.h"
+#include "Misc/Filters/PCGExConstantFilter.h"
 
 #if WITH_EDITOR
 #include "Editor.h"
@@ -20,6 +22,12 @@ UPCGExSubSystem::UPCGExSubSystem()
 
 void UPCGExSubSystem::Initialize(FSubsystemCollectionBase& Collection)
 {
+	ConstantFilterFactory_TRUE = NewObject<UPCGExConstantFilterFactory>(this);
+	ConstantFilterFactory_TRUE->Config.Value = true;
+
+	ConstantFilterFactory_FALSE = NewObject<UPCGExConstantFilterFactory>(this);
+	ConstantFilterFactory_FALSE->Config.Value = false;
+
 	Super::Initialize(Collection);
 }
 
@@ -162,8 +170,36 @@ TArrayView<const int32> UPCGExSubSystem::GetIndexRange(const int32 Start, const 
 	return TArrayView<const int32>(IndexBuffer.GetData() + Start, Count);
 }
 
+TSharedPtr<PCGExPointFilter::IFilter> UPCGExSubSystem::GetConstantFilter(const bool bValue) const
+{
+	if (bValue) { return ConstantFilterFactory_TRUE->CreateFilter(); }
+	return ConstantFilterFactory_FALSE->CreateFilter();
+}
+
+double UPCGExSubSystem::GetTickBudgetInSeconds()
+{
+	float Val = 5000.0;
+
+#if WITH_EDITOR
+	if (GEditor && !GEditor->IsPlaySessionInProgress())
+	{
+		if (!CVarEditorTimePerFrame) { CVarEditorTimePerFrame = IConsoleManager::Get().FindConsoleVariable(TEXT("pcg.EditorFrameTime")); }
+		if (CVarEditorTimePerFrame) { Val = CVarEditorTimePerFrame->GetFloat(); }
+	}
+	else
+#endif
+	{
+		if (!CVarTimePerFrame) { CVarTimePerFrame = IConsoleManager::Get().FindConsoleVariable(TEXT("pcg.FrameTime")); }
+		if (CVarTimePerFrame) { Val = CVarTimePerFrame->GetFloat(); }
+	}
+
+	return FMath::Max(Val, 1.0) / 1000.0;
+}
+
 void UPCGExSubSystem::ExecuteBeginTickActions()
 {
+	EndTime = FPlatformTime::Seconds() + GetTickBudgetInSeconds();
+
 	TArray<FTickAction> Actions;
 	TArray<PCGEx::FPolledEvent> Events;
 

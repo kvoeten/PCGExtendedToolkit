@@ -11,6 +11,11 @@
 
 #include "PCGExFuseCollinear.generated.h"
 
+namespace PCGExPaths
+{
+	class FPath;
+}
+
 /**
  * 
  */
@@ -70,6 +75,9 @@ struct FPCGExFuseCollinearContext final : FPCGExPathProcessorContext
 	double FuseDistSquared = 0;
 	//bool bDoBlend;
 	//UPCGExSubPointsBlendOperation* Blending = nullptr;
+
+protected:
+	PCGEX_ELEMENT_BATCH_POINT_DECL
 };
 
 class FPCGExFuseCollinearElement final : public FPCGExPathProcessorElement

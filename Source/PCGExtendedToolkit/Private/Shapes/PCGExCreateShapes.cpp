@@ -5,6 +5,7 @@
 
 #include "PCGExRandom.h"
 #include "Data/PCGExData.h"
+#include "Data/PCGExPointIO.h"
 #include "Paths/PCGExPaths.h"
 
 
@@ -15,6 +16,7 @@
 #define PCGEX_NAMESPACE CreateShapes
 
 PCGEX_INITIALIZE_ELEMENT(CreateShapes)
+PCGEX_ELEMENT_BATCH_POINT_IMPL(CreateShapes)
 
 bool FPCGExCreateShapesElement::Boot(FPCGExContext* InContext) const
 {
@@ -35,9 +37,9 @@ bool FPCGExCreateShapesElement::ExecuteInternal(FPCGContext* InContext) const
 	PCGEX_EXECUTION_CHECK
 	PCGEX_ON_INITIAL_EXECUTION
 	{
-		if (!Context->StartBatchProcessingPoints<PCGExPointsMT::TBatch<PCGExCreateShapes::FProcessor>>(
+		if (!Context->StartBatchProcessingPoints(
 			[&](const TSharedPtr<PCGExData::FPointIO>& Entry) { return true; },
-			[&](const TSharedPtr<PCGExPointsMT::TBatch<PCGExCreateShapes::FProcessor>>& NewBatch)
+			[&](const TSharedPtr<PCGExPointsMT::IBatch>& NewBatch)
 			{
 				//NewBatch->bRequiresWriteStep = true;
 			}))

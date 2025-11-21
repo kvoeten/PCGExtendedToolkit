@@ -5,7 +5,10 @@
 #include "Graph/Pathfinding/GoalPickers/PCGExGoalPickerRandom.h"
 
 #include "PCGExRandom.h"
+#include "Data/PCGExPointElements.h"
+#include "Details/PCGExDetailsSettings.h"
 
+PCGEX_SETTING_VALUE_IMPL(UPCGExGoalPickerRandom, NumGoals, int32, NumGoalsType, NumGoalAttribute, NumGoals)
 
 void UPCGExGoalPickerRandom::CopySettingsFrom(const UPCGExInstancedFactory* Other)
 {

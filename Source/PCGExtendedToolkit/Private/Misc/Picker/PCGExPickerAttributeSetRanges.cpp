@@ -3,6 +3,11 @@
 
 #include "Misc/Pickers/PCGExPickerAttributeSetRanges.h"
 
+#include "PCGExHelpers.h"
+#include "Data/PCGExAttributeHelpers.h"
+#include "Data/PCGExData.h"
+#include "Data/PCGExPointIO.h"
+
 #define LOCTEXT_NAMESPACE "PCGExCreatePickerConstantSet"
 #define PCGEX_NAMESPACE CreatePickerConstantSet
 
@@ -50,7 +55,7 @@ bool UPCGExPickerAttributeSetRangesFactory::GetUniqueRanges(
 				continue;
 			}
 
-			const TSharedPtr<PCGEx::TAttributeBroadcaster<FVector2D>> Values = PCGEx::TAttributeBroadcaster<FVector2D>::Make(Infos->Attributes[0]->Name, Facade->Source);
+			const TSharedPtr<PCGEx::TAttributeBroadcaster<FVector2D>> Values = PCGEx::MakeTypedBroadcaster<FVector2D>(Infos->Attributes[0]->Name, Facade->Source);
 			if (!Values) { continue; }
 			Values->GrabUniqueValues(UniqueRanges);
 		}
@@ -58,7 +63,7 @@ bool UPCGExPickerAttributeSetRangesFactory::GetUniqueRanges(
 		{
 			for (const FPCGAttributePropertyInputSelector& Selector : InConfig.Attributes)
 			{
-				const TSharedPtr<PCGEx::TAttributeBroadcaster<FVector2D>> Values = PCGEx::TAttributeBroadcaster<FVector2D>::Make(Selector, Facade->Source);
+				const TSharedPtr<PCGEx::TAttributeBroadcaster<FVector2D>> Values = PCGEx::MakeTypedBroadcaster<FVector2D>(Selector, Facade->Source);
 				if (!Values) { continue; }
 				Values->GrabUniqueValues(UniqueRanges);
 			}
@@ -103,7 +108,7 @@ PCGExFactories::EPreparationResult UPCGExPickerAttributeSetRangesFactory::InitIn
 TArray<FPCGPinProperties> UPCGExPickerAttributeSetRangesSettings::InputPinProperties() const
 {
 	TArray<FPCGPinProperties> PinProperties = Super::InputPinProperties();
-	PCGEX_PIN_ANY(FName("Ranges"), "Data to read attribute from", Required, {})
+	PCGEX_PIN_ANY(FName("Ranges"), "Data to read attribute from", Required)
 	return PinProperties;
 }
 

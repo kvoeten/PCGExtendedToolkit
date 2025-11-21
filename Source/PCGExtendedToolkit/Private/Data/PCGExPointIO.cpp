@@ -3,290 +3,33 @@
 
 #include "Data/PCGExPointIO.h"
 
+
+#include "Data/PCGPointArrayData.h"
+#include "Metadata/Accessors/PCGCustomAccessor.h"
+#include "PCGEx.h"
 #include "PCGExContext.h"
-#include "PCGExDetails.h"
 #include "PCGExMT.h"
+#include "PCGParamData.h"
+#include "Data/PCGExDataTag.h"
+#include "Data/PCGPointData.h"
 
 namespace PCGExData
 {
-	FScope::FScope(UPCGBasePointData* InData, const int32 InStart, const int32 InCount)
-		: PCGExMT::FScope(InStart, InCount), Data(InData)
-	{
-	}
-
-	FScope::FScope(const UPCGBasePointData* InData, const int32 InStart, const int32 InCount)
-		: PCGExMT::FScope(InStart, InCount), Data(const_cast<UPCGBasePointData*>(InData))
-	{
-	}
-
-#pragma region FPoint
-
-	FElement::FElement(const uint64 Hash)
-		: Index(PCGEx::H64A(Hash)), IO(PCGEx::H64B(Hash))
-	{
-	}
-
-	FElement::FElement(const int32 InIndex, const int32 InIO)
-		: Index(InIndex), IO(InIO)
-	{
-	}
-
-	FElement::FElement(const TSharedPtr<FPointIO>& InIO, const uint32 InIndex)
-		: Index(InIndex), IO(InIO->IOIndex)
-	{
-	}
-
-	FPoint::FPoint(const uint64 Hash)
-		: FElement(Hash)
-	{
-	}
-
-	FPoint::FPoint(const int32 InIndex, const int32 InIO)
-		: FElement(InIndex, InIO)
-	{
-	}
-
-	FPoint::FPoint(const TSharedPtr<FPointIO>& InIO, const uint32 InIndex)
-		: FElement(InIO, InIndex)
-	{
-	}
-
-	FWeightedPoint::FWeightedPoint(const uint64 Hash, const double InWeight)
-		: FPoint(Hash)
-	{
-	}
-
-	FWeightedPoint::FWeightedPoint(const int32 InIndex, const double InWeight, const int32 InIO)
-		: FPoint(InIndex, InIO), Weight(InWeight)
-	{
-	}
-
-	FWeightedPoint::FWeightedPoint(const TSharedPtr<FPointIO>& InIO, const uint32 InIndex, const double InWeight)
-		: FPoint(InIO, InIndex), Weight(InWeight)
-	{
-	}
-
-	FMutablePoint::FMutablePoint(UPCGBasePointData* InData, const int32 InIndex, const int32 InIO)
-		: FPoint(InIndex, InIO), Data(InData)
-	{
-	}
-
-	FMutablePoint::FMutablePoint(const TSharedPtr<FPointIO>& InFacade, const int32 InIndex)
-		: FPoint(InFacade, InIndex), Data(InFacade->GetOut())
-	{
-	}
-
-	FTransform& FMutablePoint::GetMutableTransform()
-	{
-		TPCGValueRange<FTransform> Transforms = Data->GetTransformValueRange(false);
-		return Transforms[Index];
-	}
-
-	void FMutablePoint::SetTransform(const FTransform& InValue)
-	{
-		const TPCGValueRange<FTransform> Transforms = Data->GetTransformValueRange(false);
-		Transforms[Index] = InValue;
-	}
-
-	void FMutablePoint::SetLocation(const FVector& InValue)
-	{
-		const TPCGValueRange<FTransform> Transforms = Data->GetTransformValueRange(false);
-		Transforms[Index].SetLocation(InValue);
-	}
-
-	void FMutablePoint::SetScale3D(const FVector& InValue)
-	{
-		const TPCGValueRange<FTransform> Transforms = Data->GetTransformValueRange(false);
-		Transforms[Index].SetScale3D(InValue);
-	}
-
-	void FMutablePoint::SetRotation(const FQuat& InValue)
-	{
-		const TPCGValueRange<FTransform> Transforms = Data->GetTransformValueRange(false);
-		Transforms[Index].SetRotation(InValue);
-	}
-
-	void FMutablePoint::SetBoundsMin(const FVector& InValue)
-	{
-		const TPCGValueRange<FVector> BoundsMin = Data->GetBoundsMinValueRange(false);
-		BoundsMin[Index] = InValue;
-	}
-
-	void FMutablePoint::SetBoundsMax(const FVector& InValue)
-	{
-		const TPCGValueRange<FVector> BoundsMax = Data->GetBoundsMaxValueRange(false);
-		BoundsMax[Index] = InValue;
-	}
-
-	void FMutablePoint::SetExtents(const FVector& InValue, const bool bKeepLocalCenter)
-	{
-		const TPCGValueRange<FVector> BoundsMin = Data->GetBoundsMinValueRange(false);
-		const TPCGValueRange<FVector> BoundsMax = Data->GetBoundsMaxValueRange(false);
-
-		if (bKeepLocalCenter)
-		{
-			const FVector LocalCenter = Data->GetLocalCenter(Index);
-			BoundsMin[Index] = LocalCenter - InValue;
-			BoundsMax[Index] = LocalCenter + InValue;
-		}
-		else
-		{
-			BoundsMin[Index] = -InValue;
-			BoundsMax[Index] = InValue;
-		}
-	}
-
-	void FMutablePoint::SetLocalBounds(const FBox& InValue)
-	{
-		const TPCGValueRange<FVector> BoundsMin = Data->GetBoundsMinValueRange(false);
-		BoundsMin[Index] = InValue.Min;
-
-		const TPCGValueRange<FVector> BoundsMax = Data->GetBoundsMaxValueRange(false);
-		BoundsMax[Index] = InValue.Max;
-	}
-
-	void FMutablePoint::SetMetadataEntry(const int64 InValue)
-	{
-		const TPCGValueRange<int64> MetadataEntries = Data->GetMetadataEntryValueRange(false);
-		MetadataEntries[Index] = InValue;
-	}
-
-	FConstPoint::FConstPoint(const FMutablePoint& InPoint)
-		: FConstPoint(InPoint.Data, InPoint.Index)
-	{
-	}
-
-	FConstPoint::FConstPoint(const UPCGBasePointData* InData, const uint64 Hash)
-		: FPoint(Hash), Data(InData)
-	{
-	}
-
-	FConstPoint::FConstPoint(const UPCGBasePointData* InData, const int32 InIndex, const int32 InIO)
-		: FPoint(InIndex, InIO), Data(InData)
-	{
-	}
-
-	FConstPoint::FConstPoint(const UPCGBasePointData* InData, const FPoint& InPoint)
-		: FPoint(InPoint.Index, InPoint.IO), Data(InData)
-	{
-	}
-
-	FConstPoint::FConstPoint(const TSharedPtr<FPointIO>& InFacade, const int32 InIndex)
-		: FPoint(InFacade, InIndex), Data(InFacade->GetIn())
-	{
-	}
-
-
-	FMutablePoint::FMutablePoint(UPCGBasePointData* InData, const uint64 Hash)
-		: FPoint(Hash), Data(InData)
-	{
-	}
-
-	FProxyPoint::FProxyPoint(const FMutablePoint& InPoint):
-		Transform(InPoint.GetTransform()),
-		BoundsMin(InPoint.GetBoundsMin()),
-		BoundsMax(InPoint.GetBoundsMax()),
-		Steepness(InPoint.GetSteepness())
-	{
-	}
-
-	FProxyPoint::FProxyPoint(const FConstPoint& InPoint)
-		: Transform(InPoint.GetTransform()),
-		  BoundsMin(InPoint.GetBoundsMin()),
-		  BoundsMax(InPoint.GetBoundsMax()),
-		  Steepness(InPoint.GetSteepness())
-	{
-	}
-
-	FProxyPoint::FProxyPoint(const UPCGBasePointData* InData, const uint64 Hash)
-		: FProxyPoint(FConstPoint(InData, Hash))
-	{
-	}
-
-	FProxyPoint::FProxyPoint(const UPCGBasePointData* InData, const int32 InIndex, const int32 InIO)
-		: FProxyPoint(FConstPoint(InData, InIndex, InIO))
-	{
-	}
-
-	FProxyPoint::FProxyPoint(const TSharedPtr<FPointIO>& InFacade, const int32 InIndex)
-		: FProxyPoint(FConstPoint(InFacade, InIndex))
-	{
-	}
-
-	void FProxyPoint::CopyTo(UPCGBasePointData* InData) const
-	{
-		TPCGValueRange<FTransform> OutTransform = InData->GetTransformValueRange(false);
-
-		TPCGValueRange<FVector> OutBoundsMin = InData->GetBoundsMinValueRange(false);
-		TPCGValueRange<FVector> OutBoundsMax = InData->GetBoundsMinValueRange(false);
-
-		OutTransform[Index] = Transform;
-		OutBoundsMin[Index] = BoundsMin;
-		OutBoundsMax[Index] = BoundsMax;
-	}
-
-	void FProxyPoint::CopyTo(FMutablePoint& InPoint) const
-	{
-		InPoint.SetTransform(Transform);
-		InPoint.SetBoundsMin(BoundsMin);
-		InPoint.SetBoundsMax(BoundsMax);
-	}
-
-
-	void SetPointProperty(FMutablePoint& InPoint, const double InValue, const EPCGExPointPropertyOutput InProperty)
-	{
-		if (InProperty == EPCGExPointPropertyOutput::Density)
-		{
-			TPCGValueRange<float> Density = InPoint.Data->GetDensityValueRange(false);
-			Density[InPoint.Index] = InValue;
-		}
-		else if (InProperty == EPCGExPointPropertyOutput::Steepness)
-		{
-			TPCGValueRange<float> Steepness = InPoint.Data->GetSteepnessValueRange(false);
-			Steepness[InPoint.Index] = InValue;
-		}
-		else if (InProperty == EPCGExPointPropertyOutput::ColorR)
-		{
-			TPCGValueRange<FVector4> Color = InPoint.Data->GetColorValueRange(false);
-			Color[InPoint.Index].Component(0) = InValue;
-		}
-		else if (InProperty == EPCGExPointPropertyOutput::ColorG)
-		{
-			TPCGValueRange<FVector4> Color = InPoint.Data->GetColorValueRange(false);
-			Color[InPoint.Index].Component(1) = InValue;
-		}
-		else if (InProperty == EPCGExPointPropertyOutput::ColorB)
-		{
-			TPCGValueRange<FVector4> Color = InPoint.Data->GetColorValueRange(false);
-			Color[InPoint.Index].Component(2) = InValue;
-		}
-		else if (InProperty == EPCGExPointPropertyOutput::ColorA)
-		{
-			TPCGValueRange<FVector4> Color = InPoint.Data->GetColorValueRange(false);
-			Color[InPoint.Index].Component(3) = InValue;
-		}
-	}
-
-#pragma endregion
-
 #pragma region FPointIO
 
 	FPointIO::FPointIO(const TWeakPtr<FPCGContextHandle>& InContextHandle):
 		ContextHandle(InContextHandle), In(nullptr)
 	{
-		PCGEX_LOG_CTR(FPointIO)
 	}
 
 	FPointIO::FPointIO(const TWeakPtr<FPCGContextHandle>& InContextHandle, const UPCGBasePointData* InData):
 		ContextHandle(InContextHandle), In(InData)
 	{
-		PCGEX_LOG_CTR(FPointIO)
 	}
 
 	FPointIO::FPointIO(const TSharedRef<FPointIO>& InPointIO):
 		ContextHandle(InPointIO->GetContextHandle()), In(InPointIO->GetIn())
 	{
-		PCGEX_LOG_CTR(FPointIO)
 		RootIO = InPointIO;
 
 		TSet<FString> TagDump;
@@ -318,11 +61,25 @@ namespace PCGExData
 	{
 		PCGEX_SHARED_CONTEXT(ContextHandle)
 
+		if (LastInit == InitOut) { return true; }
+
 		if (InitOut == EIOInit::Forward && IsValid(Out) && Out == In)
 		{
 			// Already forwarding
+			LastInit = EIOInit::Forward;
 			return true;
 		}
+
+		if (LastInit == EIOInit::Duplicate
+			&& InitOut == EIOInit::New
+			&& Out && Out != In)
+		{
+			LastInit = EIOInit::New;
+			Out->SetNumPoints(0); // lol
+			return true;
+		}
+
+		LastInit = InitOut;
 
 		if (IsValid(Out) && Out != In)
 		{
@@ -359,10 +116,11 @@ namespace PCGExData
 				// Input type was not a PointData child, should not happen.
 				check(Out)
 
+				PCGExHelpers::InitEmptyNativeProperties(In, Out);
+
 				FPCGInitializeFromDataParams InitializeFromDataParams(In);
 				InitializeFromDataParams.bInheritSpatialData = false;
 				Out->InitializeFromDataWithParams(InitializeFromDataParams);
-				PCGExHelpers::CopyBaseNativeProperties(In, Out);
 			}
 			else
 			{
@@ -376,7 +134,6 @@ namespace PCGExData
 		{
 			check(In)
 			Out = SharedContext.Get()->ManagedObjects->DuplicateData<UPCGBasePointData>(In);
-			PCGExHelpers::CopyBaseNativeProperties(In, Out);
 		}
 
 		return true;
@@ -435,7 +192,9 @@ namespace PCGExData
 		return false;
 	}
 
-	TSharedPtr<FPCGAttributeAccessorKeysPointIndices> FPointIO::GetInKeys()
+	FTaggedData FPointIO::GetTaggedData(const EIOSide Source) { return FTaggedData(GetData(Source), Tags, GetInKeys()); }
+
+	TSharedPtr<IPCGAttributeAccessorKeys> FPointIO::GetInKeys()
 	{
 		TRACE_CPUPROFILER_EVENT_SCOPE(FPointIO::GetInKeys);
 
@@ -454,7 +213,7 @@ namespace PCGExData
 		return InKeys;
 	}
 
-	TSharedPtr<FPCGAttributeAccessorKeysPointIndices> FPointIO::GetOutKeys(const bool bEnsureValidKeys)
+	TSharedPtr<IPCGAttributeAccessorKeys> FPointIO::GetOutKeys(const bool bEnsureValidKeys)
 	{
 		TRACE_CPUPROFILER_EVENT_SCOPE(FPointIO::GetOutKeys);
 
@@ -722,7 +481,14 @@ namespace PCGExData
 
 		if (!IsEnabled() || !Out || (!bAllowEmptyOutput && Out->IsEmpty())) { return false; }
 
-		TargetContext->StageOutput(Out, OutputPin, Tags->Flatten(), Out != In, bMutable, bPinless);
+		if (LastInit == EIOInit::Forward && Out == In && OriginalIn)
+		{
+			TargetContext->StageOutput(const_cast<UPCGData*>(OriginalIn), OutputPin, Tags->Flatten(), false, false, bPinless);
+		}
+		else
+		{
+			TargetContext->StageOutput(Out, OutputPin, Tags->Flatten(), Out != In, bMutable, bPinless);
+		}
 
 		return true;
 	}
@@ -732,11 +498,10 @@ namespace PCGExData
 		if (Out)
 		{
 			const int64 OutNumPoints = Out->GetNumPoints();
-			if ((MinPointCount >= 0 && OutNumPoints < MinPointCount) ||
-				(MaxPointCount >= 0 && OutNumPoints > MaxPointCount))
-			{
-				return StageOutput(TargetContext);
-			}
+			if (OutNumPoints <= 0) { return false; }
+			if (MinPointCount > 0 && OutNumPoints < MinPointCount) { return false; }
+			if (MaxPointCount > 0 && OutNumPoints > MaxPointCount) { return false; }
+			return StageOutput(TargetContext);
 		}
 		return false;
 	}
@@ -765,7 +530,7 @@ namespace PCGExData
 
 		if (!Out || (!bAllowEmptyOutput && Out->IsEmpty())) { return false; }
 
-		return true;
+		return StageOutput(TargetContext);
 	}
 
 	int32 FPointIO::Gather(const TArrayView<int32> InIndices) const
@@ -776,16 +541,17 @@ namespace PCGExData
 
 		if (ReducedNum == Out->GetNumPoints()) { return ReducedNum; }
 
-		PCGEX_FOREACH_POINT_NATIVE_PROPERTY_GET(Out)
+		EPCGPointNativeProperties Allocated = In->GetAllocatedProperties() | Out->GetAllocatedProperties();
+		Out->AllocateProperties(Allocated);
 
-		Out->AllocateProperties(EPCGPointNativeProperties::All);
+#define PCGEX_VALUERANGE_GATHER(_NAME, _TYPE, ...) \
+if (EnumHasAnyFlags(Allocated, EPCGPointNativeProperties::_NAME)){ \
+TPCGValueRange<_TYPE> Range = Out->Get##_NAME##ValueRange(); \
+for (int i = 0; i < ReducedNum; i++){Range[i] = Range[InIndices[i]];}}
 
-		for (int i = 0; i < ReducedNum; i++)
-		{
-#define PCGEX_VALUERANGE_GATHER(_NAME, _TYPE, ...) _NAME##ValueRange[i] = _NAME##ValueRange[InIndices[i]];
-			PCGEX_FOREACH_POINT_NATIVE_PROPERTY(PCGEX_VALUERANGE_GATHER)
+		PCGEX_FOREACH_POINT_NATIVE_PROPERTY(PCGEX_VALUERANGE_GATHER)
+
 #undef PCGEX_VALUERANGE_GATHER
-		}
 
 		Out->SetNumPoints(ReducedNum);
 		return ReducedNum;
@@ -859,7 +625,6 @@ namespace PCGExData
 	FPointIOCollection::FPointIOCollection(FPCGExContext* InContext, const bool bIsTransactional)
 		: ContextHandle(InContext->GetOrCreateHandle()), bTransactional(bIsTransactional)
 	{
-		PCGEX_LOG_CTR(FPointIOCollection)
 	}
 
 	FPointIOCollection::FPointIOCollection(FPCGExContext* InContext, const FName InputLabel, const EIOInit InitOut, const bool bIsTransactional)
@@ -987,49 +752,60 @@ namespace PCGExData
 		Add_Unsafe(IOs);
 	}
 
+	void FPointIOCollection::OverrideTags(const TSharedPtr<FPointIO>& InFrom, const TSharedPtr<FPointIO>& InTo)
+	{
+		InTo->Tags->Reset(InFrom->Tags);
+	}
+
 	void FPointIOCollection::IncreaseReserve(const int32 InIncreaseNum)
 	{
 		FWriteScopeLock WriteLock(PairsLock);
 		Pairs.Reserve(Pairs.Max() + InIncreaseNum);
 	}
 
-	void FPointIOCollection::StageOutputs()
+	int32 FPointIOCollection::StageOutputs()
 	{
 		TRACE_CPUPROFILER_EVENT_SCOPE(FPointIOCollection::StageOutputs);
 
-		PCGEX_SHARED_CONTEXT_VOID(ContextHandle)
+		PCGEX_SHARED_CONTEXT_RET(ContextHandle, 0)
 		FPCGExContext* Context = SharedContext.Get();
 
 		Sort();
 
+		int32 NumStaged = 0;
 		Context->IncreaseStagedOutputReserve(Pairs.Num());
-		for (const TSharedPtr<FPointIO>& IO : Pairs) { if (IO) { (void)IO->StageOutput(Context); } }
+		for (const TSharedPtr<FPointIO>& IO : Pairs) { if (IO) { NumStaged += IO->StageOutput(Context); } }
+		return NumStaged;
 	}
 
-	void FPointIOCollection::StageOutputs(const int32 MinPointCount, const int32 MaxPointCount)
+	int32 FPointIOCollection::StageOutputs(const int32 MinPointCount, const int32 MaxPointCount)
 	{
-		PCGEX_SHARED_CONTEXT_VOID(ContextHandle)
+		PCGEX_SHARED_CONTEXT_RET(ContextHandle, 0)
 
 		FPCGExContext* Context = SharedContext.Get();
 
-		if (!Context) { return; }
+		if (!Context) { return 0; }
 
 		Sort();
 
+		int32 NumStaged = 0;
 		Context->IncreaseStagedOutputReserve(Pairs.Num());
-		for (const TSharedPtr<FPointIO>& IO : Pairs) { if (IO) { (void)IO->StageOutput(Context, MinPointCount, MaxPointCount); } }
+		for (const TSharedPtr<FPointIO>& IO : Pairs) { if (IO) { NumStaged += IO->StageOutput(Context, MinPointCount, MaxPointCount); } }
+		return NumStaged;
 	}
 
-	void FPointIOCollection::StageAnyOutputs()
+	int32 FPointIOCollection::StageAnyOutputs()
 	{
-		PCGEX_SHARED_CONTEXT_VOID(ContextHandle)
+		PCGEX_SHARED_CONTEXT_RET(ContextHandle, 0)
 
 		FPCGExContext* Context = SharedContext.Get();
 
 		Sort();
 
+		int32 NumStaged = 0;
 		Context->IncreaseStagedOutputReserve(Pairs.Num());
-		for (int i = 0; i < Pairs.Num(); i++) { Pairs[i]->StageAnyOutput(Context); }
+		for (int i = 0; i < Pairs.Num(); i++) { NumStaged += Pairs[i]->StageAnyOutput(Context); }
+		return NumStaged;
 	}
 
 	void FPointIOCollection::Sort()
@@ -1050,6 +826,13 @@ namespace PCGExData
 		FBox Bounds = FBox(ForceInit);
 		for (const TSharedPtr<FPointIO>& IO : Pairs) { Bounds += IO->GetOut()->GetBounds(); }
 		return Bounds;
+	}
+
+	int32 FPointIOCollection::GetInNumPoints() const
+	{
+		int32 Count = 0;
+		for (const TSharedPtr<FPointIO>& IO : Pairs) { Count += IO->GetNum(); }
+		return Count;
 	}
 
 	void FPointIOCollection::PruneNullEntries(const bool bUpdateIndices)
@@ -1133,9 +916,7 @@ namespace PCGExData
 
 	void GetPoints(const FScope& Scope, TArray<FPCGPoint>& OutPCGPoints)
 	{
-		check(Scope.IsValid())
-
-		OutPCGPoints.SetNum(Scope.Count);
+		OutPCGPoints.Reserve(Scope.Count);
 
 		const TConstPCGValueRange<FTransform> TransformRange = Scope.Data->GetConstTransformValueRange();
 		const TConstPCGValueRange<float> SteepnessRange = Scope.Data->GetConstSteepnessValueRange();
@@ -1149,19 +930,16 @@ namespace PCGExData
 		for (int i = 0; i < Scope.Count; i++)
 		{
 			const int32 Index = Scope.Start + i;
-			FPCGPoint& Pt = OutPCGPoints[i];
-			Pt.Transform = TransformRange[Index];
+			FPCGPoint& Pt = OutPCGPoints.Emplace_GetRef(TransformRange[Index], DensityRange[Index], SeedRange[Index]);
 			Pt.Steepness = SteepnessRange[Index];
-			Pt.Density = DensityRange[Index];
 			Pt.BoundsMin = BoundsMinRange[Index];
 			Pt.BoundsMax = BoundsMaxRange[Index];
 			Pt.Color = ColorRange[Index];
 			Pt.MetadataEntry = MetadataEntryRange[Index];
-			Pt.Seed = SeedRange[Index];
 		}
 	}
 
-	TSharedPtr<FPointIO> TryGetSingleInput(FPCGExContext* InContext, const FName InputPinLabel, const bool bTransactional, const bool bThrowError)
+	TSharedPtr<FPointIO> TryGetSingleInput(FPCGExContext* InContext, const FName InputPinLabel, const bool bTransactional, const bool bRequired)
 	{
 		TSharedPtr<FPointIO> SingleIO;
 		const TSharedPtr<FPointIOCollection> Collection = MakeShared<FPointIOCollection>(InContext, InputPinLabel, EIOInit::NoInit, bTransactional);
@@ -1170,9 +948,9 @@ namespace PCGExData
 		{
 			SingleIO = Collection->Pairs[0];
 		}
-		else if (bThrowError)
+		else if (bRequired)
 		{
-			PCGE_LOG_C(Error, GraphAndLog, InContext, FText::Format(FText::FromString(TEXT("Missing or zero-points '{0}' inputs")), FText::FromName(InputPinLabel)));
+			PCGEX_LOG_MISSING_INPUT(InContext, FText::Format(FText::FromString(TEXT("Missing or zero-points '{0}' inputs")), FText::FromName(InputPinLabel)))
 		}
 
 		return SingleIO;

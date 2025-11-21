@@ -10,13 +10,14 @@
 #include "PCGExSampling.h"
 #include "PCGExTexParamFactoryProvider.h"
 #include "Data/PCGExDataForward.h"
+#include "Data/PCGExPointFilter.h"
 #include "Data/PCGTextureData.h"
 
 
 #include "PCGExSampleTexture.generated.h"
 
 
-class UPCGExFilterFactoryData;
+class UPCGExPointFilterFactoryData;
 
 /**
  * Use PCGExSampling to manipulate the outgoing attributes instead of handling everything here.
@@ -33,13 +34,15 @@ public:
 	//~Begin UPCGSettings
 #if WITH_EDITOR
 	PCGEX_NODE_INFOS(SampleTexture, "Sample : Texture", "Sample texture data using UV coordinates.");
-	virtual FLinearColor GetNodeTitleColor() const override { return GetDefault<UPCGExGlobalSettings>()->NodeColorSampler; }
+	virtual FLinearColor GetNodeTitleColor() const override { return GetDefault<UPCGExGlobalSettings>()->ColorSampling; }
 #endif
 
 protected:
 	virtual TArray<FPCGPinProperties> InputPinProperties() const override;
 	virtual FPCGElementPtr CreateElement() const override;
 	//~End UPCGSettings
+
+	virtual PCGExData::EIOInit GetMainDataInitializationPolicy() const override;
 
 	//~Begin UPCGExPointsProcessorSettings
 public:
@@ -83,6 +86,9 @@ struct FPCGExSampleTextureContext final : FPCGExPointsProcessorContext
 	friend class FPCGExSampleTextureElement;
 	TArray<TObjectPtr<const UPCGExTexParamFactoryData>> TexParamsFactories;
 	TSharedPtr<PCGExTexture::FLookup> TextureMap;
+
+protected:
+	PCGEX_ELEMENT_BATCH_POINT_DECL
 };
 
 class FPCGExSampleTextureElement final : public FPCGExPointsProcessorElement

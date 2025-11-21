@@ -5,6 +5,8 @@
 #include "Misc/PCGExDiscardByPointCount.h"
 
 #include "PCGExPointsProcessor.h"
+#include "Data/PCGBasePointData.h"
+#include "Data/PCGExPointIO.h"
 
 #define LOCTEXT_NAMESPACE "PCGExDiscardByPointCountElement"
 #define PCGEX_NAMESPACE DiscardByPointCount
@@ -12,7 +14,7 @@
 TArray<FPCGPinProperties> UPCGExDiscardByPointCountSettings::OutputPinProperties() const
 {
 	TArray<FPCGPinProperties> PinProperties = Super::OutputPinProperties();
-	PCGEX_PIN_POINTS(PCGExDiscardByPointCount::OutputDiscardedLabel, "Discarded outputs.", Normal, {})
+	PCGEX_PIN_POINTS(PCGExDiscardByPointCount::OutputDiscardedLabel, "Discarded outputs.", Normal)
 	return PinProperties;
 }
 
@@ -58,10 +60,11 @@ bool FPCGExDiscardByPointCountElement::ExecuteInternal(FPCGContext* InContext) c
 		}
 
 		Context->MainPoints->StageOutputs();
-		Context->Done();
 
-		if (NumDiscarded == NumTotal) { Context->OutputData.InactiveOutputPinBitmask = 1; }
-		else if (NumDiscarded == 0) { Context->OutputData.InactiveOutputPinBitmask = 2; }
+		if (NumDiscarded == NumTotal) { Context->OutputData.InactiveOutputPinBitmask |= 1ULL << 0; }
+		if (!NumDiscarded) { Context->OutputData.InactiveOutputPinBitmask |= 1ULL << 1; }
+
+		Context->Done();
 	}
 
 	return Context->TryComplete();

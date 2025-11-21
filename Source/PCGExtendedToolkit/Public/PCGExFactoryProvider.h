@@ -6,21 +6,24 @@
 #include "CoreMinimal.h"
 
 #include "PCGSettings.h"
-#include "Data/PCGExData.h"
 #include "UObject/Object.h"
 
 #include "PCGEx.h"
+#include "PCGExContext.h"
+#include "PCGExMT.h"
 #include "Data/PCGExPointData.h"
 
 #include "PCGExFactoryProvider.generated.h"
 
 #define PCGEX_FACTORY_NAME_PRIORITY FName(FString::Printf(TEXT("(%d) "), Priority) +  GetDisplayName())
 #define PCGEX_FACTORY_NEW_OPERATION(_TYPE) TSharedPtr<FPCGEx##_TYPE> NewOperation = MakeShared<FPCGEx##_TYPE>();
+#define PCGEX_FACTORY_TYPE_ID(_TYPE) virtual const FPCGDataTypeBaseId& GetFactoryTypeId() const{ return _TYPE::AsId(); }
 
 ///
 
 namespace PCGExData
 {
+	class FFacade;
 	class FFacadePreloader;
 }
 
@@ -32,6 +35,7 @@ namespace PCGExFactories
 	{
 		None = 0,
 		Instanced,
+		Filter,
 		FilterGroup,
 		FilterPoint,
 		FilterNode,
@@ -40,7 +44,8 @@ namespace PCGExFactories
 		RuleSort,
 		RulePartition,
 		Probe,
-		NodeState,
+		ClusterState,
+		PointState,
 		Sampler,
 		Heuristics,
 		VtxProperty,
@@ -66,9 +71,18 @@ namespace PCGExFactories
 	static inline TSet<EType> PointFilters = {EType::FilterPoint, EType::FilterGroup, EType::FilterCollection};
 	static inline TSet<EType> ClusterNodeFilters = {EType::FilterPoint, EType::FilterNode, EType::FilterGroup, EType::FilterCollection};
 	static inline TSet<EType> ClusterEdgeFilters = {EType::FilterPoint, EType::FilterEdge, EType::FilterGroup, EType::FilterCollection};
-	static inline TSet<EType> SupportsClusterFilters = {EType::FilterEdge, EType::FilterNode, EType::NodeState, EType::FilterGroup, EType::FilterCollection};
-	static inline TSet<EType> ClusterOnlyFilters = {EType::FilterEdge, EType::FilterNode, EType::NodeState};
+	static inline TSet<EType> SupportsClusterFilters = {EType::FilterEdge, EType::FilterNode, EType::ClusterState, EType::FilterGroup, EType::FilterCollection};
+	static inline TSet<EType> ClusterOnlyFilters = {EType::FilterEdge, EType::FilterNode, EType::ClusterState};
+	static inline TSet<EType> ClusterStates = {EType::ClusterState, EType::PointState};
 }
+
+
+USTRUCT(meta=(PCG_DataTypeDisplayName="PCGEx | Factory"))
+struct FPCGExFactoryDataTypeInfo : public FPCGDataTypeInfo
+{
+	GENERATED_BODY()
+	PCG_DECLARE_TYPE_INFO(PCGEXTENDEDTOOLKIT_API)
+};
 
 /**
  * 
@@ -93,14 +107,13 @@ class PCGEXTENDEDTOOLKIT_API UPCGExFactoryData : public UPCGExParamDataBase
 	GENERATED_BODY()
 
 public:
+	PCG_ASSIGN_TYPE_INFO(FPCGExFactoryDataTypeInfo)
+
 	UPROPERTY()
 	int32 Priority = 0;
 
 	UPROPERTY()
 	bool bCleanupConsumableAttributes = false;
-
-	UPROPERTY()
-	bool bQuietMissingInputError = false;
 
 	PCGExFactories::EPreparationResult PrepResult = PCGExFactories::EPreparationResult::None;
 
@@ -116,8 +129,8 @@ public:
 
 	virtual void AddDataDependency(const UPCGData* InData);
 	virtual void BeginDestroy() override;
-
-protected:
+	
+protected:	
 	UPROPERTY()
 	TSet<TObjectPtr<UPCGData>> DataDependencies;
 };
@@ -143,6 +156,9 @@ public:
 	virtual FLinearColor GetNodeTitleColor() const override;
 	virtual bool GetPinExtraIcon(const UPCGPin* InPin, FName& OutExtraIcon, FText& OutTooltip) const override;
 #endif
+
+	virtual const FPCGDataTypeBaseId& GetFactoryTypeId() const;
+	virtual int32 GetDefaultPriority() const { return 0; }
 
 protected:
 	virtual TArray<FPCGPinProperties> InputPinProperties() const override;
@@ -173,6 +189,14 @@ public:
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = "Cleanup", meta = (PCG_NotOverridable))
 	bool bCleanupConsumableAttributes = false;
 
+	/** */
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = "Warnings and Errors", meta=(PCG_NotOverridable, AdvancedDisplay))
+	bool bQuietInvalidInputWarning = false;
+
+	/** */
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = "Warnings and Errors", meta=(PCG_NotOverridable, AdvancedDisplay))
+	bool bQuietMissingAttributeError = false;
+
 	/** If enabled, will turn off missing input errors on factories that have inputs with missing or no data. */
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = "Warnings and Errors", meta=(PCG_NotOverridable, AdvancedDisplay))
 	bool bQuietMissingInputError = false;
@@ -182,8 +206,12 @@ public:
 	UFUNCTION(CallInEditor, Category = Tools, meta=(DisplayName="Node Documentation", ShortToolTip="Open a browser and navigate to that node' documentation page", DisplayOrder=-1))
 	void EDITOR_OpenNodeDocumentation() const;
 #endif
-
+	
 protected:
+	/** Store version of factory node, used for deprecation purposes */
+	UPROPERTY()
+	int64 PCGExDataVersion = -1;
+	
 	virtual bool ShouldCache() const;
 };
 
@@ -212,78 +240,50 @@ protected:
 	virtual bool ExecuteInternal(FPCGContext* Context) const override;
 
 public:
-	virtual FPCGContext* CreateContext() override
-	{
-		FPCGExFactoryProviderContext* NewContext = new FPCGExFactoryProviderContext();
-		NewContext->SetState(PCGExCommon::State_InitialExecution);
-		return NewContext;
-	}
+	virtual FPCGContext* CreateContext() override;
 
 	virtual bool IsCacheable(const UPCGSettings* InSettings) const override;
 	virtual bool SupportsBasePointDataInputs(FPCGContext* InContext) const override { return true; }
+	virtual void DisabledPassThroughData(FPCGContext* Context) const override;
 };
 
 namespace PCGExFactories
 {
-	bool GetInputFactories_Internal(FPCGExContext* InContext, const FName InLabel, TArray<TObjectPtr<const UPCGExFactoryData>>& OutFactories, const TSet<EType>& Types, bool bThrowError);
+	bool GetInputFactories_Internal(FPCGExContext* InContext, const FName InLabel, TArray<TObjectPtr<const UPCGExFactoryData>>& OutFactories, const TSet<EType>& Types, const bool bRequired);
 
 	template <typename T_DEF>
-	static bool GetInputFactories(FPCGExContext* InContext, const FName InLabel, TArray<TObjectPtr<const T_DEF>>& OutFactories, const TSet<EType>& Types, const bool bThrowError = true)
+	static bool GetInputFactories(FPCGExContext* InContext, const FName InLabel, TArray<TObjectPtr<const T_DEF>>& OutFactories, const TSet<EType>& Types, const bool bRequired = true)
 	{
 		TArray<TObjectPtr<const UPCGExFactoryData>> BaseFactories;
-		if (!GetInputFactories_Internal(InContext, InLabel, BaseFactories, Types, bThrowError)) { return false; }
+		if (!GetInputFactories_Internal(InContext, InLabel, BaseFactories, Types, bRequired)) { return false; }
 
 		// Cast back to T_DEF
 		for (const TObjectPtr<const UPCGExFactoryData>& Base : BaseFactories) { if (const T_DEF* Derived = Cast<T_DEF>(Base)) { OutFactories.Add(Derived); } }
-		OutFactories.Sort([](const T_DEF& A, const T_DEF& B) { return A.Priority < B.Priority; });
 
 		return !OutFactories.IsEmpty();
 	}
 
+	PCGEXTENDEDTOOLKIT_API
+	void RegisterConsumableAttributesWithData_Internal(const TArray<TObjectPtr<const UPCGExFactoryData>>& InFactories, FPCGExContext* InContext, const UPCGData* InData);
+
+	PCGEXTENDEDTOOLKIT_API
+	void RegisterConsumableAttributesWithFacade_Internal(const TArray<TObjectPtr<const UPCGExFactoryData>>& InFactories, const TSharedPtr<PCGExData::FFacade>& InFacade);
+
 	template <typename T_DEF>
 	static void RegisterConsumableAttributesWithData(const TArray<TObjectPtr<const T_DEF>>& InFactories, FPCGExContext* InContext, const UPCGData* InData)
 	{
-		check(InContext)
-
-		if (!InData || InFactories.IsEmpty()) { return; }
-
-		for (const TObjectPtr<const T_DEF>& Factory : InFactories)
-		{
-			if (!Factory.Get()) { continue; }
-			Factory->RegisterConsumableAttributesWithData(InContext, InData);
-		}
+		TArray<TObjectPtr<const UPCGExFactoryData>> BaseFactories;
+		BaseFactories.Reserve(InFactories.Num());
+		for (const TObjectPtr<const T_DEF>& Factory : InFactories) { BaseFactories.Add(Factory); }
+		RegisterConsumableAttributesWithData_Internal(BaseFactories, InContext, InData);
 	}
 
 	template <typename T_DEF>
 	static void RegisterConsumableAttributesWithFacade(const TArray<TObjectPtr<const T_DEF>>& InFactories, const TSharedPtr<PCGExData::FFacade>& InFacade)
 	{
-		FPCGContext::FSharedContext<FPCGExContext> SharedContext(InFacade->Source->GetContextHandle());
-		check(SharedContext.Get())
-
-		if (!InFacade->GetIn()) { return; }
-
-		const UPCGData* Data = InFacade->GetIn();
-
-		if (!Data) { return; }
-
-		for (const TObjectPtr<const T_DEF>& Factory : InFactories)
-		{
-			Factory->RegisterConsumableAttributesWithData(SharedContext.Get(), Data);
-		}
-	}
-
-	template <typename T_DEF>
-	static void RegisterConsumableAttributesWithFacade(const TObjectPtr<const T_DEF>& InFactory, const TSharedPtr<PCGExData::FFacade>& InFacade)
-	{
-		FPCGContext::FSharedContext<FPCGExContext> SharedContext(InFacade->Source->GetContextHandle());
-		check(SharedContext.Get())
-
-		if (!InFacade->GetIn()) { return; }
-
-		const UPCGData* Data = InFacade->GetIn();
-
-		if (!Data) { return; }
-
-		InFactory->RegisterConsumableAttributesWithData(SharedContext.Get(), Data);
+		TArray<TObjectPtr<const UPCGExFactoryData>> BaseFactories;
+		BaseFactories.Reserve(InFactories.Num());
+		for (const TObjectPtr<const T_DEF>& Factory : InFactories) { BaseFactories.Add(Factory); }
+		RegisterConsumableAttributesWithFacade_Internal(BaseFactories, InFacade);
 	}
 }

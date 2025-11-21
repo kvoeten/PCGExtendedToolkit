@@ -3,13 +3,26 @@
 
 #include "Misc/Filters/PCGExNumericSelfCompareFilter.h"
 
+#include "PCGExMath.h"
+#include "Data/PCGExDataPreloader.h"
+#include "Data/PCGExPointIO.h"
+#include "Details/PCGExDetailsSettings.h"
 
 #define LOCTEXT_NAMESPACE "PCGExCompareFilterDefinition"
 #define PCGEX_NAMESPACE CompareFilterDefinition
 
+PCGEX_SETTING_VALUE_IMPL(FPCGExNumericSelfCompareFilterConfig, Index, int32, CompareAgainst, IndexAttribute, IndexConstant)
+
 TSharedPtr<PCGExPointFilter::IFilter> UPCGExNumericSelfCompareFilterFactory::CreateFilter() const
 {
 	return MakeShared<PCGExPointFilter::FNumericSelfCompareFilter>(this);
+}
+
+void UPCGExNumericSelfCompareFilterFactory::RegisterBuffersDependencies(FPCGExContext* InContext, PCGExData::FFacadePreloader& FacadePreloader) const
+{
+	Super::RegisterBuffersDependencies(InContext, FacadePreloader);
+	FacadePreloader.Register<double>(InContext, Config.OperandA);
+	if (Config.CompareAgainst == EPCGExInputValueType::Attribute) { FacadePreloader.Register<int32>(InContext, Config.IndexAttribute); }
 }
 
 bool UPCGExNumericSelfCompareFilterFactory::RegisterConsumableAttributesWithData(FPCGExContext* InContext, const UPCGData* InData) const
@@ -36,11 +49,11 @@ bool PCGExPointFilter::FNumericSelfCompareFilter::Init(FPCGExContext* InContext,
 
 	if (!OperandA->Prepare(TypedFilterFactory->Config.OperandA, PointDataFacade->Source))
 	{
-		PCGEX_LOG_INVALID_SELECTOR_C(InContext, Operand A, TypedFilterFactory->Config.OperandA)
+		PCGEX_LOG_INVALID_SELECTOR_HANDLED_C(InContext, Operand A, TypedFilterFactory->Config.OperandA)
 		return false;
 	}
 
-	Index = TypedFilterFactory->Config.GetValueSettingIndex();
+	Index = TypedFilterFactory->Config.GetValueSettingIndex(PCGEX_QUIET_HANDLING);
 	if (!Index->Init(PointDataFacade)) { return false; }
 
 	return true;

@@ -27,7 +27,7 @@ public:
 	//~Begin UPCGSettings
 #if WITH_EDITOR
 	PCGEX_NODE_INFOS(PathfindingPlotEdges, "Pathfinding : Plot Edges", "Extract a single path from edges clusters, going through every seed points in order.");
-	virtual FLinearColor GetNodeTitleColor() const override { return GetDefault<UPCGExGlobalSettings>()->NodeColorPathfinding; }
+	virtual FLinearColor GetNodeTitleColor() const override { return GetDefault<UPCGExGlobalSettings>()->ColorPathfinding; }
 #endif
 
 protected:
@@ -39,7 +39,7 @@ protected:
 	//~Begin UObject interface
 public:
 #if WITH_EDITOR
-
+	virtual void PostInitProperties() override;
 	virtual void PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent) override;
 #endif
 	//~End UObject interface
@@ -93,6 +93,10 @@ public:
 	/** */
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = "Warnings and Errors")
 	bool bQuietInvalidPlotWarning = false;
+
+	/** If disabled, will share memory allocations between queries, forcing them to execute one after another. Much slower, but very conservative for memory. Using global feedback forces this behavior under the hood. */
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Performance, meta=(PCG_NotOverridable, AdvancedDisplay))
+	bool bGreedyQueries = true;
 };
 
 
@@ -105,7 +109,10 @@ struct FPCGExPathfindingPlotEdgesContext final : FPCGExEdgesProcessorContext
 
 	UPCGExSearchInstancedFactory* SearchAlgorithm = nullptr;
 
-	void BuildPath(const TSharedPtr<PCGExPathfinding::FPlotQuery>& Query) const;
+	void BuildPath(const TSharedPtr<PCGExPathfinding::FPlotQuery>& Query, const TSharedPtr<PCGExData::FPointIO>& PathIO) const;
+
+protected:
+	PCGEX_ELEMENT_BATCH_EDGE_DECL
 };
 
 class FPCGExPathfindingPlotEdgesElement final : public FPCGExEdgesProcessorElement
@@ -117,11 +124,13 @@ protected:
 	virtual bool ExecuteInternal(FPCGContext* Context) const override;
 };
 
-namespace PCGExPathfindingPlotEdge
+namespace PCGExPathfindingPlotEdges
 {
 	class FProcessor final : public PCGExClusterMT::TProcessor<FPCGExPathfindingPlotEdgesContext, UPCGExPathfindingPlotEdgesSettings>
 	{
 		TArray<TSharedPtr<PCGExPathfinding::FPlotQuery>> Queries;
+		TArray<TSharedPtr<PCGExData::FPointIO>> QueriesIO;
+		TSharedPtr<PCGExPathfinding::FSearchAllocations> SearchAllocations;
 
 	public:
 		FProcessor(const TSharedRef<PCGExData::FFacade>& InVtxDataFacade, const TSharedRef<PCGExData::FFacade>& InEdgeDataFacade):
@@ -134,5 +143,6 @@ namespace PCGExPathfindingPlotEdge
 		TSharedPtr<FPCGExSearchOperation> SearchOperation;
 
 		virtual bool Process(const TSharedPtr<PCGExMT::FTaskManager>& InAsyncManager) override;
+		virtual void ProcessRange(const PCGExMT::FScope& Scope) override;
 	};
 }

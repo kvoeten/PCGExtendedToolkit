@@ -3,6 +3,12 @@
 
 #include "Data/Matching/PCGExMatchByIndex.h"
 
+#include "PCGExHelpers.h"
+#include "PCGExMath.h"
+#include "Data/PCGExAttributeHelpers.h"
+#include "Data/PCGExDataHelpers.h"
+#include "Data/PCGExPointIO.h"
+
 
 #define LOCTEXT_NAMESPACE "PCGExMatchByIndex"
 #define PCGEX_NAMESPACE MatchByIndex
@@ -56,7 +62,7 @@ bool FPCGExMatchByIndex::Test(const PCGExData::FConstPoint& InTargetElement, con
 	}
 	else
 	{
-		if (!PCGExDataHelpers::TryReadDataValue<int32>(PointIO, Config.IndexAttribute, IndexValue, true)) { return false; }
+		if (!PCGExDataHelpers::TryReadDataValue<int32>(PointIO, Config.IndexAttribute, IndexValue)) { return false; }
 		OtherIndex = InTargetElement.Data ? InTargetElement.Index : InTargetElement.IO;
 
 		IndexValue = PCGExMath::SanitizeIndex(IndexValue, InTargetElement.Data ? InTargetElement.Data->GetNumPoints() - 1 : Targets->Num() - 1, Config.IndexSafety);

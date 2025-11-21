@@ -4,12 +4,21 @@
 #include "Misc/PCGExBitwiseOperation.h"
 
 
-#include "Misc/PCGExBitmask.h"
+#include "Data/PCGExData.h"
+#include "Data/PCGExPointIO.h"
+#include "Constants/PCGExBitmask.h"
+#include "Details/PCGExDetailsSettings.h"
 
 #define LOCTEXT_NAMESPACE "PCGExBitwiseOperationElement"
 #define PCGEX_NAMESPACE BitwiseOperation
 
+PCGEX_SETTING_VALUE_IMPL(UPCGExBitwiseOperationSettings, Mask, int64, MaskInput, MaskAttribute, Bitmask)
+
 PCGEX_INITIALIZE_ELEMENT(BitwiseOperation)
+
+PCGExData::EIOInit UPCGExBitwiseOperationSettings::GetMainDataInitializationPolicy() const { return PCGExData::EIOInit::Duplicate; }
+
+PCGEX_ELEMENT_BATCH_POINT_IMPL(BitwiseOperation)
 
 bool FPCGExBitwiseOperationElement::Boot(FPCGExContext* InContext) const
 {
@@ -38,7 +47,7 @@ bool FPCGExBitwiseOperationElement::ExecuteInternal(FPCGContext* InContext) cons
 	{
 		PCGEX_ON_INVALILD_INPUTS(FTEXT("Some inputs are missing the specified MaskAttribute and won't be processed."))
 
-		if (!Context->StartBatchProcessingPoints<PCGExPointsMT::TBatch<PCGExBitwiseOperation::FProcessor>>(
+		if (!Context->StartBatchProcessingPoints(
 			[&](const TSharedPtr<PCGExData::FPointIO>& Entry)
 			{
 				if (Settings->MaskInput == EPCGExInputValueType::Attribute && !Entry->GetOut()->Metadata->HasAttribute(Settings->MaskAttribute))
@@ -48,7 +57,7 @@ bool FPCGExBitwiseOperationElement::ExecuteInternal(FPCGContext* InContext) cons
 				}
 				return true;
 			},
-			[&](const TSharedPtr<PCGExPointsMT::TBatch<PCGExBitwiseOperation::FProcessor>>& NewBatch)
+			[&](const TSharedPtr<PCGExPointsMT::IBatch>& NewBatch)
 			{
 			}))
 		{

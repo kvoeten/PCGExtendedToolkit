@@ -3,12 +3,18 @@
 
 #include "Graph/Pathfinding/PCGExPathfindingPlotEdges.h"
 
+
 #include "PCGExPointsProcessor.h"
+#include "PCGParamData.h"
 #include "Graph/PCGExGraph.h"
 #include "Algo/Reverse.h"
+#include "Data/PCGExData.h"
+#include "Data/PCGExDataTag.h"
+#include "Data/PCGExPointIO.h"
 
 
 #include "Graph/Pathfinding/Heuristics/PCGExHeuristicDistance.h"
+#include "Graph/Pathfinding/Heuristics/PCGExHeuristics.h"
 #include "Graph/Pathfinding/Search/PCGExSearchAStar.h"
 #include "Paths/PCGExPaths.h"
 
@@ -16,6 +22,15 @@
 #define PCGEX_NAMESPACE PathfindingPlotEdges
 
 #if WITH_EDITOR
+void UPCGExPathfindingPlotEdgesSettings::PostInitProperties()
+{
+	if (!HasAnyFlags(RF_ClassDefaultObject) && IsInGameThread())
+	{
+		if (!SearchAlgorithm) { SearchAlgorithm = NewObject<UPCGExSearchAStar>(this, TEXT("SearchAlgorithm")); }
+	}
+	Super::PostInitProperties();
+}
+
 void UPCGExPathfindingPlotEdgesSettings::PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent)
 {
 	Super::PostEditChangeProperty(PropertyChangedEvent);
@@ -25,8 +40,8 @@ void UPCGExPathfindingPlotEdgesSettings::PostEditChangeProperty(FPropertyChanged
 TArray<FPCGPinProperties> UPCGExPathfindingPlotEdgesSettings::InputPinProperties() const
 {
 	TArray<FPCGPinProperties> PinProperties = Super::InputPinProperties();
-	PCGEX_PIN_POINTS(PCGExGraph::SourcePlotsLabel, "Plot points for pathfinding.", Required, {})
-	PCGEX_PIN_FACTORIES(PCGExGraph::SourceHeuristicsLabel, "Heuristics.", Normal, {})
+	PCGEX_PIN_POINTS(PCGExGraph::SourcePlotsLabel, "Plot points for pathfinding.", Required)
+	PCGEX_PIN_FACTORIES(PCGExGraph::SourceHeuristicsLabel, "Heuristics.", Required, FPCGExDataTypeInfoHeuristics::AsId())
 	PCGEX_PIN_OPERATION_OVERRIDES(PCGExPathfinding::SourceOverridesSearch)
 	return PinProperties;
 }
@@ -34,13 +49,15 @@ TArray<FPCGPinProperties> UPCGExPathfindingPlotEdgesSettings::InputPinProperties
 TArray<FPCGPinProperties> UPCGExPathfindingPlotEdgesSettings::OutputPinProperties() const
 {
 	TArray<FPCGPinProperties> PinProperties;
-	PCGEX_PIN_POINTS(PCGExPaths::OutputPathsLabel, "Paths output.", Required, {})
+	PCGEX_PIN_POINTS(PCGExPaths::OutputPathsLabel, "Paths output.", Required)
 	return PinProperties;
 }
 
-void FPCGExPathfindingPlotEdgesContext::BuildPath(const TSharedPtr<PCGExPathfinding::FPlotQuery>& Query) const
+void FPCGExPathfindingPlotEdgesContext::BuildPath(const TSharedPtr<PCGExPathfinding::FPlotQuery>& Query, const TSharedPtr<PCGExData::FPointIO>& PathIO) const
 {
 	PCGEX_SETTINGS_LOCAL(PathfindingPlotEdges)
+
+	if (!PathIO) { return; }
 
 	bool bAddGoal = Settings->bAddGoalToPath ? (!Query->bIsClosedLoop || !Settings->bAddSeedToPath) : false;
 
@@ -107,18 +124,13 @@ void FPCGExPathfindingPlotEdgesContext::BuildPath(const TSharedPtr<PCGExPathfind
 
 	if (bAddGoal) { PlotScope.Add(Query->SubQueries.Last()->Goal.Point.Index, WriteIndex++); }
 
-	// Grab the source we want to copy from
-
-	TSharedPtr<PCGExData::FPointIO> ReferenceIO = nullptr;
 	if (Settings->PathComposition == EPCGExPathComposition::Vtx)
 	{
 		if (ClusterScope.Num() < 2) { return; }
-		ReferenceIO = Query->Cluster->VtxIO.Pin();
 	}
 	else if (Settings->PathComposition == EPCGExPathComposition::Edges)
 	{
 		if (ClusterScope.Num() < 1) { return; }
-		ReferenceIO = Query->Cluster->EdgesIO.Pin();
 	}
 	else if (Settings->PathComposition == EPCGExPathComposition::VtxAndEdges)
 	{
@@ -128,9 +140,7 @@ void FPCGExPathfindingPlotEdgesContext::BuildPath(const TSharedPtr<PCGExPathfind
 
 	if (!Settings->PathOutputDetails.Validate(WriteIndex)) { return; }
 
-	const TSharedPtr<PCGExData::FPointIO> PathIO = OutputPaths->Emplace_GetRef<UPCGPointArrayData>(ReferenceIO->GetIn(), PCGExData::EIOInit::New);
-	if (!PathIO) { return; }
-
+	PathIO->Enable();
 	PathIO->IOIndex = Query->QueryIndex;
 
 	PCGEX_MAKE_SHARED(PathDataFacade, PCGExData::FFacade, PathIO.ToSharedRef())
@@ -148,6 +158,8 @@ void FPCGExPathfindingPlotEdgesContext::BuildPath(const TSharedPtr<PCGExPathfind
 }
 
 PCGEX_INITIALIZE_ELEMENT(PathfindingPlotEdges)
+
+PCGEX_ELEMENT_BATCH_EDGE_IMPL(PathfindingPlotEdges)
 
 bool FPCGExPathfindingPlotEdgesElement::Boot(FPCGExContext* InContext) const
 {
@@ -176,9 +188,9 @@ bool FPCGExPathfindingPlotEdgesElement::Boot(FPCGExContext* InContext) const
 		Context->Plots.Add(PlotFacade);
 	}
 
-	if (Context->Plots.IsEmpty())
+	if (Context && Context->Plots.IsEmpty())
 	{
-		PCGE_LOG(Error, GraphAndLog, FTEXT("Missing valid Plots."));
+		PCGEX_LOG_MISSING_INPUT(Context, FTEXT("Missing valid Plots."))
 		return false;
 	}
 
@@ -193,9 +205,9 @@ bool FPCGExPathfindingPlotEdgesElement::ExecuteInternal(FPCGContext* InContext) 
 	PCGEX_EXECUTION_CHECK
 	PCGEX_ON_INITIAL_EXECUTION
 	{
-		if (!Context->StartProcessingClusters<PCGExClusterMT::TBatch<PCGExPathfindingPlotEdge::FProcessor>>(
+		if (!Context->StartProcessingClusters(
 			[](const TSharedPtr<PCGExData::FPointIOTaggedEntries>& Entries) { return true; },
-			[&](const TSharedPtr<PCGExClusterMT::TBatch<PCGExPathfindingPlotEdge::FProcessor>>& NewBatch)
+			[&](const TSharedPtr<PCGExClusterMT::IBatch>& NewBatch)
 			{
 				NewBatch->SetWantsHeuristics(true);
 			}))
@@ -211,7 +223,7 @@ bool FPCGExPathfindingPlotEdgesElement::ExecuteInternal(FPCGContext* InContext) 
 	return Context->TryComplete();
 }
 
-namespace PCGExPathfindingPlotEdge
+namespace PCGExPathfindingPlotEdges
 {
 	FProcessor::~FProcessor()
 	{
@@ -219,7 +231,7 @@ namespace PCGExPathfindingPlotEdge
 
 	bool FProcessor::Process(const TSharedPtr<PCGExMT::FTaskManager>& InAsyncManager)
 	{
-		TRACE_CPUPROFILER_EVENT_SCOPE(PCGExPathfindingPlotEdge::Process);
+		TRACE_CPUPROFILER_EVENT_SCOPE(PCGExPathfindingPlotEdges::Process);
 
 		if (!IProcessor::Process(InAsyncManager)) { return false; }
 
@@ -238,34 +250,51 @@ namespace PCGExPathfindingPlotEdge
 			}
 		}
 
+		TSharedPtr<PCGExData::FPointIO> ReferenceIO = nullptr;
+
+		if (Settings->PathComposition == EPCGExPathComposition::Vtx) { ReferenceIO = VtxDataFacade->Source; }
+		else if (Settings->PathComposition == EPCGExPathComposition::Edges) { ReferenceIO = EdgeDataFacade->Source; }
+		else if (Settings->PathComposition == EPCGExPathComposition::VtxAndEdges)
+		{
+			// TODO : Implement
+		}
+
 		SearchOperation = Context->SearchAlgorithm->CreateOperation(); // Create a local copy
 		SearchOperation->PrepareForCluster(Cluster.Get());
+		const int32 NumPlots = Context->Plots.Num();
+		PCGEx::InitArray(Queries, NumPlots);
+		QueriesIO.Init(nullptr, NumPlots);
 
-		PCGEx::InitArray(Queries, Context->Plots.Num());
-		for (int i = 0; i < Queries.Num(); i++)
+		Context->OutputPaths->IncreaseReserve(NumPlots);
+		for (int i = 0; i < NumPlots; i++)
 		{
 			PCGEX_MAKE_SHARED(Query, PCGExPathfinding::FPlotQuery, Cluster.ToSharedRef(), Settings->bClosedLoop, i)
 			Queries[i] = Query;
+			QueriesIO[i] = Context->OutputPaths->Emplace_GetRef<UPCGPointArrayData>(ReferenceIO, PCGExData::EIOInit::New);
+			QueriesIO[i]->Disable();
 		}
 
-		PCGEX_ASYNC_GROUP_CHKD(AsyncManager, ResolveQueriesTask)
-		ResolveQueriesTask->OnIterationCallback =
-			[PCGEX_ASYNC_THIS_CAPTURE](const int32 Index, const PCGExMT::FScope& Scope)
+		bForceSingleThreadedProcessRange = HeuristicsHandler->HasGlobalFeedback() || !Settings->bGreedyQueries;
+		if (bForceSingleThreadedProcessRange) { SearchAllocations = SearchOperation->NewAllocations(); }
+
+		StartParallelLoopForRange(Queries.Num(), 1);
+		return true;
+	}
+
+	void FProcessor::ProcessRange(const PCGExMT::FScope& Scope)
+	{
+		PCGEX_SCOPE_LOOP(Index)
+		{
+			TSharedPtr<PCGExPathfinding::FPlotQuery> Query = Queries[Index];
+			Query->BuildPlotQuery(Context->Plots[Index], Settings->SeedPicking, Settings->GoalPicking);
+			Query->OnCompleteCallback = [PCGEX_ASYNC_THIS_CAPTURE](const TSharedPtr<PCGExPathfinding::FPlotQuery>& Plot)
 			{
 				PCGEX_ASYNC_THIS
-				TSharedPtr<PCGExPathfinding::FPlotQuery> Query = This->Queries[Index];
-				Query->BuildPlotQuery(This->Context->Plots[Index], This->Settings->SeedPicking, This->Settings->GoalPicking);
-				Query->OnCompleteCallback = [AsyncThis](const TSharedPtr<PCGExPathfinding::FPlotQuery>& Plot)
-				{
-					PCGEX_ASYNC_NESTED_THIS
-					NestedThis->Context->BuildPath(Plot);
-					Plot->Cleanup();
-				};
-				Query->FindPaths(This->AsyncManager, This->SearchOperation, This->HeuristicsHandler);
+				This->Context->BuildPath(Plot, This->QueriesIO[Plot->QueryIndex]);
+				Plot->Cleanup();
 			};
-
-		ResolveQueriesTask->StartIterations(Queries.Num(), 1, HeuristicsHandler->HasGlobalFeedback());
-		return true;
+			Query->FindPaths(AsyncManager, SearchOperation, SearchAllocations, HeuristicsHandler);
+		}
 	}
 }
 

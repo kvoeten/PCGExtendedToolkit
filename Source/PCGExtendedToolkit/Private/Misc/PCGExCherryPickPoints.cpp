@@ -4,6 +4,8 @@
 #include "Misc/PCGExCherryPickPoints.h"
 
 
+#include "Data/PCGExData.h"
+#include "Data/PCGExPointIO.h"
 #include "Misc/PCGExDiscardByPointCount.h"
 #include "Misc/Pickers/PCGExPicker.h"
 
@@ -11,18 +13,19 @@
 #define PCGEX_NAMESPACE CherryPickPoints
 
 PCGEX_INITIALIZE_ELEMENT(CherryPickPoints)
+PCGEX_ELEMENT_BATCH_POINT_IMPL(CherryPickPoints)
 
 TArray<FPCGPinProperties> UPCGExCherryPickPointsSettings::InputPinProperties() const
 {
 	TArray<FPCGPinProperties> PinProperties = Super::InputPinProperties();
-	PCGEX_PIN_PARAMS(PCGExPicker::SourcePickersLabel, "Pickers config", Required, {})
+	PCGEX_PIN_FACTORIES(PCGExPicker::SourcePickersLabel, "Pickers config", Required, FPCGExDataTypeInfoPicker::AsId())
 	return PinProperties;
 }
 
 TArray<FPCGPinProperties> UPCGExCherryPickPointsSettings::OutputPinProperties() const
 {
 	TArray<FPCGPinProperties> PinProperties = Super::OutputPinProperties();
-	if (bOutputDiscardedPoints) { PCGEX_PIN_POINTS(PCGExDiscardByPointCount::OutputDiscardedLabel, "Discarded points", Normal, {}) }
+	if (bOutputDiscardedPoints) { PCGEX_PIN_POINTS(PCGExDiscardByPointCount::OutputDiscardedLabel, "Discarded points", Normal) }
 	return PinProperties;
 }
 
@@ -32,14 +35,9 @@ bool FPCGExCherryPickPointsElement::Boot(FPCGExContext* InContext) const
 
 	PCGEX_CONTEXT_AND_SETTINGS(CherryPickPoints)
 
-	PCGExFactories::GetInputFactories(Context, PCGExPicker::SourcePickersLabel, Context->PickerFactories, {PCGExFactories::EType::IndexPicker}, false);
-	if (Context->PickerFactories.IsEmpty())
-	{
-		PCGE_LOG(Error, GraphAndLog, FTEXT("Missing pickers."));
-		return false;
-	}
-
-	return true;
+	return PCGExFactories::GetInputFactories(
+		Context, PCGExPicker::SourcePickersLabel, Context->PickerFactories,
+		{PCGExFactories::EType::IndexPicker});
 }
 
 bool FPCGExCherryPickPointsElement::ExecuteInternal(FPCGContext* InContext) const
@@ -50,9 +48,9 @@ bool FPCGExCherryPickPointsElement::ExecuteInternal(FPCGContext* InContext) cons
 	PCGEX_EXECUTION_CHECK
 	PCGEX_ON_INITIAL_EXECUTION
 	{
-		if (!Context->StartBatchProcessingPoints<PCGExPointsMT::TBatch<PCGExCherryPickPoints::FProcessor>>(
+		if (!Context->StartBatchProcessingPoints(
 			[&](const TSharedPtr<PCGExData::FPointIO>& Entry) { return true; },
-			[&](const TSharedPtr<PCGExPointsMT::TBatch<PCGExCherryPickPoints::FProcessor>>& NewBatch)
+			[&](const TSharedPtr<PCGExPointsMT::IBatch>& NewBatch)
 			{
 				NewBatch->bSkipCompletion = true;
 			}))

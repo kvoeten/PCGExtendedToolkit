@@ -3,6 +3,9 @@
 
 #include "Misc/Pickers/PCGExPickerConstantRange.h"
 
+#include "PCGExHelpers.h"
+#include "PCGExMath.h"
+
 #define LOCTEXT_NAMESPACE "PCGExCreatePickerConstantRange"
 #define PCGEX_NAMESPACE CreatePickerConstantRange
 
@@ -61,8 +64,8 @@ void UPCGExPickerConstantRangeFactory::AddPicksFromConfig(const FPCGExPickerCons
 	}
 	else
 	{
-		TargetStartIndex = PCGEx::TruncateDbl(static_cast<double>(MaxIndex) * InConfig.RelativeStartIndex, InConfig.TruncateMode);
-		TargetEndIndex = PCGEx::TruncateDbl(static_cast<double>(MaxIndex) * InConfig.RelativeEndIndex, InConfig.TruncateMode);
+		TargetStartIndex = PCGExMath::TruncateDbl(static_cast<double>(MaxIndex) * InConfig.RelativeStartIndex, InConfig.TruncateMode);
+		TargetEndIndex = PCGExMath::TruncateDbl(static_cast<double>(MaxIndex) * InConfig.RelativeEndIndex, InConfig.TruncateMode);
 	}
 
 	if (TargetStartIndex < 0) { TargetStartIndex = InNum + TargetStartIndex; }
@@ -72,9 +75,10 @@ void UPCGExPickerConstantRangeFactory::AddPicksFromConfig(const FPCGExPickerCons
 	TargetEndIndex = PCGExMath::SanitizeIndex(TargetEndIndex, MaxIndex, InConfig.Safety);
 
 	if (!FMath::IsWithin(TargetStartIndex, 0, InNum) ||
-		!FMath::IsWithin(TargetEndIndex, 0, InNum)) { return; }
-
-	if ((TargetEndIndex - TargetStartIndex) == 0) { return; }
+		!FMath::IsWithin(TargetEndIndex, 0, InNum))
+	{
+		return;
+	}
 
 	OutPicks.Reserve(OutPicks.Num() + TargetEndIndex - TargetStartIndex + 1);
 	for (int i = TargetStartIndex; i <= TargetEndIndex; i++) { OutPicks.Add(i); }

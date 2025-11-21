@@ -3,10 +3,22 @@
 
 #include "PCGExMath.h"
 #include "PCGEx.h"
-#include "PCGExMacros.h"
+#include "Details/PCGExMacros.h"
 
 namespace PCGExMath
 {
+	double TruncateDbl(const double Value, const EPCGExTruncateMode Mode)
+	{
+		switch (Mode)
+		{
+		case EPCGExTruncateMode::Round: return FMath::RoundToInt(Value);
+		case EPCGExTruncateMode::Ceil: return FMath::CeilToDouble(Value);
+		case EPCGExTruncateMode::Floor: return FMath::FloorToDouble(Value);
+		default:
+		case EPCGExTruncateMode::None: return Value;
+		}
+	}
+
 	FClosestPosition::FClosestPosition(const FVector& InOrigin)
 		: Origin(InOrigin)
 	{
@@ -47,62 +59,34 @@ namespace PCGExMath
 	}
 
 	FSegment::FSegment(const FVector& InA, const FVector& InB, const double Expansion)
-		: A(InA), B(InB), Direction((B - A).GetSafeNormal())
+		: A(InA), B(InB), Direction((B - A).GetSafeNormal()), Bounds(PCGEX_BOX_TOLERANCE_INLINE(A, B, Expansion))
 	{
-		Bounds += A;
-		Bounds += B;
-		Bounds = Bounds.ExpandBy(Expansion);
 	}
 
-	bool FSegment::FindIntersection(const FVector& A2, const FVector& B2, double SquaredTolerance, FVector& OutSelf, FVector& OutOther, const EIntersectionTestMode Mode) const
+	bool FSegment::FindIntersection(const FVector& A2, const FVector& B2, const double SquaredTolerance, FVector& OutSelf, FVector& OutOther, const uint8 Strictness) const
 	{
 		FMath::SegmentDistToSegment(A, B, A2, B2, OutSelf, OutOther);
 
-		switch (Mode) {
-		case EIntersectionTestMode::Loose:
-			break;
-		case EIntersectionTestMode::Strict:
-			if (A == OutSelf || B == OutSelf || A2 == OutOther || B2 == OutOther) { return false; }
-			break;
-		case EIntersectionTestMode::StrictOnSelfA:
-			if (A == OutSelf) { return false; }
-			break;
-		case EIntersectionTestMode::StrictOnSelfB:
-			if (B == OutSelf) { return false; }
-			break;
-		case EIntersectionTestMode::StrictOnOtherA:
-			if (A2 == OutOther) { return false; }
-			break;
-		case EIntersectionTestMode::StrictOnOtherB:
-			if (B2 == OutOther) { return false; }
-			break;
-		case EIntersectionTestMode::LooseOnSelf:
-			if (A2 == OutOther || B2 == OutOther) { return false; }
-			break;
-		case EIntersectionTestMode::LooseOnSelfA:
-			if (B == OutSelf || A2 == OutOther || B2 == OutOther) { return false; }
-			break;
-		case EIntersectionTestMode::LooseOnSelfB:
-			if (A == OutSelf || A2 == OutOther || B2 == OutOther) { return false; }
-			break;
-		case EIntersectionTestMode::LooseOnOther:
-			if (A == OutSelf || B == OutSelf) { return false; }
-			break;
-		case EIntersectionTestMode::LooseOnOtherA:
-			if (A == OutSelf || B == OutSelf || B2 == OutOther) { return false; }
-			break;
-		case EIntersectionTestMode::LooseOnOtherB:
-			if (A == OutSelf || B == OutSelf || A2 == OutOther) { return false; }
-			break;
-		}
+		if ((Strictness & static_cast<uint8>(EPCGExIntersectionStrictness::MainA)) && A == OutSelf) { return false; }
+		if ((Strictness & static_cast<uint8>(EPCGExIntersectionStrictness::MainB)) && B == OutSelf) { return false; }
+		if ((Strictness & static_cast<uint8>(EPCGExIntersectionStrictness::OtherA)) && A2 == OutOther) { return false; }
+		if ((Strictness & static_cast<uint8>(EPCGExIntersectionStrictness::OtherB)) && B2 == OutOther) { return false; }
 
 		if (FVector::DistSquared(OutSelf, OutOther) >= SquaredTolerance) { return false; }
 		return true;
 	}
 
-	bool FSegment::FindIntersection(const FSegment& S, double SquaredTolerance, FVector& OutSelf, FVector& OutOther, const EIntersectionTestMode Mode) const
+	bool FSegment::FindIntersection(const FSegment& S, const double SquaredTolerance, FVector& OutSelf, FVector& OutOther, const uint8 Strictness) const
 	{
-		return FindIntersection(S.A, S.B, SquaredTolerance, OutSelf, OutOther, Mode);
+		FMath::SegmentDistToSegment(A, B, S.A, S.B, OutSelf, OutOther);
+
+		if ((Strictness & static_cast<uint8>(EPCGExIntersectionStrictness::MainA)) && A == OutSelf) { return false; }
+		if ((Strictness & static_cast<uint8>(EPCGExIntersectionStrictness::MainB)) && B == OutSelf) { return false; }
+		if ((Strictness & static_cast<uint8>(EPCGExIntersectionStrictness::OtherA)) && S.A == OutOther) { return false; }
+		if ((Strictness & static_cast<uint8>(EPCGExIntersectionStrictness::OtherB)) && S.B == OutOther) { return false; }
+
+		if (FVector::DistSquared(OutSelf, OutOther) >= SquaredTolerance) { return false; }
+		return true;
 	}
 
 	double ConvertStringToDouble(const FString& StringToConvert)
@@ -110,34 +94,6 @@ namespace PCGExMath
 		const TCHAR* CharArray = *StringToConvert;
 		const double Result = FCString::Atod(CharArray);
 		return FMath::IsNaN(Result) ? 0 : Result;
-	}
-
-	double GetMode(const TArray<double>& Values, const bool bHighest, const uint32 Tolerance)
-	{
-		TMap<double, int32> Map;
-		int32 LastCount = 0;
-		double Mode = 0;
-
-		for (const double Value : Values)
-		{
-			const double AdjustedValue = FMath::RoundToZero(Value / Tolerance) * Tolerance;
-			const int32* Count = Map.Find(AdjustedValue);
-			const int32 UpdatedCount = Count ? *Count + 1 : 1;
-			Map.Add(Value, UpdatedCount);
-
-			if (LastCount < UpdatedCount)
-			{
-				LastCount = UpdatedCount;
-				Mode = AdjustedValue;
-			}
-			else if (LastCount == UpdatedCount)
-			{
-				if (bHighest) { Mode = FMath::Max(Mode, AdjustedValue); }
-				else { Mode = FMath::Min(Mode, AdjustedValue); }
-			}
-		}
-
-		return Mode;
 	}
 
 	FVector SafeLinePlaneIntersection(const FVector& Pt1, const FVector& Pt2, const FVector& PlaneOrigin, const FVector& PlaneNormal, bool& bIntersect)
@@ -205,7 +161,7 @@ namespace PCGExMath
 		case EPCGExAxisOrder::XYZ:
 			return FTransform(FMatrix(PCGEX_AXIS_X, PCGEX_AXIS_Y, PCGEX_AXIS_Z, FVector::Zero()));
 		case EPCGExAxisOrder::YZX:
-			return FTransform(FMatrix(PCGEX_AXIS_Y, PCGEX_AXIS_X, PCGEX_AXIS_Z, FVector::Zero()));
+			return FTransform(FMatrix(PCGEX_AXIS_Y, PCGEX_AXIS_Z, PCGEX_AXIS_X, FVector::Zero()));
 		case EPCGExAxisOrder::ZXY:
 			return FTransform(FMatrix(PCGEX_AXIS_Z, PCGEX_AXIS_X, PCGEX_AXIS_Y, FVector::Zero()));
 		case EPCGExAxisOrder::YXZ:
@@ -222,11 +178,19 @@ namespace PCGExMath
 		int32 A;
 		int32 B;
 		int32 C;
-		PCGEx::GetAxisOrder(Order, A, B, C);
+		PCGEx::GetAxesOrder(Order, A, B, C);
 		FVector Temp = Vector;
 		Vector[0] = Temp[A];
 		Vector[1] = Temp[B];
 		Vector[2] = Temp[C];
+	}
+
+	void Swizzle(FVector& Vector, const int32 (&Order)[3])
+	{
+		FVector Temp = Vector;
+		Vector[0] = Temp[Order[0]];
+		Vector[1] = Temp[Order[1]];
+		Vector[2] = Temp[Order[2]];
 	}
 
 	FQuat MakeDirection(const EPCGExAxis Dir, const FVector& InForward)

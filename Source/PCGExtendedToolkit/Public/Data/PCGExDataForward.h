@@ -4,17 +4,16 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "PCGExPointIO.h"
-#include "PCGExAttributeHelpers.h"
 #include "PCGExDataFilter.h"
 #include "UObject/Object.h"
-#include "PCGExData.h"
-
+#include "PCGExAttributeHelpers.h"
 
 #include "PCGExDataForward.generated.h"
 
 namespace PCGExData
 {
+	struct FConstPoint;
+	class IBuffer;
 	class FDataForwardHandler;
 }
 
@@ -40,18 +39,7 @@ struct PCGEXTENDEDTOOLKIT_API FPCGExForwardDetails : public FPCGExNameFiltersDet
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta = (PCG_Overridable, DisplayPriority=0, EditCondition="bEnabled"))
 	bool bPreserveAttributesDefaultValue = false;
 
-	void Filter(TArray<PCGEx::FAttributeIdentity>& Identities) const
-	{
-		if (FilterMode == EPCGExAttributeFilter::All) { return; }
-		for (int i = 0; i < Identities.Num(); i++)
-		{
-			if (!Test(Identities[i].Identifier.Name.ToString()))
-			{
-				Identities.RemoveAt(i);
-				i--;
-			}
-		}
-	}
+	void Filter(TArray<PCGEx::FAttributeIdentity>& Identities) const;
 
 	TSharedPtr<PCGExData::FDataForwardHandler> GetHandler(const TSharedPtr<PCGExData::FFacade>& InSourceDataFacade, bool bForwardToDataDomain = true) const;
 	TSharedPtr<PCGExData::FDataForwardHandler> GetHandler(const TSharedPtr<PCGExData::FFacade>& InSourceDataFacade, const TSharedPtr<PCGExData::FFacade>& InTargetDataFacade, bool bForwardToDataDomain = true) const;
@@ -113,9 +101,9 @@ struct PCGEXTENDEDTOOLKIT_API FPCGExAttributeToTagDetails
 	FString CommaSeparatedAttributeSelectors;
 
 	TSharedPtr<PCGExData::FFacade> SourceDataFacade;
-	TArray<TSharedPtr<PCGEx::TAttributeBroadcaster<FString>>> Getters;
+	TArray<TSharedPtr<PCGEx::IAttributeBroadcaster>> Getters;
 
-	bool Init(const FPCGContext* InContext, const TSharedPtr<PCGExData::FFacade>& InSourceFacade);
+	bool Init(const FPCGExContext* InContext, const TSharedPtr<PCGExData::FFacade>& InSourceFacade);
 	void Tag(const PCGExData::FConstPoint& TagSource, TSet<FString>& InTags) const;
 	void Tag(const PCGExData::FConstPoint& TagSource, const TSharedPtr<PCGExData::FPointIO>& PointIO) const;
 	void Tag(const PCGExData::FConstPoint& TagSource, UPCGMetadata* InMetadata) const;

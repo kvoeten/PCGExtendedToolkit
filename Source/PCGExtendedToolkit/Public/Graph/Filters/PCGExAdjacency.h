@@ -5,10 +5,12 @@
 
 #include "CoreMinimal.h"
 #include "PCGExCompare.h"
-#include "PCGExDetails.h"
+#include "PCGExMathMean.h"
 
 #include "PCGExAdjacency.generated.h"
 
+
+struct FPCGContext;
 
 namespace PCGExCluster
 {
@@ -103,7 +105,7 @@ struct PCGEXTENDEDTOOLKIT_API FPCGExAdjacencySettings
 
 	TSharedPtr<PCGExData::TBuffer<double>> LocalThreshold;
 
-	bool Init(const FPCGContext* InContext, const TSharedRef<PCGExData::FFacade>& InPrimaryDataFacade);
+	bool Init(const FPCGExContext* InContext, const TSharedRef<PCGExData::FFacade>& InPrimaryDataFacade, const bool bQuiet = false);
 	int32 GetThreshold(const PCGExCluster::FNode& Node) const;
 };
 

@@ -34,7 +34,7 @@ public:
 	//~Begin UPCGSettings
 #if WITH_EDITOR
 	PCGEX_NODE_INFOS(BreakClustersToPaths, "Cluster : Break to Paths", "Create individual paths from continuous edge chains.");
-	virtual FLinearColor GetNodeTitleColor() const override { return GetDefault<UPCGExGlobalSettings>()->NodeColorCluster; }
+	virtual FLinearColor GetNodeTitleColor() const override { return GetDefault<UPCGExGlobalSettings>()->ColorClusterOp; }
 #endif
 
 protected:
@@ -96,8 +96,11 @@ struct FPCGExBreakClustersToPathsContext final : FPCGExEdgesProcessorContext
 
 	bool bUseProjection = false;
 	bool bUsePerClusterProjection = false;
-	TSharedPtr<PCGExData::FPointIOCollection> Paths;
+	TSharedPtr<PCGExData::FPointIOCollection> OutputPaths;
 	TArray<TSharedPtr<PCGExCluster::FNodeChain>> Chains;
+
+protected:
+	PCGEX_ELEMENT_BATCH_EDGE_DECL
 };
 
 class FPCGExBreakClustersToPathsElement final : public FPCGExEdgesProcessorElement
@@ -117,6 +120,7 @@ namespace PCGExBreakClustersToPaths
 
 	protected:
 		TSharedPtr<PCGExCluster::FNodeChainBuilder> ChainBuilder;
+		TArray<TSharedPtr<PCGExData::FPointIO>> ChainsIO;
 
 		FPCGExEdgeDirectionSettings DirectionSettings;
 

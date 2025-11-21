@@ -20,7 +20,7 @@ public:
 	//~Begin UPCGSettings
 #if WITH_EDITOR
 	PCGEX_NODE_INFOS(SanitizeClusters, "Cluster : Sanitize", "Ensure the input set of vertex and edges outputs clean, interconnected clusters. May create new clusters, but does not creates nor deletes points/edges.");
-	virtual FLinearColor GetNodeTitleColor() const override { return GetDefault<UPCGExGlobalSettings>()->NodeColorCluster; }
+	virtual FLinearColor GetNodeTitleColor() const override { return GetDefault<UPCGExGlobalSettings>()->ColorClusterOp; }
 #endif
 
 protected:
@@ -42,6 +42,9 @@ struct FPCGExSanitizeClustersContext final : FPCGExEdgesProcessorContext
 {
 	friend class UPCGExSanitizeClustersSettings;
 	friend class FPCGExSanitizeClustersElement;
+
+protected:
+	PCGEX_ELEMENT_BATCH_EDGE_DECL
 };
 
 class FPCGExSanitizeClustersElement final : public FPCGExEdgesProcessorElement
@@ -78,7 +81,7 @@ namespace PCGExSanitizeClusters
 			this->bRequiresGraphBuilder = true;
 		}
 
-		virtual void CompleteWork() override;
+		virtual void OnInitialPostProcess() override;
 		virtual void Output() override;
 	};
 }

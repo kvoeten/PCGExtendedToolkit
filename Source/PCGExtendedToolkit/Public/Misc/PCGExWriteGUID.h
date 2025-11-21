@@ -4,14 +4,18 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "PCGExDetailsData.h"
 #include "PCGExGlobalSettings.h"
 #include "PCGExPointsProcessor.h"
-
+#include "Details/PCGExSettingsMacros.h"
 
 #include "Misc/Guid.h"
 
 #include "PCGExWriteGUID.generated.h"
+
+namespace PCGExData
+{
+	struct FConstPoint;
+}
 
 UENUM(meta=(Bitflags, UseEnumValuesAsMaskValuesInEditor="true", DisplayName="[PCGEx] GUID Uniqueness Flags"))
 enum class EPCGExGUIDUniquenessFlags : uint8
@@ -86,7 +90,7 @@ struct PCGEXTENDEDTOOLKIT_API FPCGExGUIDDetails
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta = (PCG_Overridable, DisplayName="Unique Key", EditCondition="UniqueKeyInput == EPCGExInputValueType::Constant", EditConditionHides, ClampMin=0))
 	int32 UniqueKeyConstant = 42;
 
-	PCGEX_SETTING_VALUE_GET(UniqueKey, int32, UniqueKeyInput, UniqueKeyAttribute, UniqueKeyConstant)
+	PCGEX_SETTING_VALUE_DECL(UniqueKey, int32)
 
 	EGuidFormats GUIDFormat = EGuidFormats::Digits;
 	TSharedPtr<PCGExDetails::TSettingValue<int32>> UniqueKeyReader;
@@ -130,12 +134,14 @@ public:
 		WriteGUID, "Write GUID", "Write a GUID on the point.",
 		Config.OutputAttributeName);
 	virtual EPCGSettingsType GetType() const override { return EPCGSettingsType::Metadata; }
-	virtual FLinearColor GetNodeTitleColor() const override { return GetDefault<UPCGExGlobalSettings>()->WantsColor(GetDefault<UPCGExGlobalSettings>()->NodeColorMiscWrite); }
+	virtual FLinearColor GetNodeTitleColor() const override { return GetDefault<UPCGExGlobalSettings>()->WantsColor(GetDefault<UPCGExGlobalSettings>()->ColorMiscWrite); }
 #endif
 
 protected:
 	virtual FPCGElementPtr CreateElement() const override;
 	//~End UPCGSettings
+
+	virtual PCGExData::EIOInit GetMainDataInitializationPolicy() const override;
 
 public:
 	/** Config */
@@ -146,6 +152,9 @@ public:
 struct FPCGExWriteGUIDContext final : FPCGExPointsProcessorContext
 {
 	friend class FPCGExWriteGUIDElement;
+
+protected:
+	PCGEX_ELEMENT_BATCH_POINT_DECL
 };
 
 class FPCGExWriteGUIDElement final : public FPCGExPointsProcessorElement

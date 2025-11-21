@@ -3,6 +3,7 @@
 
 #include "Misc/PCGExBlendAttributes.h"
 
+#include "Data/PCGExPointIO.h"
 #include "Data/Blending/PCGExBlendOpFactoryProvider.h"
 
 
@@ -18,20 +19,19 @@ TArray<FPCGPinProperties> UPCGExBlendAttributesSettings::InputPinProperties() co
 
 PCGEX_INITIALIZE_ELEMENT(BlendAttributes)
 
+PCGExData::EIOInit UPCGExBlendAttributesSettings::GetMainDataInitializationPolicy() const { return PCGExData::EIOInit::Duplicate; }
+
+PCGEX_ELEMENT_BATCH_POINT_IMPL(BlendAttributes)
+
 bool FPCGExBlendAttributesElement::Boot(FPCGExContext* InContext) const
 {
 	if (!FPCGExPointsProcessorElement::Boot(InContext)) { return false; }
 
 	PCGEX_CONTEXT_AND_SETTINGS(BlendAttributes)
 
-	if (!PCGExFactories::GetInputFactories<UPCGExBlendOpFactory>(
+	return PCGExFactories::GetInputFactories<UPCGExBlendOpFactory>(
 		Context, PCGExDataBlending::SourceBlendingLabel, Context->BlendingFactories,
-		{PCGExFactories::EType::Blending}, true))
-	{
-		return false;
-	}
-
-	return true;
+		{PCGExFactories::EType::Blending});
 }
 
 bool FPCGExBlendAttributesElement::ExecuteInternal(FPCGContext* InContext) const
@@ -42,9 +42,9 @@ bool FPCGExBlendAttributesElement::ExecuteInternal(FPCGContext* InContext) const
 	PCGEX_EXECUTION_CHECK
 	PCGEX_ON_INITIAL_EXECUTION
 	{
-		if (!Context->StartBatchProcessingPoints<PCGExPointsMT::TBatch<PCGExBlendAttributes::FProcessor>>(
+		if (!Context->StartBatchProcessingPoints(
 			[&](const TSharedPtr<PCGExData::FPointIO>& Entry) { return true; },
-			[&](const TSharedPtr<PCGExPointsMT::TBatch<PCGExBlendAttributes::FProcessor>>& NewBatch)
+			[&](const TSharedPtr<PCGExPointsMT::IBatch>& NewBatch)
 			{
 			}))
 		{

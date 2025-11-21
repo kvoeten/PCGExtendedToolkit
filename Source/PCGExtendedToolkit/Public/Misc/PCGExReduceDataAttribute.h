@@ -7,8 +7,11 @@
 #include "PCGExGlobalSettings.h"
 
 #include "PCGExPointsProcessor.h"
+#include "Details/PCGExDetailsAttributes.h"
 
 #include "PCGExReduceDataAttribute.generated.h"
+
+class FPCGMetadataAttributeBase;
 
 UENUM()
 enum class EPCGExReduceDataDomainMethod : uint8
@@ -32,7 +35,7 @@ public:
 		ReduceDataAttribute, "Reduce Data", "Reduce @Data domain attribute.",
 		FName(GetDisplayName()));
 	virtual EPCGSettingsType GetType() const override { return EPCGSettingsType::Metadata; }
-	virtual FLinearColor GetNodeTitleColor() const override { return GetDefault<UPCGExGlobalSettings>()->WantsColor(GetDefault<UPCGExGlobalSettings>()->NodeColorMiscWrite); }
+	virtual FLinearColor GetNodeTitleColor() const override { return GetDefault<UPCGExGlobalSettings>()->WantsColor(GetDefault<UPCGExGlobalSettings>()->ColorMiscWrite); }
 	virtual TArray<FPCGPreConfiguredSettingsInfo> GetPreconfiguredInfo() const override;
 #endif
 
@@ -63,10 +66,6 @@ public:
 
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta = (PCG_Overridable, EditCondition = "Method == EPCGExReduceDataDomainMethod::Join", EditConditionHides))
 	FString JoinDelimiter = FString(", ");
-
-	/** */
-	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = "Warnings and Errors")
-	bool bQuietMissingAttribute = false;
 
 #if WITH_EDITOR
 	virtual FString GetDisplayName() const;

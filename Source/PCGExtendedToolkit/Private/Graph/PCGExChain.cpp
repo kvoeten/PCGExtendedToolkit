@@ -3,6 +3,7 @@
 
 #include "Graph/PCGExChain.h"
 
+#include "Data/PCGExPointIO.h"
 #include "Data/PCGExUnionData.h"
 #include "Graph/PCGExCluster.h"
 
@@ -120,7 +121,7 @@ namespace PCGExCluster
 
 			if (Graph->EdgesUnion)
 			{
-				Graph->EdgesUnion->NewEntryAt_Unsafe(OutEdge.Index)->Add(PCGExData::FPoint(OriginalEdge.Index, IOIndex));
+				Graph->EdgesUnion->NewEntryAt_Unsafe(OutEdge.Index)->Add_Unsafe(PCGExData::FPoint(OriginalEdge.Index, IOIndex));
 			}
 		}
 		else
@@ -133,8 +134,8 @@ namespace PCGExCluster
 			}
 
 			Graph->InsertEdge(
-				Cluster->GetNode(Seed)->PointIndex,
-				Cluster->GetNode(Links.Last())->PointIndex,
+				Cluster->GetNodePointIndex(Seed),
+				Cluster->GetNodePointIndex(Links.Last()),
 				OutEdge, IOIndex);
 
 			PCGExGraph::FGraphEdgeMetadata& EdgeMetadata = Graph->GetOrCreateEdgeMetadata(OutEdge.Index);
@@ -148,7 +149,7 @@ namespace PCGExCluster
 				// TODO : Possible missing edge in some edge cases
 				for (const FLink& Link : Links) { MergedEdges.Add(Link.Edge); }
 
-				Graph->EdgesUnion->NewEntryAt_Unsafe(OutEdge.Index)->Add(IOIndex, MergedEdges);
+				Graph->EdgesUnion->NewEntryAt_Unsafe(OutEdge.Index)->Add_Unsafe(IOIndex, MergedEdges);
 			}
 		}
 	}
@@ -310,6 +311,7 @@ namespace PCGExCluster
 		TSet<uint64> UniqueHashSet;
 		UniqueHashSet.Reserve(Chains.Num());
 
+		int32 WriteIndex = 0;
 		for (int i = 0; i < Chains.Num(); i++)
 		{
 			const TSharedPtr<FNodeChain>& Chain = Chains[i];
@@ -317,7 +319,9 @@ namespace PCGExCluster
 			bool bAlreadySet = false;
 			UniqueHashSet.Add(Chain->UniqueHash, &bAlreadySet);
 
-			if (bAlreadySet) { Chains[i] = nullptr; }
+			if (!bAlreadySet) { Chains[WriteIndex++] = Chain; }
 		}
+
+		Chains.SetNum(WriteIndex);
 	}
 }

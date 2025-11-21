@@ -3,15 +3,16 @@
 
 #pragma once
 
+#include <functional>
+
 #include "CoreMinimal.h"
 #include "PCGPin.h"
 #include "PCGEx.h"
-#include "PCGExMacros.h"
+#include "Details/PCGExMacros.h"
 
-#include "PCGContext.h"
-#include "PCGExGlobalSettings.h"
+#include "PCGExContext.h"
+#include "PCGExGlobalSettings.h" // Needed for child classes
 #include "PCGExPointsMT.h"
-#include "Data/PCGExPointIO.h"
 
 #include "PCGExPointsProcessor.generated.h"
 
@@ -29,6 +30,26 @@
 
 #define PCGEX_ELEMENT_CREATE_CONTEXT(_CLASS) virtual FPCGContext* CreateContext() override { return new FPCGEx##_CLASS##Context(); }
 #define PCGEX_ELEMENT_CREATE_DEFAULT_CONTEXT virtual FPCGContext* CreateContext() override { return new FPCGExContext(); }
+
+#define PCGEX_ELEMENT_BATCH_POINT_DECL virtual TSharedPtr<PCGExPointsMT::IBatch> CreatePointBatchInstance(const TArray<TWeakPtr<PCGExData::FPointIO>>& InData) const override;
+#define PCGEX_ELEMENT_BATCH_POINT_IMPL(_CLASS) TSharedPtr<PCGExPointsMT::IBatch> FPCGEx##_CLASS##Context::CreatePointBatchInstance(const TArray<TWeakPtr<PCGExData::FPointIO>>& InData) const{ \
+return MakeShared<PCGExPointsMT::TBatch<PCGEx##_CLASS::FProcessor>>(const_cast<FPCGEx##_CLASS##Context*>(this), InData); }
+#define PCGEX_ELEMENT_BATCH_POINT_IMPL_ADV(_CLASS) TSharedPtr<PCGExPointsMT::IBatch> FPCGEx##_CLASS##Context::CreatePointBatchInstance(const TArray<TWeakPtr<PCGExData::FPointIO>>& InData) const{ \
+return MakeShared<PCGEx##_CLASS::FBatch>(const_cast<FPCGEx##_CLASS##Context*>(this), InData); }
+
+class UPCGExPointFilterFactoryData;
+
+namespace PCGExPointsMT
+{
+	class IProcessor;
+	class IBatch;
+}
+
+namespace PCGExData
+{
+	class FPointIO;
+	class FPointIOCollection;
+}
 
 class UPCGExInstancedFactory;
 
@@ -54,10 +75,12 @@ public:
 	virtual EPCGSettingsType GetType() const override { return EPCGSettingsType::PointOps; }
 
 	virtual bool GetPinExtraIcon(const UPCGPin* InPin, FName& OutExtraIcon, FText& OutTooltip) const override;
-	virtual bool IsPinUsedByNodeExecution(const UPCGPin* InPin) const override;
 #endif
 
+	virtual bool IsPinUsedByNodeExecution(const UPCGPin* InPin) const override;
+
 protected:
+	virtual PCGExData::EIOInit GetMainDataInitializationPolicy() const;
 	virtual TArray<FPCGPinProperties> InputPinProperties() const override;
 	virtual TArray<FPCGPinProperties> OutputPinProperties() const override;
 	virtual bool OnlyPassThroughOneEdgeWhenDisabled() const override { return false; }
@@ -67,8 +90,8 @@ protected:
 public:
 	virtual bool IsInputless() const { return false; }
 
-	virtual FName GetMainInputPin() const { return PCGEx::SourcePointsLabel; }
-	virtual FName GetMainOutputPin() const { return PCGEx::OutputPointsLabel; }
+	virtual FName GetMainInputPin() const { return PCGPinConstants::DefaultInputLabel; }
+	virtual FName GetMainOutputPin() const { return PCGPinConstants::DefaultOutputLabel; }
 	virtual bool GetMainAcceptMultipleData() const { return true; }
 	virtual bool GetIsMainTransactional() const { return false; }
 
@@ -81,21 +104,25 @@ public:
 
 	bool SupportsPointFilters() const { return !GetPointFilterPin().IsNone(); }
 
+	/** If enabled, will pre-allocate all data on a single thread to avoid contention. Not all nodes support this. */
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Performance, meta=(PCG_NotOverridable))
+	EPCGExOptionState BulkInitData = EPCGExOptionState::Default;
+
 	/** Async work priority for this node.*/
-	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Performance, meta=(PCG_NotOverridable, AdvancedDisplay))
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Performance, meta=(PCG_NotOverridable), AdvancedDisplay)
 	EPCGExAsyncPriority WorkPriority = EPCGExAsyncPriority::Default;
 
 	/** Cache the results of this node. */
-	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Performance, meta=(PCG_NotOverridable, AdvancedDisplay))
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Performance, meta=(PCG_NotOverridable))
 	EPCGExOptionState CacheData = EPCGExOptionState::Default;
 
-	/** Flatten the output of this node.*/
-	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Performance, meta=(PCG_NotOverridable, AdvancedDisplay))
-	bool bFlattenOutput = false;
-
 	/** Whether scoped attribute read is enabled or not. Disabling this on small dataset may greatly improve performance. It's enabled by default for legacy reasons. */
-	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Performance, meta=(PCG_NotOverridable, AdvancedDisplay))
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Performance, meta=(PCG_NotOverridable))
 	EPCGExOptionState ScopedAttributeGet = EPCGExOptionState::Default;
+
+	/** Flatten the output of this node.*/
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = "Cleanup", meta=(PCG_NotOverridable))
+	bool bFlattenOutput = false;
 
 	/** If the node registers consumable attributes, these will be deleted from the output data. */
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = "Cleanup", meta=(PCG_NotOverridable))
@@ -109,12 +136,24 @@ public:
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = "Cleanup", meta=(PCG_NotOverridable, DisplayName="Protected Attributes", EditCondition="bCleanupConsumableAttributes"))
 	TArray<FName> ProtectedAttributes;
 
+	/** Whether the execution of the graph should be cancelled if this node execution is cancelled internally */
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = "Warnings and Errors", meta=(PCG_NotOverridable))
+	bool bPropagateAbortedExecution = false;
+
 	/** */
-	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = "Warnings and Errors", meta=(PCG_NotOverridable, AdvancedDisplay))
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = "Warnings and Errors", meta=(PCG_NotOverridable))
+	bool bQuietInvalidInputWarning = false;
+
+	/** */
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = "Warnings and Errors", meta=(PCG_NotOverridable))
+	bool bQuietMissingAttributeError = false;
+
+	/** */
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = "Warnings and Errors", meta=(PCG_NotOverridable))
 	bool bQuietMissingInputError = false;
 
 	/** */
-	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = "Warnings and Errors", meta=(PCG_NotOverridable, AdvancedDisplay))
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = "Warnings and Errors", meta=(PCG_NotOverridable))
 	bool bQuietCancellationError = false;
 
 	//~End UPCGExPointsProcessorSettings
@@ -126,13 +165,21 @@ public:
 #endif
 
 protected:
+	/** Store version of the node, used for deprecation purposes */
+	UPROPERTY()
+	int64 PCGExDataVersion = -1;
+	
 	virtual bool ShouldCache() const;
 	virtual bool WantsScopedAttributeGet() const;
+	virtual bool WantsBulkInitData() const;
 };
 
 struct PCGEXTENDEDTOOLKIT_API FPCGExPointsProcessorContext : FPCGExContext
 {
 	friend class FPCGExPointsProcessorElement;
+
+	using FBatchProcessingValidateEntry = std::function<bool(const TSharedPtr<PCGExData::FPointIO>&)>;
+	using FBatchProcessingInitPointBatch = std::function<void(const TSharedPtr<PCGExPointsMT::IBatch>&)>;
 
 	virtual ~FPCGExPointsProcessorContext() override;
 
@@ -144,11 +191,11 @@ struct PCGEXTENDEDTOOLKIT_API FPCGExPointsProcessorContext : FPCGExContext
 	int32 InitialMainPointsNum = 0;
 
 	UPCGExInstancedFactory* RegisterOperation(UPCGExInstancedFactory* BaseOperation, const FName OverridePinLabel = NAME_None);
-	
+
 
 #pragma region Filtering
 
-	TArray<TObjectPtr<const UPCGExFilterFactoryData>> FilterFactories;
+	TArray<TObjectPtr<const UPCGExPointFilterFactoryData>> FilterFactories;
 
 #pragma endregion
 
@@ -160,68 +207,19 @@ struct PCGEXTENDEDTOOLKIT_API FPCGExPointsProcessorContext : FPCGExContext
 	TSharedPtr<PCGExPointsMT::IBatch> MainBatch;
 	TMap<PCGExData::FPointIO*, TSharedRef<PCGExPointsMT::IProcessor>> SubProcessorMap;
 
-	template <typename T, class ValidateEntryFunc, class InitBatchFunc>
-	bool StartBatchProcessingPoints(ValidateEntryFunc&& ValidateEntry, InitBatchFunc&& InitBatch)
-	{
-		bBatchProcessingEnabled = false;
-
-		MainBatch.Reset();
-
-		PCGEX_SETTINGS_LOCAL(PointsProcessor)
-
-		SubProcessorMap.Empty();
-		SubProcessorMap.Reserve(MainPoints->Num());
-
-		TArray<TWeakPtr<PCGExData::FPointIO>> BatchAblePoints;
-		BatchAblePoints.Reserve(InitialMainPointsNum);
-
-
-		while (AdvancePointsIO(false))
-		{
-			if (!ValidateEntry(CurrentIO)) { continue; }
-			BatchAblePoints.Add(CurrentIO.ToSharedRef());
-		}
-
-		if (BatchAblePoints.IsEmpty()) { return bBatchProcessingEnabled; }
-		bBatchProcessingEnabled = true;
-
-		PCGEX_MAKE_SHARED(TypedBatch, T, this, BatchAblePoints)
-		MainBatch = TypedBatch;
-		MainBatch->SubProcessorMap = &SubProcessorMap;
-
-		InitBatch(TypedBatch);
-
-		if (Settings->SupportsPointFilters()) { TypedBatch->SetPointsFilterData(&FilterFactories); }
-
-		if (MainBatch->PrepareProcessing())
-		{
-			SetAsyncState(PCGExPointsMT::MTState_PointsProcessing);
-			ScheduleBatch(GetAsyncManager(), MainBatch);
-		}
-		else
-		{
-			bBatchProcessingEnabled = false;
-		}
-
-		return bBatchProcessingEnabled;
-	}
+	bool StartBatchProcessingPoints(FBatchProcessingValidateEntry&& ValidateEntry, FBatchProcessingInitPointBatch&& InitBatch);
 
 	virtual void BatchProcessing_InitialProcessingDone();
 	virtual void BatchProcessing_WorkComplete();
 	virtual void BatchProcessing_WritingDone();
 
-	template <typename T>
-	void GatherProcessors(TArray<T*> OutProcessors)
-	{
-		OutProcessors.Reserve(MainBatch->GetNumProcessors());
-		PCGExPointsMT::TBatch<T>* TypedBatch = static_cast<PCGExPointsMT::TBatch<T>*>(MainBatch);
-		OutProcessors.Append(TypedBatch->Processors);
-	}
-
 #pragma endregion
 
 protected:
 	int32 CurrentPointIOIndex = -1;
+
+	virtual TSharedPtr<PCGExPointsMT::IBatch> CreatePointBatchInstance(const TArray<TWeakPtr<PCGExData::FPointIO>>& InData) const
+	PCGEX_NOT_IMPLEMENTED_RET(CreatePointBatchInstance, nullptr);
 
 	TArray<UPCGExInstancedFactory*> ProcessorOperations;
 	TSet<UPCGExInstancedFactory*> InternalOperations;

@@ -4,6 +4,8 @@
 #include "Misc/Filters/PCGExInclusionFilter.h"
 
 
+#include "Data/PCGExData.h"
+#include "Data/PCGExPointIO.h"
 #include "Paths/PCGExPaths.h"
 
 
@@ -30,11 +32,13 @@ void UPCGExInclusionFilterFactory::InitConfig_Internal()
 	Super::InitConfig_Internal();
 	LocalFidelity = Config.Fidelity;
 	LocalExpansion = Config.Tolerance;
-	LocalExpansionZ = -1;
+	LocalExpansionZ = Config.ExpandZAxis;
+	InclusionOffset = Config.InclusionOffset;
 	LocalProjection = Config.ProjectionDetails;
 	LocalSampleInputs = Config.SampleInputs;
 	WindingMutation = Config.WindingMutation;
 	bScaleTolerance = Config.bSplineScalesTolerance;
+	bIgnoreSelf = Config.bIgnoreSelf;
 }
 
 namespace PCGExPointFilter
@@ -80,7 +84,7 @@ namespace PCGExPointFilter
 		int32 InclusionsCount = 0;
 		PCGExPathInclusion::EFlags Flags = Handler->GetInclusionFlags(
 			InTransforms[PointIndex].GetLocation(), InclusionsCount,
-			TypedFilterFactory->Config.Pick == EPCGExSplineFilterPick::Closest);
+			TypedFilterFactory->Config.Pick == EPCGExSplineFilterPick::Closest, PointDataFacade->Source->GetIn());
 
 		PCGEX_CHECK_MAX
 		PCGEX_CHECK_MIN
@@ -93,7 +97,17 @@ namespace PCGExPointFilter
 	{
 		PCGExData::FProxyPoint ProxyPoint;
 		IO->GetDataAsProxyPoint(ProxyPoint);
-		return Test(ProxyPoint);
+
+		int32 InclusionsCount = 0;
+		PCGExPathInclusion::EFlags Flags = Handler->GetInclusionFlags(
+			ProxyPoint.GetLocation(), InclusionsCount,
+			TypedFilterFactory->Config.Pick == EPCGExSplineFilterPick::Closest, IO->GetInOut());
+
+		PCGEX_CHECK_MAX
+		PCGEX_CHECK_MIN
+
+		const bool bPass = Handler->TestFlags(Flags);
+		return TypedFilterFactory->Config.bInvert ? !bPass : bPass;
 	}
 
 #undef PCGEX_CHECK_MAX
@@ -103,11 +117,33 @@ namespace PCGExPointFilter
 TArray<FPCGPinProperties> UPCGExInclusionFilterProviderSettings::InputPinProperties() const
 {
 	TArray<FPCGPinProperties> PinProperties = Super::InputPinProperties();
-	PCGEX_PIN_ANY(PCGEx::SourceTargetsLabel, TEXT("Path, splines, polygons, ... will be used for testing"), Required, {})
+	PCGEX_PIN_FACTORIES(PCGEx::SourceTargetsLabel, TEXT("Path, splines, polygons, ... will be used for testing"), Required, PCGExPathInclusion::GetInclusionIdentifier())
 	return PinProperties;
 }
 
 PCGEX_CREATE_FILTER_FACTORY(Inclusion)
+
+#if WITH_EDITOR
+TArray<FPCGPreConfiguredSettingsInfo> UPCGExInclusionFilterProviderSettings::GetPreconfiguredInfo() const
+{
+	TArray<FPCGPreConfiguredSettingsInfo> Infos;
+
+	const TSet<EPCGExSplineCheckType> ValuesToSkip = {};
+	return FPCGPreConfiguredSettingsInfo::PopulateFromEnum<EPCGExSplineCheckType>(ValuesToSkip, FTEXT("{0}"));
+}
+#endif
+
+void UPCGExInclusionFilterProviderSettings::ApplyPreconfiguredSettings(const FPCGPreConfiguredSettingsInfo& PreconfigureInfo)
+{
+	Super::ApplyPreconfiguredSettings(PreconfigureInfo);
+	if (const UEnum* EnumPtr = StaticEnum<EPCGExSplineCheckType>())
+	{
+		if (EnumPtr->IsValidEnumValue(PreconfigureInfo.PreconfiguredIndex))
+		{
+			Config.CheckType = static_cast<EPCGExSplineCheckType>(PreconfigureInfo.PreconfiguredIndex);
+		}
+	}
+}
 
 #if WITH_EDITOR
 FString UPCGExInclusionFilterProviderSettings::GetDisplayName() const

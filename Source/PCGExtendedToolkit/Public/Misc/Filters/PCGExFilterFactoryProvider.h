@@ -17,7 +17,8 @@
 #define PCGEX_CREATE_FILTER_FACTORY(_FILTERID)\
 UPCGExFactoryData* UPCGEx##_FILTERID##FilterProviderSettings::CreateFactory(FPCGExContext* InContext, UPCGExFactoryData* InFactory) const{\
 	UPCGEx##_FILTERID##FilterFactory* NewFactory = InContext->ManagedObjects->New<UPCGEx##_FILTERID##FilterFactory>();\
-	NewFactory->MissingDataHandling = MissingDataHandling;\
+	NewFactory->InitializationFailurePolicy = InitializationFailurePolicy;\
+	NewFactory->MissingDataPolicy = MissingDataPolicy;\
 	NewFactory->Config = Config; Super::CreateFactory(InContext, NewFactory);\
 	if(!NewFactory->Init(InContext)){ InContext->ManagedObjects->Destroy(NewFactory); return nullptr; }\
 	return NewFactory; }
@@ -27,13 +28,18 @@ class PCGEXTENDEDTOOLKIT_API UPCGExFilterProviderSettings : public UPCGExFactory
 {
 	GENERATED_BODY()
 
+protected:
+	PCGEX_FACTORY_TYPE_ID(FPCGExDataTypeInfoFilterPoint)
+
 public:
+	UPCGExFilterProviderSettings();
+
 	//~Begin UPCGSettings
 #if WITH_EDITOR
 	PCGEX_NODE_INFOS_CUSTOM_SUBTITLE(
 		AbstractFilterFactory, "Filter : Abstract", "Creates an abstract filter definition.",
 		PCGEX_FACTORY_NAME_PRIORITY)
-	virtual FLinearColor GetNodeTitleColor() const override { return GetDefault<UPCGExGlobalSettings>()->WantsColor(GetDefault<UPCGExGlobalSettings>()->NodeColorFilter); }
+	virtual FLinearColor GetNodeTitleColor() const override { return GetDefault<UPCGExGlobalSettings>()->WantsColor(GetDefault<UPCGExGlobalSettings>()->ColorFilter); }
 	virtual EPCGSettingsType GetType() const override { return EPCGSettingsType::Filter; }
 #endif
 	//~End UPCGSettings
@@ -47,18 +53,23 @@ public:
 #endif
 
 	/** Filter Priority.*/
-	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta=(PCG_Overridable, DisplayPriority=-1))
-	int32 Priority;
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta=(PCG_Overridable, DisplayPriority=-1), AdvancedDisplay)
+	int32 Priority = 0;
 
-	/** How to handle missing data. This only applies to filters that rely on data to output meaningful results. */
-	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = "Warnings and Errors", meta=(EditCondition="ShowMissingDataHandling()", PCG_NotOverridable))
-	EPCGExFilterNoDataFallback MissingDataHandling = EPCGExFilterNoDataFallback::Fail;
+
+	/** How to handle failed attribute initialization. Usually, the reason is missing attributes, but can also be unsupported filter type. */
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = "Warnings and Errors", meta=(PCG_NotOverridable))
+	EPCGExFilterNoDataFallback InitializationFailurePolicy = EPCGExFilterNoDataFallback::Error;
+
+	/** How to handle missing data. This only applies to filters that rely on local data pins to output meaningful results. */
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = "Warnings and Errors", meta=(EditCondition="ShowMissingDataPolicy()", PCG_NotOverridable))
+	EPCGExFilterNoDataFallback MissingDataPolicy = EPCGExFilterNoDataFallback::Fail;
 
 protected:
 #if WITH_EDITOR
-	virtual bool ShowMissingDataHandling_Internal() const { return false; }
+	virtual bool ShowMissingDataPolicy_Internal() const { return false; }
 
 	UFUNCTION()
-	bool ShowMissingDataHandling() const { return ShowMissingDataHandling_Internal(); }
+	bool ShowMissingDataPolicy() const { return ShowMissingDataPolicy_Internal(); }
 #endif
 };

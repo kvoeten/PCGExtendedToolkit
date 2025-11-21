@@ -29,6 +29,7 @@ class UPCGExCustomActorDataPacker : public UPCGExInstancedFactory
 
 	struct FComponentInfos
 	{
+		AActor* Owner = nullptr;
 		UActorComponent* Component = nullptr;
 		FAttachmentTransformRules AttachmentTransformRules;
 
@@ -48,9 +49,6 @@ class UPCGExCustomActorDataPacker : public UPCGExInstancedFactory
 		{
 		}
 	};
-
-	FRWLock ComponentLock;
-	TMap<AActor*, TSharedPtr<TArray<FComponentInfos>>> ComponentsMap;
 
 public:
 	virtual bool WantsPerDataInstance() override { return true; }
@@ -110,13 +108,16 @@ public:
 	TArray<TObjectPtr<AActor>> InputActors;
 
 	TSet<FSoftObjectPath> RequiredAssetsPaths;
+	TSharedPtr<PCGExMT::FScopeLoopOnMainThread> MainThreadLoop;
 
 	TSharedPtr<PCGExData::TBufferHelper<PCGExData::EBufferHelperMode::Write>> WriteBuffers;
 	TSharedPtr<PCGExData::TBufferHelper<PCGExData::EBufferHelperMode::Read>> ReadBuffers;
 
-	void AttachComponents();
-
 #pragma region Init
+
+	/** Enable this if you're spawning components. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Settings)
+	bool bExecuteOnMainThread = false;
 
 	/**
 	 * Initialize a point' attribute default value.
@@ -409,7 +410,7 @@ public:
 	 * Set a point' attribute value at a given index.
 	 * @param InAttributeName
 	 * @param InPointIndex The point index to set the value to.
-	 * @param InValue
+	 * @param OutValue
 	 */
 	UFUNCTION(BlueprintCallable, Category = "PCGEx|Getter", meta=(InAttributeName="None"))
 	bool ReadInt32(const FName& InAttributeName, const int32 InPointIndex, int32& OutValue);
@@ -418,7 +419,7 @@ public:
 	 * Set a point' attribute value at a given index.
 	 * @param InAttributeName
 	 * @param InPointIndex The point index to set the value to.
-	 * @param InValue
+	 * @param OutValue
 	 */
 	UFUNCTION(BlueprintCallable, Category = "PCGEx|Getter", meta=(InAttributeName="None"))
 	bool ReadInt64(const FName& InAttributeName, const int32 InPointIndex, int64& OutValue);
@@ -427,7 +428,7 @@ public:
 	 * Set a point' attribute value at a given index.
 	 * @param InAttributeName
 	 * @param InPointIndex The point index to set the value to.
-	 * @param InValue
+	 * @param OutValue
 	 */
 	UFUNCTION(BlueprintCallable, Category = "PCGEx|Getter", meta=(InAttributeName="None"))
 	bool ReadFloat(const FName& InAttributeName, const int32 InPointIndex, float& OutValue);
@@ -436,7 +437,7 @@ public:
 	 * Set a point' attribute value at a given index.
 	 * @param InAttributeName
 	 * @param InPointIndex The point index to set the value to.
-	 * @param InValue
+	 * @param OutValue
 	 */
 	UFUNCTION(BlueprintCallable, Category = "PCGEx|Getter", meta=(InAttributeName="None"))
 	bool ReadDouble(const FName& InAttributeName, const int32 InPointIndex, double& OutValue);
@@ -445,7 +446,7 @@ public:
 	 * Set a point' attribute value at a given index.
 	 * @param InAttributeName
 	 * @param InPointIndex The point index to set the value to.
-	 * @param InValue
+	 * @param OutValue
 	 */
 	UFUNCTION(BlueprintCallable, Category = "PCGEx|Getter", meta=(InAttributeName="None"))
 	bool ReadVector2(const FName& InAttributeName, const int32 InPointIndex, FVector2D& OutValue);
@@ -454,7 +455,7 @@ public:
 	 * Set a point' attribute value at a given index.
 	 * @param InAttributeName
 	 * @param InPointIndex The point index to set the value to.
-	 * @param InValue
+	 * @param OutValue
 	 */
 	UFUNCTION(BlueprintCallable, Category = "PCGEx|Getter", meta=(InAttributeName="None"))
 	bool ReadVector(const FName& InAttributeName, const int32 InPointIndex, FVector& OutValue);
@@ -463,7 +464,7 @@ public:
 	 * Set a point' attribute value at a given index.
 	 * @param InAttributeName
 	 * @param InPointIndex The point index to set the value to.
-	 * @param InValue
+	 * @param OutValue
 	 */
 	UFUNCTION(BlueprintCallable, Category = "PCGEx|Getter", meta=(InAttributeName="None"))
 	bool ReadVector4(const FName& InAttributeName, const int32 InPointIndex, FVector4& OutValue);
@@ -472,7 +473,7 @@ public:
 	 * Set a point' attribute value at a given index.
 	 * @param InAttributeName
 	 * @param InPointIndex The point index to set the value to.
-	 * @param InValue
+	 * @param OutValue
 	 */
 	UFUNCTION(BlueprintCallable, Category = "PCGEx|Getter", meta=(InAttributeName="None"))
 	bool ReadQuat(const FName& InAttributeName, const int32 InPointIndex, FQuat& OutValue);
@@ -481,7 +482,7 @@ public:
 	 * Set a point' attribute value at a given index.
 	 * @param InAttributeName
 	 * @param InPointIndex The point index to set the value to.
-	 * @param InValue
+	 * @param OutValue
 	 */
 	UFUNCTION(BlueprintCallable, Category = "PCGEx|Getter", meta=(InAttributeName="None"))
 	bool ReadTransform(const FName& InAttributeName, const int32 InPointIndex, FTransform& OutValue);
@@ -490,7 +491,7 @@ public:
 	 * Set a point' attribute value at a given index.
 	 * @param InAttributeName
 	 * @param InPointIndex The point index to set the value to.
-	 * @param InValue
+	 * @param OutValue
 	 */
 	UFUNCTION(BlueprintCallable, Category = "PCGEx|Getter", meta=(InAttributeName="None"))
 	bool ReadString(const FName& InAttributeName, const int32 InPointIndex, FString& OutValue);
@@ -499,7 +500,7 @@ public:
 	 * Set a point' attribute value at a given index.
 	 * @param InAttributeName
 	 * @param InPointIndex The point index to set the value to.
-	 * @param InValue
+	 * @param OutValue
 	 */
 	UFUNCTION(BlueprintCallable, Category = "PCGEx|Getter", meta=(InAttributeName="None"))
 	bool ReadBool(const FName& InAttributeName, const int32 InPointIndex, bool& OutValue);
@@ -508,7 +509,7 @@ public:
 	 * Set a point' attribute value at a given index.
 	 * @param InAttributeName
 	 * @param InPointIndex The point index to set the value to.
-	 * @param InValue
+	 * @param OutValue
 	 */
 	UFUNCTION(BlueprintCallable, Category = "PCGEx|Getter", meta=(InAttributeName="None"))
 	bool ReadRotator(const FName& InAttributeName, const int32 InPointIndex, FRotator& OutValue);
@@ -517,7 +518,7 @@ public:
 	 * Set a point' attribute value at a given index.
 	 * @param InAttributeName
 	 * @param InPointIndex The point index to set the value to.
-	 * @param InValue
+	 * @param OutValue
 	 */
 	UFUNCTION(BlueprintCallable, Category = "PCGEx|Getter", meta=(InAttributeName="None"))
 	bool ReadName(const FName& InAttributeName, const int32 InPointIndex, FName& OutValue);
@@ -526,7 +527,7 @@ public:
 	 * Set a point' attribute value at a given index.
 	 * @param InAttributeName
 	 * @param InPointIndex The point index to set the value to.
-	 * @param InValue
+	 * @param OutValue
 	 */
 	UFUNCTION(BlueprintCallable, Category = "PCGEx|Getter", meta=(InAttributeName="None"))
 	bool ReadSoftObjectPath(const FName& InAttributeName, const int32 InPointIndex, FSoftObjectPath& OutValue);
@@ -535,15 +536,18 @@ public:
 	 * Set a point' attribute value at a given index.
 	 * @param InAttributeName
 	 * @param InPointIndex The point index to set the value to.
-	 * @param InValue
+	 * @param OutValue
 	 */
 	UFUNCTION(BlueprintCallable, Category = "PCGEx|Getter", meta=(InAttributeName="None"))
 	bool ReadSoftClassPath(const FName& InAttributeName, const int32 InPointIndex, FSoftClassPath& OutValue);
 
 	/**
 	 * Create a component that will be attached to the actor at the end of the execution.
-	 * @param ComponentClass Component class
-	 * @param OutComponent Created Component
+	 * @param InAttributeName 
+	 * @param InPointIndex 
+	 * @param ObjectClass 
+	 * @param OutObject 
+	 * @param OutIsValid 
 	 */
 	UFUNCTION(BlueprintCallable, Category = "PCGEx|Getter", meta=(DeterminesOutputType="ObjectClass", DynamicOutputParam="OutObject"))
 	void ResolveObjectPath(const FName& InAttributeName, const int32 InPointIndex,
@@ -566,7 +570,8 @@ public:
 	PCGEX_NODE_INFOS_CUSTOM_SUBTITLE(
 		PackActorData, "Pack Actor Data", "Use custom blueprint to read data from actor references.",
 		(Packer ? FName(Packer.GetClass()->GetMetaData(TEXT("DisplayName"))) : FName("...")));
-	virtual FLinearColor GetNodeTitleColor() const override { return GetDefault<UPCGExGlobalSettings>()->NodeColorSampler; }
+	virtual FLinearColor GetNodeTitleColor() const override { return GetDefault<UPCGExGlobalSettings>()->ColorSampling; }
+	virtual bool CanDynamicallyTrackKeys() const override { return true; }
 #endif
 
 protected:
@@ -574,6 +579,8 @@ protected:
 	virtual TArray<FPCGPinProperties> OutputPinProperties() const override;
 	virtual FPCGElementPtr CreateElement() const override;
 	//~End UPCGSettings
+
+	virtual PCGExData::EIOInit GetMainDataInitializationPolicy() const override;
 
 	//~Begin UPCGExPointsProcessorSettings
 
@@ -607,6 +614,9 @@ struct FPCGExPackActorDataContext final : FPCGExPointsProcessorContext
 	friend class FPCGExPackActorDataElement;
 	UPCGExCustomActorDataPacker* Packer = nullptr;
 	//TArray<UPCGParamData*> OutputParams;
+
+protected:
+	PCGEX_ELEMENT_BATCH_POINT_DECL
 };
 
 class FPCGExPackActorDataElement final : public FPCGExPointsProcessorElement
@@ -618,7 +628,7 @@ protected:
 	virtual bool ExecuteInternal(FPCGContext* Context) const override;
 };
 
-namespace PCGExPackActorDatas
+namespace PCGExPackActorData
 {
 	const FName SourceOverridesPacker = TEXT("Overrides : Packer");
 
@@ -628,8 +638,10 @@ namespace PCGExPackActorDatas
 		UPCGExCustomActorDataPacker* Packer = nullptr;
 		TSharedPtr<PCGEx::TAttributeBroadcaster<FSoftObjectPath>> ActorReferences;
 
+		TArray<FPCGPoint> PointsForProcessing;
 		TArray<int8> PointMask;
 
+		TSharedPtr<PCGExMT::FScopeLoopOnMainThread> MainThreadLoop;
 		TWeakPtr<PCGExMT::FAsyncToken> LoadToken;
 		TSharedPtr<FStreamableHandle> LoadHandle;
 
@@ -648,6 +660,5 @@ namespace PCGExPackActorDatas
 
 		virtual void CompleteWork() override;
 		virtual void Write() override;
-		virtual void Output() override;
 	};
 }

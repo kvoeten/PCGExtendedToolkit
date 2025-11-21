@@ -3,6 +3,11 @@
 
 #include "Data/Matching/PCGExMatchAttrToAttr.h"
 
+#include "PCGExHelpers.h"
+#include "Data/PCGExAttributeHelpers.h"
+#include "Data/PCGExDataHelpers.h"
+#include "Data/PCGExPointElements.h"
+
 
 #define LOCTEXT_NAMESPACE "PCGExMatchAttrToAttr"
 #define PCGEX_NAMESPACE MatchAttrToAttr
@@ -66,16 +71,16 @@ bool FPCGExMatchAttrToAttr::Test(const PCGExData::FConstPoint& InTargetElement, 
 		const double TargetValue = NumGetters[InTargetElement.IO]->FetchSingle(InTargetElement, MAX_dbl);
 		double CandidateValue = 0;
 
-		if (!PCGExDataHelpers::TryReadDataValue<double>(PointIO, Config.CandidateAttributeName_Sanitized, CandidateValue, true)) { return false; }
+		if (!PCGExDataHelpers::TryReadDataValue<double>(PointIO, Config.CandidateAttributeName_Sanitized, CandidateValue)) { return false; }
 
 		return Config.bSwapOperands ?
-			       PCGExCompare::Compare(Config.NumericComparison, TargetValue, CandidateValue) :
-			       PCGExCompare::Compare(Config.NumericComparison, CandidateValue, TargetValue);
+			       PCGExCompare::Compare(Config.NumericComparison, TargetValue, CandidateValue, Config.Tolerance) :
+			       PCGExCompare::Compare(Config.NumericComparison, CandidateValue, TargetValue, Config.Tolerance);
 	}
 	const FString TargetValue = StrGetters[InTargetElement.IO]->FetchSingle(InTargetElement, TEXT(""));
 	FString CandidateValue = TEXT("");
 
-	if (!PCGExDataHelpers::TryReadDataValue<FString>(PointIO, Config.CandidateAttributeName_Sanitized, CandidateValue, true)) { return false; }
+	if (!PCGExDataHelpers::TryReadDataValue<FString>(PointIO, Config.CandidateAttributeName_Sanitized, CandidateValue)) { return false; }
 
 	return Config.bSwapOperands ?
 		       PCGExCompare::Compare(Config.StringComparison, TargetValue, CandidateValue) :

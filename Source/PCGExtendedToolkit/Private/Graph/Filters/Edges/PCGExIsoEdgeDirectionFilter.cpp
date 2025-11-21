@@ -5,9 +5,14 @@
 
 #include "PCGExSorting.h"
 #include "PCGPin.h"
+#include "Data/PCGExData.h"
+#include "Data/PCGExPointIO.h"
+#include "Details/PCGExDetailsSettings.h"
 
 #define LOCTEXT_NAMESPACE "PCGExIsoEdgeDirectionFilter"
 #define PCGEX_NAMESPACE IsoEdgeDirectionFilter
+
+PCGEX_SETTING_VALUE_IMPL(FPCGExIsoEdgeDirectionFilterConfig, Direction, FVector, CompareAgainst, Direction, DirectionConstant)
 
 void UPCGExIsoEdgeDirectionFilterFactory::RegisterBuffersDependencies(FPCGExContext* InContext, PCGExData::FFacadePreloader& FacadePreloader) const
 {
@@ -46,20 +51,12 @@ bool FIsoEdgeDirectionFilter::Init(FPCGExContext* InContext, const TSharedRef<PC
 	if (!IFilter::Init(InContext, InCluster, InPointDataFacade, InEdgeDataFacade)) { return false; }
 
 	// Init for vtx
-	if (!DirectionSettings.Init(InContext, InPointDataFacade, &TypedFilterFactory->EdgeSortingRules))
-	{
-		PCGE_LOG_C(Warning, GraphAndLog, InContext, FTEXT("Some vtx are missing the specified Direction attribute."));
-		return false;
-	}
+	if (!DirectionSettings.Init(InContext, InPointDataFacade, &TypedFilterFactory->EdgeSortingRules, PCGEX_QUIET_HANDLING)) { return false; }
 
 	// Init for edges
-	if (!DirectionSettings.InitFromParent(InContext, DirectionSettings, InEdgeDataFacade))
-	{
-		PCGE_LOG_C(Warning, GraphAndLog, InContext, FTEXT("Some edges are missing the specified Direction attribute."));
-		return false;
-	}
+	if (!DirectionSettings.InitFromParent(InContext, DirectionSettings, InEdgeDataFacade, PCGEX_QUIET_HANDLING)) { return false; }
 
-	OperandDirection = TypedFilterFactory->Config.GetValueSettingDirection();
+	OperandDirection = TypedFilterFactory->Config.GetValueSettingDirection(PCGEX_QUIET_HANDLING);
 	if (!OperandDirection->Init(InEdgeDataFacade)) { return false; }
 	if (!OperandDirection->IsConstant()) { DirectionMultiplier = TypedFilterFactory->Config.bInvertDirection ? -1 : 1; }
 
@@ -73,7 +70,7 @@ bool FIsoEdgeDirectionFilter::Init(FPCGExContext* InContext, const TSharedRef<PC
 		if (!HashComparison.Init(InContext, InEdgeDataFacade)) { return false; }
 	}
 
-	InTransforms = PointDataFacade->Source->GetIn()->GetConstTransformValueRange();
+	InTransforms = InEdgeDataFacade->Source->GetIn()->GetConstTransformValueRange();
 
 	return true;
 }
@@ -106,7 +103,7 @@ bool FIsoEdgeDirectionFilter::TestHash(const int32 PtIndex, const FVector& EdgeD
 	RefDir.Normalize();
 
 	const FVector CWTolerance = HashComparison.GetCWTolerance(PtIndex);
-	return PCGEx::I323(RefDir, CWTolerance) == PCGEx::I323(EdgeDir, CWTolerance);
+	return PCGEx::GH3(RefDir, CWTolerance) == PCGEx::GH3(EdgeDir, CWTolerance);
 }
 
 FIsoEdgeDirectionFilter::~FIsoEdgeDirectionFilter()
@@ -119,7 +116,7 @@ TArray<FPCGPinProperties> UPCGExIsoEdgeDirectionFilterProviderSettings::InputPin
 	TArray<FPCGPinProperties> PinProperties = Super::InputPinProperties();
 	if (Config.DirectionSettings.DirectionMethod == EPCGExEdgeDirectionMethod::EndpointsSort)
 	{
-		PCGEX_PIN_FACTORIES(PCGExGraph::SourceEdgeSortingRules, "Plug sorting rules here. Order is defined by each rule' priority value, in ascending order.", Required, {})
+		PCGEX_PIN_FACTORIES(PCGExGraph::SourceEdgeSortingRules, "Plug sorting rules here. Order is defined by each rule' priority value, in ascending order.", Required, FPCGExDataTypeInfoSortRule::AsId())
 	}
 	return PinProperties;
 }

@@ -5,11 +5,14 @@
 #include "Graph/Probes/PCGExProbeOperation.h"
 
 
+#include "Details/PCGExDetailsSettings.h"
 #include "Graph/Probes/PCGExProbing.h"
 
 bool FPCGExProbeOperation::RequiresOctree() { return true; }
 
 bool FPCGExProbeOperation::RequiresChainProcessing() { return false; }
+
+PCGEX_SETTING_VALUE_IMPL(FPCGExProbeConfigBase, SearchRadius, double, SearchRadiusInput, SearchRadiusAttribute, SearchRadiusConstant);
 
 bool FPCGExProbeOperation::PrepareForPoints(FPCGExContext* InContext, const TSharedPtr<PCGExData::FPointIO>& InPointIO)
 {
@@ -22,7 +25,7 @@ bool FPCGExProbeOperation::PrepareForPoints(FPCGExContext* InContext, const TSha
 	return true;
 }
 
-void FPCGExProbeOperation::ProcessCandidates(const int32 Index, const FTransform& WorkingTransform, TArray<PCGExProbing::FCandidate>& Candidates, TSet<FInt32Vector>* Coincidence, const FVector& ST, TSet<uint64>* OutEdges)
+void FPCGExProbeOperation::ProcessCandidates(const int32 Index, const FTransform& WorkingTransform, TArray<PCGExProbing::FCandidate>& Candidates, TSet<uint64>* Coincidence, const FVector& ST, TSet<uint64>* OutEdges)
 {
 }
 
@@ -34,10 +37,15 @@ void FPCGExProbeOperation::ProcessCandidateChained(const int32 Index, const FTra
 {
 }
 
-void FPCGExProbeOperation::ProcessBestCandidate(const int32 Index, const FTransform& WorkingTransform, PCGExProbing::FBestCandidate& InBestCandidate, TArray<PCGExProbing::FCandidate>& Candidates, TSet<FInt32Vector>* Coincidence, const FVector& ST, TSet<uint64>* OutEdges)
+void FPCGExProbeOperation::ProcessBestCandidate(const int32 Index, const FTransform& WorkingTransform, PCGExProbing::FBestCandidate& InBestCandidate, TArray<PCGExProbing::FCandidate>& Candidates, TSet<uint64>* Coincidence, const FVector& ST, TSet<uint64>* OutEdges)
 {
 }
 
-void FPCGExProbeOperation::ProcessNode(const int32 Index, const FTransform& WorkingTransform, TSet<FInt32Vector>* Coincidence, const FVector& ST, TSet<uint64>* OutEdges, const TArray<int8>& AcceptConnections)
+void FPCGExProbeOperation::ProcessNode(const int32 Index, const FTransform& WorkingTransform, TSet<uint64>* Coincidence, const FVector& ST, TSet<uint64>* OutEdges, const TArray<int8>& AcceptConnections)
 {
+}
+
+double FPCGExProbeOperation::GetSearchRadius(const int32 Index) const
+{
+	return FMath::Square(SearchRadius->Read(Index) + SearchRadiusOffset);
 }

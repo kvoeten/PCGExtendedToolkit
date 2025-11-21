@@ -12,8 +12,10 @@
 #include "Geometry/PCGExGeoMesh.h"
 #include "Graph/PCGExClusterMT.h"
 #include "Graph/PCGExEdgesProcessor.h"
-#include "Graph/Filters/PCGExClusterFilter.h"
 #include "Transform/PCGExTransform.h"
+#include "Data/PCGExDataTag.h"
+#include "Data/PCGExPointFilter.h"
+#include "Data/PCGExPointIO.h"
 
 #include "PCGExTopologyEdgesProcessor.generated.h"
 
@@ -33,8 +35,8 @@ public:
 	//~Begin UPCGSettings
 #if WITH_EDITOR
 	PCGEX_NODE_INFOS(TopologyProcessor, "Topology", "Base processor to output meshes from clusters");
-	virtual FLinearColor GetNodeTitleColor() const override { return GetDefault<UPCGExGlobalSettings>()->WantsColor(GetDefault<UPCGExGlobalSettings>()->NodeColorTopology); }
 	virtual EPCGSettingsType GetType() const override { return OutputMode == EPCGExTopologyOutputMode::Legacy ? EPCGSettingsType::Spawner : EPCGSettingsType::DynamicMesh; }
+	virtual FLinearColor GetNodeTitleColor() const override { return FLinearColor::White; }
 #endif
 
 	virtual PCGExData::EIOInit GetMainOutputInitMode() const override;
@@ -75,10 +77,10 @@ public:
 	FString CommaSeparatedComponentTags = TEXT("PCGExTopology");
 
 	/** Specify a list of functions to be called on the target actor after dynamic mesh creation. Functions need to be parameter-less and with "CallInEditor" flag enabled. */
-	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta=(EditCondition="OutputMode == EPCGExTopologyOutputMode::Legacy", EditConditionHides))
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta=(EditCondition="OutputMode == EPCGExTopologyOutputMode::Legacy", EditConditionHides), AdvancedDisplay)
 	TArray<FName> PostProcessFunctionNames;
 
-	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta=(EditCondition="OutputMode == EPCGExTopologyOutputMode::Legacy", EditConditionHides))
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta=(EditCondition="OutputMode == EPCGExTopologyOutputMode::Legacy", EditConditionHides), AdvancedDisplay)
 	FPCGExAttachmentRules AttachmentRules;
 
 protected:
@@ -91,10 +93,11 @@ private:
 struct PCGEXTENDEDTOOLKIT_API FPCGExTopologyEdgesProcessorContext : FPCGExEdgesProcessorContext
 {
 	friend class FPCGExTopologyEdgesProcessorElement;
-	TArray<TObjectPtr<const UPCGExFilterFactoryData>> EdgeConstraintsFilterFactories;
+	TArray<TObjectPtr<const UPCGExPointFilterFactoryData>> EdgeConstraintsFilterFactories;
 
 	TSharedPtr<PCGExTopology::FHoles> Holes;
 	TSharedPtr<PCGExData::FFacade> HolesFacade;
+	TArray<TSharedPtr<TMap<uint64, int32>>> HashMaps;
 
 	TArray<FString> ComponentTags;
 
@@ -144,7 +147,7 @@ namespace PCGExTopologyEdges
 		using PCGExClusterMT::TProcessor<TContext, TSettings>::EdgeFilterCache;
 		using PCGExClusterMT::TProcessor<TContext, TSettings>::DefaultEdgeFilterValue;
 
-		TSharedPtr<TMap<uint32, int32>> ProjectedHashMap;
+		TSharedPtr<TMap<uint64, int32>> ProjectedHashMap;
 
 		TObjectPtr<UDynamicMesh> GetInternalMesh() { return InternalMesh; }
 
@@ -177,6 +180,8 @@ namespace PCGExTopologyEdges
 			EdgeDataFacade->bSupportsScopedGet = true;
 			EdgeFilterFactories = &Context->EdgeConstraintsFilterFactories;
 
+			ProjectedHashMap = Context->HashMaps[VtxDataFacade->Source->IOIndex];
+
 			if (!PCGExClusterMT::TProcessor<TContext, TSettings>::Process(InAsyncManager)) { return false; }
 
 			if (Context->HolesFacade) { Holes = Context->Holes ? Context->Holes : MakeShared<PCGExTopology::FHoles>(Context, Context->HolesFacade.ToSharedRef(), this->ProjectionDetails); }
@@ -184,6 +189,8 @@ namespace PCGExTopologyEdges
 			bIsPreviewMode = ExecutionContext->GetComponent()->IsInPreviewMode();
 
 			CellsConstraints = MakeShared<PCGExTopology::FCellConstraints>(Settings->Constraints);
+			CellsConstraints->Reserve(Cluster->Edges->Num());
+
 			if (Settings->Constraints.bOmitWrappingBounds) { CellsConstraints->BuildWrapperCell(Cluster.ToSharedRef(), *this->ProjectedVtxPositions.Get()); }
 			CellsConstraints->Holes = Holes;
 
@@ -279,6 +286,8 @@ namespace PCGExTopologyEdges
 
 		void ApplyPointData()
 		{
+			TRACE_CPUPROFILER_EVENT_SCOPE(TopologyEdgesProcessor::ApplyPointData);
+
 			FTransform Transform = Settings->OutputMode == EPCGExTopologyOutputMode::PCGDynamicMesh ? Context->GetComponent()->GetOwner()->GetTransform() : FTransform::Identity;
 			Transform.SetScale3D(FVector::OneVector);
 			Transform.SetRotation(FQuat::Identity);
@@ -289,7 +298,7 @@ namespace PCGExTopologyEdges
 					const int32 VtxCount = InMesh.MaxVertexID();
 					const TConstPCGValueRange<FTransform> InTransforms = VtxDataFacade->GetIn()->GetConstTransformValueRange();
 					const TConstPCGValueRange<FVector4> InColors = VtxDataFacade->GetIn()->GetConstColorValueRange();
-					const TMap<uint32, int32>& HashMapRef = *ProjectedHashMap;
+					const TMap<uint64, int32>& HashMapRef = *ProjectedHashMap;
 
 					FVector4f DefaultVertexColor = FVector4f(Settings->Topology.DefaultVertexColor);
 
@@ -327,11 +336,7 @@ namespace PCGExTopologyEdges
 					}
 				}, EDynamicMeshChangeType::GeneralEdit, EDynamicMeshAttributeChangeFlags::Unknown, true);
 
-
-			if (Settings->Topology.bComputeNormals)
-			{
-				UGeometryScriptLibrary_MeshNormalsFunctions::RecomputeNormals(GetInternalMesh(), Settings->Topology.NormalsOptions);
-			}
+			Settings->Topology.PostProcessMesh(GetInternalMesh());
 		}
 	};
 
@@ -347,7 +352,7 @@ namespace PCGExTopologyEdges
 		using PCGExClusterMT::TBatch<T>::ExecutionContext;
 		using PCGExClusterMT::TBatch<T>::NodeIndexLookup;
 
-		TSharedPtr<TMap<uint32, int32>> ProjectedHashMap;
+		TSharedPtr<TMap<uint64, int32>> ProjectedHashMap;
 
 	public:
 		using PCGExClusterMT::TBatch<T>::VtxDataFacade;
@@ -355,8 +360,9 @@ namespace PCGExTopologyEdges
 		TBatch(FPCGExContext* InContext, const TSharedRef<PCGExData::FPointIO>& InVtx, const TArrayView<TSharedRef<PCGExData::FPointIO>> InEdges):
 			PCGExClusterMT::TBatch<T>(InContext, InVtx, InEdges)
 		{
-			ProjectedHashMap = MakeShared<TMap<uint32, int32>>();
+			ProjectedHashMap = MakeShared<TMap<uint64, int32>>();
 			ProjectedHashMap->Reserve(InVtx->GetNum());
+			static_cast<FPCGExTopologyEdgesProcessorContext*>(InContext)->HashMaps[InVtx->IOIndex] = ProjectedHashMap;
 		}
 
 		virtual void RegisterBuffersDependencies(PCGExData::FFacadePreloader& FacadePreloader) override
@@ -373,13 +379,6 @@ namespace PCGExTopologyEdges
 			}
 		}
 
-		virtual bool PrepareSingle(const TSharedPtr<T>& ClusterProcessor) override
-		{
-			ClusterProcessor->ProjectedHashMap = ProjectedHashMap;
-			PCGExClusterMT::TBatch<T>::PrepareSingle(ClusterProcessor);
-			return true;
-		}
-
 		virtual void Output() override
 		{
 			if (!this->bIsBatchValid) { return; }
@@ -393,7 +392,7 @@ namespace PCGExTopologyEdges
 		{
 			const int32 NumVtx = VtxDataFacade->GetNum();
 
-			TMap<uint32, int32>& MP = *ProjectedHashMap;
+			TMap<uint64, int32>& MP = *ProjectedHashMap;
 			const TArray<FVector2D>& PP = *this->ProjectedVtxPositions.Get();
 
 			for (int i = 0; i < NumVtx; i++) { MP.Add(PCGEx::GH2(PP[i], CWTolerance), i); }

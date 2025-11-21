@@ -3,6 +3,12 @@
 
 #include "Misc/PCGExReduceDataAttribute.h"
 
+#include "PCGExBroadcast.h"
+#include "PCGExHelpers.h"
+#include "PCGParamData.h"
+#include "Data/PCGExDataHelpers.h"
+#include "Data/Blending//PCGExBlendModes.h"
+
 #define LOCTEXT_NAMESPACE "PCGExReduceDataAttributeElement"
 #define PCGEX_NAMESPACE ReduceDataAttribute
 
@@ -31,14 +37,14 @@ void UPCGExReduceDataAttributeSettings::ApplyPreconfiguredSettings(const FPCGPre
 TArray<FPCGPinProperties> UPCGExReduceDataAttributeSettings::InputPinProperties() const
 {
 	TArray<FPCGPinProperties> PinProperties = Super::InputPinProperties();
-	PCGEX_PIN_ANY(GetMainInputPin(), "Inputs", Required, {})
+	PCGEX_PIN_ANY(GetMainInputPin(), "Inputs", Required)
 	return PinProperties;
 }
 
 TArray<FPCGPinProperties> UPCGExReduceDataAttributeSettings::OutputPinProperties() const
 {
 	TArray<FPCGPinProperties> PinProperties;
-	PCGEX_PIN_PARAM(GetMainOutputPin(), "Reduced attribute.", Normal, {})
+	PCGEX_PIN_PARAM(GetMainOutputPin(), "Reduced attribute.", Normal)
 	return PinProperties;
 }
 
@@ -87,11 +93,7 @@ bool FPCGExReduceDataAttributeElement::Boot(FPCGExContext* InContext) const
 
 		if (!Attribute)
 		{
-			if (!Settings->bQuietMissingAttribute)
-			{
-				PCGE_LOG_C(Warning, GraphAndLog, InContext, FTEXT("Some data are missing the source attribute."));
-			}
-
+			PCGEX_LOG_WARN_ATTR_C(Context, Source, ReadIdentifier.Name)
 			continue;
 		}
 
@@ -109,11 +111,7 @@ bool FPCGExReduceDataAttributeElement::Boot(FPCGExContext* InContext) const
 
 	if (Context->Attributes.IsEmpty())
 	{
-		if (!Settings->bQuietMissingInputError)
-		{
-			PCGE_LOG_C(Error, GraphAndLog, InContext, FTEXT("Missing any valid input."));
-		}
-
+		PCGEX_LOG_MISSING_INPUT(Context, FTEXT("Missing any valid input."))
 		return false;
 	}
 

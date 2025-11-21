@@ -12,6 +12,8 @@
 #include "PCGExScopedContainers.h"
 #include "Data/PCGExDataForward.h"
 #include "Components/PrimitiveComponent.h"
+#include "Data/PCGExPointFilter.h"
+#include "Details/PCGExDetailsCollision.h"
 #include "Materials/MaterialInterface.h"
 
 #include "PCGExSampleNearestSurface.generated.h"
@@ -28,7 +30,7 @@ MACRO(PhysMat, FSoftObjectPath, FSoftObjectPath())
 
 class AActor;
 class UWorld;
-class UPCGExFilterFactoryData;
+class UPCGExPointFilterFactoryData;
 
 /**
  * Use PCGExSampling to manipulate the outgoing attributes instead of handling everything here.
@@ -43,13 +45,15 @@ public:
 	//~Begin UPCGSettings
 #if WITH_EDITOR
 	PCGEX_NODE_INFOS(SampleNearestSurface, "Sample : Nearest Surface", "Find the closest point on the nearest collidable surface.");
-	virtual FLinearColor GetNodeTitleColor() const override { return GetDefault<UPCGExGlobalSettings>()->NodeColorSampler; }
+	virtual FLinearColor GetNodeTitleColor() const override { return GetDefault<UPCGExGlobalSettings>()->ColorSampling; }
 #endif
 
 protected:
 	virtual TArray<FPCGPinProperties> InputPinProperties() const override;
 	virtual FPCGElementPtr CreateElement() const override;
 	//~End UPCGSettings
+
+	virtual PCGExData::EIOInit GetMainDataInitializationPolicy() const override;
 
 	//~Begin UPCGExPointsProcessorSettings
 public:
@@ -188,6 +192,14 @@ public:
 	/** If enabled, points that failed to sample anything will be pruned. */
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta=(PCG_NotOverridable), AdvancedDisplay)
 	bool bPruneFailedSamples = false;
+
+	/** Consider points that are inside as failed samples. */
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta=(PCG_Overridable), AdvancedDisplay)
+	bool bProcessInsideAsFailedSamples = false;
+
+	/** Consider points that are outside as failed samples. */
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta=(PCG_Overridable), AdvancedDisplay)
+	bool bProcessOutsideAsFailedSamples = false;
 };
 
 struct FPCGExSampleNearestSurfaceContext final : FPCGExPointsProcessorContext
@@ -205,6 +217,9 @@ struct FPCGExSampleNearestSurfaceContext final : FPCGExPointsProcessorContext
 	TArray<UPrimitiveComponent*> IncludedPrimitives;
 
 	PCGEX_FOREACH_FIELD_NEARESTSURFACE(PCGEX_OUTPUT_DECL_TOGGLE)
+
+protected:
+	PCGEX_ELEMENT_BATCH_POINT_DECL
 };
 
 class FPCGExSampleNearestSurfaceElement final : public FPCGExPointsProcessorElement

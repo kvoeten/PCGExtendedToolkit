@@ -4,11 +4,18 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "PCGExDetailsData.h"
+#include "PCGExCommon.h"
 #include "PCGExOperation.h"
+#include "Details/PCGExSettingsMacros.h"
+#include "Metadata/PCGAttributePropertySelector.h"
 
 #include "UObject/Object.h"
 #include "PCGExProbeOperation.generated.h"
+
+namespace PCGExData
+{
+	class FPointIO;
+}
 
 namespace PCGExProbing
 {
@@ -51,7 +58,7 @@ struct PCGEXTENDEDTOOLKIT_API FPCGExProbeConfigBase
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta=(PCG_Overridable, DisplayName=" └─ Offset", EditCondition="bSupportRadius && SearchRadiusInput != EPCGExInputValueType::Constant", EditConditionHides))
 	double SearchRadiusOffset = 0;
 
-	PCGEX_SETTING_VALUE_GET(SearchRadius, double, SearchRadiusInput, SearchRadiusAttribute, SearchRadiusConstant)
+	PCGEX_SETTING_VALUE_DECL(SearchRadius, double)
 };
 
 /**
@@ -63,18 +70,18 @@ public:
 	virtual bool PrepareForPoints(FPCGExContext* InContext, const TSharedPtr<PCGExData::FPointIO>& InPointIO);
 	virtual bool RequiresOctree();
 	virtual bool RequiresChainProcessing();
-	virtual void ProcessCandidates(const int32 Index, const FTransform& WorkingTransform, TArray<PCGExProbing::FCandidate>& Candidates, TSet<FInt32Vector>* Coincidence, const FVector& ST, TSet<uint64>* OutEdges);
+	virtual void ProcessCandidates(const int32 Index, const FTransform& WorkingTransform, TArray<PCGExProbing::FCandidate>& Candidates, TSet<uint64>* Coincidence, const FVector& ST, TSet<uint64>* OutEdges);
 
 	virtual void PrepareBestCandidate(const int32 Index, const FTransform& WorkingTransform, PCGExProbing::FBestCandidate& InBestCandidate);
 	virtual void ProcessCandidateChained(const int32 Index, const FTransform& WorkingTransform, const int32 CandidateIndex, PCGExProbing::FCandidate& Candidate, PCGExProbing::FBestCandidate& InBestCandidate);
-	virtual void ProcessBestCandidate(const int32 Index, const FTransform& WorkingTransform, PCGExProbing::FBestCandidate& InBestCandidate, TArray<PCGExProbing::FCandidate>& Candidates, TSet<FInt32Vector>* Coincidence, const FVector& ST, TSet<uint64>* OutEdges);
+	virtual void ProcessBestCandidate(const int32 Index, const FTransform& WorkingTransform, PCGExProbing::FBestCandidate& InBestCandidate, TArray<PCGExProbing::FCandidate>& Candidates, TSet<uint64>* Coincidence, const FVector& ST, TSet<uint64>* OutEdges);
 
-	virtual void ProcessNode(const int32 Index, const FTransform& WorkingTransform, TSet<FInt32Vector>* Coincidence, const FVector& ST, TSet<uint64>* OutEdges, const TArray<int8>& AcceptConnections);
+	virtual void ProcessNode(const int32 Index, const FTransform& WorkingTransform, TSet<uint64>* Coincidence, const FVector& ST, TSet<uint64>* OutEdges, const TArray<int8>& AcceptConnections);
 
 	FPCGExProbeConfigBase* BaseConfig = nullptr;
 
 	double SearchRadiusOffset = 0;
-	FORCEINLINE double GetSearchRadius(const int32 Index) const { return FMath::Square(SearchRadius->Read(Index) + SearchRadiusOffset); }
+	double GetSearchRadius(const int32 Index) const;
 	TSharedPtr<PCGExDetails::TSettingValue<double>> SearchRadius;
 
 protected:

@@ -3,6 +3,8 @@
 
 #include "Misc/CollectionFilters/PCGExTagValueFilter.h"
 
+#include "Data/PCGExPointIO.h"
+
 #define LOCTEXT_NAMESPACE "PCGExCompareFilterDefinition"
 #define PCGEX_NAMESPACE CompareFilterDefinition
 
@@ -20,7 +22,7 @@ bool PCGExPointFilter::FTagValueFilter::Test(const TSharedPtr<PCGExData::FPointI
 	{
 		bool bAtLeastOneMatch = false;
 		bResult = true;
-		
+
 		if (TypedFilterFactory->Config.ValueType == EPCGExComparisonDataType::Numeric)
 		{
 			double B = TypedFilterFactory->Config.NumericOperandB;

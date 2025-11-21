@@ -5,6 +5,8 @@
 #include "Misc/PCGExSortPoints.h"
 
 
+#include "Data/PCGExData.h"
+#include "Data/PCGExPointIO.h"
 #include "Misc/PCGExModularSortPoints.h"
 
 
@@ -21,6 +23,8 @@ void UPCGExSortPointsSettings::PostEditChangeProperty(FPropertyChangedEvent& Pro
 
 FPCGElementPtr UPCGExSortPointsBaseSettings::CreateElement() const { return MakeShared<FPCGExSortPointsBaseElement>(); }
 
+PCGExData::EIOInit UPCGExSortPointsBaseSettings::GetMainDataInitializationPolicy() const { return PCGExData::EIOInit::Duplicate; }
+
 bool UPCGExSortPointsBaseSettings::GetSortingRules(FPCGExContext* InContext, TArray<FPCGExSortRuleConfig>& OutRules) const
 {
 	return true;
@@ -33,11 +37,13 @@ bool UPCGExSortPointsSettings::GetSortingRules(FPCGExContext* InContext, TArray<
 	return true;
 }
 
+PCGEX_ELEMENT_BATCH_POINT_IMPL(SortPoints)
+
 bool FPCGExSortPointsBaseElement::ExecuteInternal(FPCGContext* InContext) const
 {
 	TRACE_CPUPROFILER_EVENT_SCOPE(FPCGExSortPointsElement::Execute);
 
-	PCGEX_CONTEXT(PointsProcessor)
+	PCGEX_CONTEXT(SortPoints)
 	PCGEX_SETTINGS(SortPointsBase)
 	PCGEX_EXECUTION_CHECK
 	PCGEX_ON_INITIAL_EXECUTION
@@ -48,9 +54,9 @@ bool FPCGExSortPointsBaseElement::ExecuteInternal(FPCGContext* InContext) const
 			return Context->CancelExecution(TEXT("No attributes to sort over."));
 		}
 
-		if (!Context->StartBatchProcessingPoints<PCGExPointsMT::TBatch<PCGExSortPoints::FProcessor>>(
+		if (!Context->StartBatchProcessingPoints(
 			[&](const TSharedPtr<PCGExData::FPointIO>& Entry) { return true; },
-			[&](const TSharedPtr<PCGExPointsMT::TBatch<PCGExSortPoints::FProcessor>>& NewBatch)
+			[&](const TSharedPtr<PCGExPointsMT::IBatch>& NewBatch)
 			{
 				NewBatch->bPrefetchData = true;
 			}))

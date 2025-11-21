@@ -76,7 +76,7 @@ public:
 	//~Begin UPCGSettings
 #if WITH_EDITOR
 	PCGEX_NODE_INFOS(BuildVoronoiGraph2D, "Cluster : Voronoi 2D", "Create a 2D Voronoi graph for each input dataset.");
-	virtual FLinearColor GetNodeTitleColor() const override { return GetDefault<UPCGExGlobalSettings>()->NodeColorClusterGen; }
+	virtual FLinearColor GetNodeTitleColor() const override { return GetDefault<UPCGExGlobalSettings>()->ColorClusterGenerator; }
 #endif
 	virtual TArray<FPCGPinProperties> OutputPinProperties() const override;
 
@@ -147,6 +147,9 @@ struct FPCGExBuildVoronoiGraph2DContext final : FPCGExPointsProcessorContext
 	friend class FPCGExBuildVoronoiGraph2DElement;
 
 	TSharedPtr<PCGExData::FPointIOCollection> SitesOutput;
+
+protected:
+	PCGEX_ELEMENT_BATCH_POINT_DECL
 };
 
 class FPCGExBuildVoronoiGraph2DElement final : public FPCGExPointsProcessorElement
@@ -158,7 +161,7 @@ protected:
 	virtual bool ExecuteInternal(FPCGContext* InContext) const override;
 };
 
-namespace PCGExBuildVoronoi2D
+namespace PCGExBuildVoronoiGraph2D
 {
 	class FProcessor final : public PCGExPointsMT::TProcessor<FPCGExBuildVoronoiGraph2DContext, UPCGExBuildVoronoiGraph2DSettings>
 	{

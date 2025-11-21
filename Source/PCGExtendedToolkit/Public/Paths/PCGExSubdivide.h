@@ -5,16 +5,14 @@
 
 #include "CoreMinimal.h"
 #include "PCGExPathProcessor.h"
-
-#include "PCGExPointsProcessor.h"
-#include "PCGExDetails.h"
 #include "Data/PCGExPointFilter.h"
+#include "Details/PCGExDetailsSubdivision.h"
+#include "Details/PCGExSettingsMacros.h"
 
-
-#include "Paths/SubPoints/PCGExSubPointsInstancedFactory.h"
-#include "SubPoints/DataBlending/PCGExSubPointsBlendOperation.h"
 #include "PCGExSubdivide.generated.h"
 
+class UPCGExSubPointsBlendInstancedFactory;
+class FPCGExSubPointsBlendOperation;
 /**
  * 
  */
@@ -27,6 +25,12 @@ public:
 	//~Begin UPCGSettings
 #if WITH_EDITOR
 	PCGEX_NODE_INFOS(PathSubdivide, "Path : Subdivide", "Subdivide paths segments.");
+#endif
+
+#if WITH_EDITORONLY_DATA
+	// UObject interface
+	virtual void PostInitProperties() override;
+	// End of UObject interface
 #endif
 
 protected:
@@ -55,7 +59,7 @@ public:
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta=(PCG_Overridable, DisplayName="Amount (Attr)", EditCondition="SubdivideMethod != EPCGExSubdivideMode::Manhattan && AmountInput != EPCGExInputValueType::Constant", EditConditionHides))
 	FPCGAttributePropertyInputSelector SubdivisionAmount;
 
-	PCGEX_SETTING_VALUE_GET(SubdivisionAmount, double, AmountInput, SubdivisionAmount, SubdivideMethod == EPCGExSubdivideMode::Count ? Count : Distance)
+	PCGEX_SETTING_VALUE_DECL(SubdivisionAmount, double)
 
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta=(PCG_Overridable, EditCondition="SubdivideMethod != EPCGExSubdivideMode::Manhattan && SubdivideMethod == EPCGExSubdivideMode::Distance", EditConditionHides))
 	bool bRedistributeEvenly = false;
@@ -88,6 +92,9 @@ struct FPCGExSubdivideContext final : FPCGExPathProcessorContext
 	friend class FPCGExSubdivideElement;
 
 	UPCGExSubPointsBlendInstancedFactory* Blending = nullptr;
+
+protected:
+	PCGEX_ELEMENT_BATCH_POINT_DECL
 };
 
 class FPCGExSubdivideElement final : public FPCGExPathProcessorElement

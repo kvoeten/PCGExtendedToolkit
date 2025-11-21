@@ -5,15 +5,11 @@
 
 #include "CoreMinimal.h"
 #include "PCGExCompare.h"
-#include "PCGExDetailsData.h"
 #include "PCGExFilterFactoryProvider.h"
 #include "UObject/Object.h"
 
 #include "Data/PCGExPointFilter.h"
-#include "PCGExPointsProcessor.h"
-
-#include "Sampling/PCGExSampleNearestSpline.h"
-
+#include "PCGExPolyPathFilterFactory.h"
 
 #include "PCGExTimeFilter.generated.h"
 
@@ -30,9 +26,7 @@ struct FPCGExTimeFilterConfig
 {
 	GENERATED_BODY()
 
-	FPCGExTimeFilterConfig()
-	{
-	}
+	FPCGExTimeFilterConfig() = default;
 
 	/** Sample inputs.*/
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta=(PCG_Overridable))
@@ -62,11 +56,11 @@ struct FPCGExTimeFilterConfig
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta=(PCG_Overridable, DisplayName="Operand B", EditCondition="CompareAgainst == EPCGExInputValueType::Constant", EditConditionHides))
 	float OperandBConstant = 0;
 
-	/** Rounding mode for relative measures */
+	/** Near-equality tolerance */
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta=(PCG_Overridable, EditCondition="Comparison == EPCGExComparison::NearlyEqual || Comparison == EPCGExComparison::NearlyNotEqual", EditConditionHides))
 	double Tolerance = DBL_COMPARE_TOLERANCE;
 
-	PCGEX_SETTING_VALUE_GET(OperandB, float, CompareAgainst, OperandB, OperandBConstant)
+	PCGEX_SETTING_VALUE_DECL(OperandB, float)
 
 
 	/** If enabled, invert the result of the test */
@@ -84,6 +78,10 @@ struct FPCGExTimeFilterConfig
 	/** If enabled, when used with a collection filter, will use collection bounds as a proxy point instead of per-point testing */
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta=(PCG_Overridable))
 	bool bCheckAgainstDataBounds = false;
+
+	/** If enabled, a collection will never be tested against itself */
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Settings, meta=(PCG_Overridable))
+	bool bIgnoreSelf = true;
 };
 
 /**
@@ -103,6 +101,7 @@ public:
 
 	virtual TSharedPtr<PCGExPointFilter::IFilter> CreateFilter() const override;
 
+	virtual void RegisterBuffersDependencies(FPCGExContext* InContext, PCGExData::FFacadePreloader& FacadePreloader) const override;
 	virtual bool RegisterConsumableAttributesWithData(FPCGExContext* InContext, const UPCGData* InData) const override;
 
 protected:
@@ -168,6 +167,6 @@ public:
 
 #if WITH_EDITOR
 	virtual FString GetDisplayName() const override;
-	virtual bool ShowMissingDataHandling_Internal() const override { return true; }
+	virtual bool ShowMissingDataPolicy_Internal() const override { return true; }
 #endif
 };

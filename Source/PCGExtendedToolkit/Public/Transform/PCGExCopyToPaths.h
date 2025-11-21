@@ -33,7 +33,7 @@ public:
 #if WITH_EDITOR
 	PCGEX_NODE_INFOS(CopyToPaths, "Copy to Path", "Deform points along a path/spline.");
 	virtual EPCGSettingsType GetType() const override { return EPCGSettingsType::Spatial; }
-	virtual FLinearColor GetNodeTitleColor() const override { return GetDefault<UPCGExGlobalSettings>()->WantsColor(GetDefault<UPCGExGlobalSettings>()->NodeColorTransform); }
+	virtual FLinearColor GetNodeTitleColor() const override { return GetDefault<UPCGExGlobalSettings>()->WantsColor(GetDefault<UPCGExGlobalSettings>()->ColorTransform); }
 #endif
 
 protected:
@@ -141,6 +141,9 @@ struct FPCGExCopyToPathsContext final : FPCGExPointsProcessorContext
 	FPCGExAxisDeformDetails TwistSettings;
 
 	TArray<TSharedPtr<FPCGSplineStruct>> LocalDeformers;
+
+protected:
+	PCGEX_ELEMENT_BATCH_POINT_DECL
 };
 
 class FPCGExCopyToPathsElement final : public FPCGExPointsProcessorElement

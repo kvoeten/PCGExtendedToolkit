@@ -10,6 +10,7 @@
 #include "Helpers/PCGSettingsHelpers.h"
 #include "Misc/PCGExMergePoints.h"
 #include "Data/PCGExPointFilter.h"
+#include "Data/PCGExPointIO.h"
 
 #define LOCTEXT_NAMESPACE "PCGExGraphSettings"
 
@@ -24,8 +25,9 @@
 
 bool UPCGExPointsProcessorSettings::GetPinExtraIcon(const UPCGPin* InPin, FName& OutExtraIcon, FText& OutTooltip) const
 {
-	return GetDefault<UPCGExGlobalSettings>()->GetPinExtraIcon(InPin, OutExtraIcon, OutTooltip, false);
+	return GetDefault<UPCGExGlobalSettings>()->GetPinExtraIcon(InPin, OutExtraIcon, OutTooltip, InPin->IsOutputPin());
 }
+#endif
 
 bool UPCGExPointsProcessorSettings::IsPinUsedByNodeExecution(const UPCGPin* InPin) const
 {
@@ -33,8 +35,7 @@ bool UPCGExPointsProcessorSettings::IsPinUsedByNodeExecution(const UPCGPin* InPi
 	return Super::IsPinUsedByNodeExecution(InPin);
 }
 
-
-#endif
+PCGExData::EIOInit UPCGExPointsProcessorSettings::GetMainDataInitializationPolicy() const { return PCGExData::EIOInit::NoInit; }
 
 TArray<FPCGPinProperties> UPCGExPointsProcessorSettings::InputPinProperties() const
 {
@@ -44,20 +45,20 @@ TArray<FPCGPinProperties> UPCGExPointsProcessorSettings::InputPinProperties() co
 	{
 		if (!GetIsMainTransactional())
 		{
-			if (GetMainAcceptMultipleData()) { PCGEX_PIN_POINTS(GetMainInputPin(), "The point data to be processed.", Required, {}) }
-			else { PCGEX_PIN_POINT(GetMainInputPin(), "The point data to be processed.", Required, {}) }
+			if (GetMainAcceptMultipleData()) { PCGEX_PIN_POINTS(GetMainInputPin(), "The point data to be processed.", Required) }
+			else { PCGEX_PIN_POINT(GetMainInputPin(), "The point data to be processed.", Required) }
 		}
 		else
 		{
-			if (GetMainAcceptMultipleData()) { PCGEX_PIN_ANY(GetMainInputPin(), "The data to be processed.", Required, {}) }
-			else { PCGEX_PIN_ANY(GetMainInputPin(), "The data to be processed.", Required, {}) }
+			if (GetMainAcceptMultipleData()) { PCGEX_PIN_ANY(GetMainInputPin(), "The data to be processed.", Required) }
+			else { PCGEX_PIN_ANY(GetMainInputPin(), "The data to be processed.", Required) }
 		}
 	}
 
 	if (SupportsPointFilters())
 	{
-		if (RequiresPointFilters()) { PCGEX_PIN_FACTORIES(GetPointFilterPin(), GetPointFilterTooltip(), Required, {}) }
-		else { PCGEX_PIN_FACTORIES(GetPointFilterPin(), GetPointFilterTooltip(), Normal, {}) }
+		if (RequiresPointFilters()) { PCGEX_PIN_FILTERS(GetPointFilterPin(), GetPointFilterTooltip(), Required) }
+		else { PCGEX_PIN_FILTERS(GetPointFilterPin(), GetPointFilterTooltip(), Normal) }
 	}
 
 	return PinProperties;
@@ -67,7 +68,7 @@ TArray<FPCGPinProperties> UPCGExPointsProcessorSettings::InputPinProperties() co
 TArray<FPCGPinProperties> UPCGExPointsProcessorSettings::OutputPinProperties() const
 {
 	TArray<FPCGPinProperties> PinProperties;
-	PCGEX_PIN_POINTS(GetMainOutputPin(), "The processed input.", Normal, {})
+	PCGEX_PIN_POINTS(GetMainOutputPin(), "The processed input.", Normal)
 	return PinProperties;
 }
 
@@ -92,6 +93,11 @@ bool UPCGExPointsProcessorSettings::ShouldCache() const
 bool UPCGExPointsProcessorSettings::WantsScopedAttributeGet() const
 {
 	PCGEX_GET_OPTION_STATE(ScopedAttributeGet, bDefaultScopedAttributeGet)
+}
+
+bool UPCGExPointsProcessorSettings::WantsBulkInitData() const
+{
+	PCGEX_GET_OPTION_STATE(BulkInitData, bBulkInitData)
 }
 
 FPCGExPointsProcessorContext::~FPCGExPointsProcessorContext()
@@ -201,6 +207,51 @@ bool FPCGExPointsProcessorContext::ProcessPointsBatch(const PCGExCommon::Context
 	return false;
 }
 
+bool FPCGExPointsProcessorContext::StartBatchProcessingPoints(FBatchProcessingValidateEntry&& ValidateEntry, FBatchProcessingInitPointBatch&& InitBatch)
+{
+	bBatchProcessingEnabled = false;
+
+	MainBatch.Reset();
+
+	PCGEX_SETTINGS_LOCAL(PointsProcessor)
+
+	SubProcessorMap.Empty();
+	SubProcessorMap.Reserve(MainPoints->Num());
+
+	TArray<TWeakPtr<PCGExData::FPointIO>> BatchAblePoints;
+	BatchAblePoints.Reserve(InitialMainPointsNum);
+
+	while (AdvancePointsIO(false))
+	{
+		if (!ValidateEntry(CurrentIO)) { continue; }
+		BatchAblePoints.Add(CurrentIO.ToSharedRef());
+	}
+
+	if (BatchAblePoints.IsEmpty()) { return bBatchProcessingEnabled; }
+	bBatchProcessingEnabled = true;
+
+	const TSharedPtr<PCGExPointsMT::IBatch> NewBatch = CreatePointBatchInstance(BatchAblePoints);
+	MainBatch = NewBatch;
+	MainBatch->SubProcessorMap = &SubProcessorMap;
+	MainBatch->DataInitializationPolicy = Settings->WantsBulkInitData() ? Settings->GetMainDataInitializationPolicy() : PCGExData::EIOInit::NoInit;
+
+	InitBatch(NewBatch);
+
+	if (Settings->SupportsPointFilters()) { NewBatch->SetPointsFilterData(&FilterFactories); }
+
+	if (MainBatch->PrepareProcessing())
+	{
+		SetAsyncState(PCGExPointsMT::MTState_PointsProcessing);
+		ScheduleBatch(GetAsyncManager(), MainBatch);
+	}
+	else
+	{
+		bBatchProcessingEnabled = false;
+	}
+
+	return bBatchProcessingEnabled;
+}
+
 void FPCGExPointsProcessorContext::BatchProcessing_InitialProcessingDone()
 {
 }
@@ -269,6 +320,7 @@ bool FPCGExPointsProcessorElement::PrepareDataInternal(FPCGContext* InContext) c
 FPCGContext* FPCGExPointsProcessorElement::Initialize(const FPCGInitializeElementParams& InParams)
 {
 	FPCGExPointsProcessorContext* Context = static_cast<FPCGExPointsProcessorContext*>(IPCGElement::Initialize(InParams));
+	Context->WorkPriority = Context->GetInputSettings<UPCGExPointsProcessorSettings>()->WorkPriority;
 	OnContextInitialized(Context);
 	return Context;
 }
@@ -306,6 +358,7 @@ void FPCGExPointsProcessorElement::OnContextInitialized(FPCGExPointsProcessorCon
 
 	InContext->bFlattenOutput = Settings->bFlattenOutput;
 	InContext->bScopedAttributeGet = Settings->WantsScopedAttributeGet();
+	InContext->bPropagateAbortedExecution = Settings->bPropagateAbortedExecution;
 }
 
 bool FPCGExPointsProcessorElement::Boot(FPCGExContext* InContext) const
@@ -315,7 +368,11 @@ bool FPCGExPointsProcessorElement::Boot(FPCGExContext* InContext) const
 	FPCGExPointsProcessorContext* Context = static_cast<FPCGExPointsProcessorContext*>(InContext);
 	PCGEX_SETTINGS(PointsProcessor)
 
+	Context->bQuietInvalidInputWarning = Settings->bQuietInvalidInputWarning;
+	Context->bQuietMissingAttributeError = Settings->bQuietMissingAttributeError;
+	Context->bQuietMissingInputError = Settings->bQuietMissingInputError;
 	Context->bQuietCancellationError = Settings->bQuietCancellationError;
+
 	Context->bCleanupConsumableAttributes = Settings->bCleanupConsumableAttributes;
 
 	if (Settings->bCleanupConsumableAttributes)
@@ -354,19 +411,18 @@ bool FPCGExPointsProcessorElement::Boot(FPCGExContext* InContext) const
 
 	if (Context->MainPoints->IsEmpty() && !Settings->IsInputless())
 	{
-		if (!Settings->bQuietMissingInputError)
-		{
-			PCGE_LOG(Error, GraphAndLog, FText::Format(FText::FromString(TEXT("Missing {0} inputs (either no data or no points)")), FText::FromName(Settings->GetMainInputPin())));
-		}
+		PCGEX_LOG_MISSING_INPUT(Context, FText::Format(FText::FromString(TEXT("Missing {0} inputs (either no data or no points)")), FText::FromName(Settings->GetMainInputPin())))
 		return false;
 	}
 
 	if (Settings->SupportsPointFilters())
 	{
-		GetInputFactories(Context, Settings->GetPointFilterPin(), Context->FilterFactories, Settings->GetPointFilterTypes(), false);
-		if (Settings->RequiresPointFilters() && Context->FilterFactories.IsEmpty())
+		if (const bool bRequiredFilters = Settings->RequiresPointFilters();
+			!GetInputFactories(
+				Context, Settings->GetPointFilterPin(), Context->FilterFactories,
+				Settings->GetPointFilterTypes(), bRequiredFilters)
+			&& bRequiredFilters)
 		{
-			PCGE_LOG(Error, GraphAndLog, FText::Format(FTEXT("Missing {0}."), FText::FromName(Settings->GetPointFilterPin())));
 			return false;
 		}
 	}

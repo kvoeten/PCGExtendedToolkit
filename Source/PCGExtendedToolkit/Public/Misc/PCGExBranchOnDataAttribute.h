@@ -4,6 +4,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "PCGExCompare.h"
 #include "PCGExGlobalSettings.h"
 
 #include "PCGExPointsProcessor.h"
@@ -84,11 +85,11 @@ public:
 		BranchOnDataAttribute, "Branch on Data", "Branch on @Data domain attribute.",
 		BranchSource);
 	virtual EPCGSettingsType GetType() const override { return EPCGSettingsType::ControlFlow; }
-	virtual FLinearColor GetNodeTitleColor() const override { return GetDefault<UPCGExGlobalSettings>()->WantsColor(GetDefault<UPCGExGlobalSettings>()->NodeColorFilterHub); }
+	virtual FLinearColor GetNodeTitleColor() const override { return GetDefault<UPCGExGlobalSettings>()->WantsColor(GetDefault<UPCGExGlobalSettings>()->ColorFilterHub); }
 #endif
 
 	virtual bool HasDynamicPins() const override { return true; }
-	virtual bool OutputPinsCanBeDeactivated() const override { return false; }
+	virtual bool OutputPinsCanBeDeactivated() const override { return true; }
 	virtual FName GetMainInputPin() const override { return PCGPinConstants::DefaultInputLabel; }
 	virtual FName GetMainOutputPin() const override { return DefaultPinName; }
 
@@ -130,16 +131,13 @@ public:
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category=Settings, AdvancedDisplay)
 	FName DefaultPinName = FName("Default");
 
-	/** */
-	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = "Warnings and Errors")
-	bool bQuietMissingAttribute = false;
-
 	TObjectPtr<UEnum> GetEnumClass() const;
 };
 
 struct FPCGExBranchOnDataAttributeContext final : FPCGExPointsProcessorContext
 {
 	friend class FPCGExBranchOnDataAttributeElement;
+	TArray<int32> Dispatch;
 };
 
 class FPCGExBranchOnDataAttributeElement final : public FPCGExPointsProcessorElement

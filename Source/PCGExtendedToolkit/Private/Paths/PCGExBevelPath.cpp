@@ -4,20 +4,30 @@
 #include "Paths/PCGExBevelPath.h"
 
 #include "PCGExRandom.h"
+#include "Data/PCGExData.h"
 #include "Data/PCGExPointFilter.h"
+#include "Data/PCGExPointIO.h"
+#include "Data/Blending/PCGExDataBlending.h"
+#include "Details/PCGExDetailsSettings.h"
+#include "Geometry/PCGExGeo.h"
+#include "Paths/PCGExPaths.h"
 
 
 #define LOCTEXT_NAMESPACE "PCGExBevelPathElement"
 #define PCGEX_NAMESPACE BevelPath
 
+PCGEX_SETTING_VALUE_IMPL(UPCGExBevelPathSettings, Width, double, WidthInput, WidthAttribute, WidthConstant)
+PCGEX_SETTING_VALUE_IMPL(UPCGExBevelPathSettings, Subdivisions, double, SubdivisionAmountInput, SubdivisionAmount, SubdivideMethod == EPCGExSubdivideMode::Count ? SubdivisionCount : SubdivisionDistance)
+
 TArray<FPCGPinProperties> UPCGExBevelPathSettings::InputPinProperties() const
 {
 	TArray<FPCGPinProperties> PinProperties = Super::InputPinProperties();
-	if (Type == EPCGExBevelProfileType::Custom) { PCGEX_PIN_POINT(PCGExBevelPath::SourceCustomProfile, "Single path used as bevel profile", Required, {}) }
+	if (Type == EPCGExBevelProfileType::Custom) { PCGEX_PIN_POINT(PCGExBevelPath::SourceCustomProfile, "Single path used as bevel profile", Required) }
 	return PinProperties;
 }
 
 PCGEX_INITIALIZE_ELEMENT(BevelPath)
+PCGEX_ELEMENT_BATCH_POINT_IMPL(BevelPath)
 
 void UPCGExBevelPathSettings::InitOutputFlags(const TSharedPtr<PCGExData::FPointIO>& InPointIO) const
 {
@@ -80,7 +90,7 @@ bool FPCGExBevelPathElement::ExecuteInternal(FPCGContext* InContext) const
 	{
 		PCGEX_ON_INVALILD_INPUTS(FTEXT("Some inputs have less than 3 points and won't be processed."))
 
-		if (!Context->StartBatchProcessingPoints<PCGExPointsMT::TBatch<PCGExBevelPath::FProcessor>>(
+		if (!Context->StartBatchProcessingPoints(
 			[&](const TSharedPtr<PCGExData::FPointIO>& Entry)
 			{
 				PCGEX_SKIP_INVALID_PATH_ENTRY
@@ -95,7 +105,7 @@ bool FPCGExBevelPathElement::ExecuteInternal(FPCGContext* InContext) const
 
 				return true;
 			},
-			[&](const TSharedPtr<PCGExPointsMT::TBatch<PCGExBevelPath::FProcessor>>& NewBatch)
+			[&](const TSharedPtr<PCGExPointsMT::IBatch>& NewBatch)
 			{
 				NewBatch->bRequiresWriteStep = (Settings->bFlagPoles || Settings->bFlagSubdivision || Settings->bFlagEndPoint || Settings->bFlagStartPoint);
 			}))
@@ -106,7 +116,7 @@ bool FPCGExBevelPathElement::ExecuteInternal(FPCGContext* InContext) const
 
 	PCGEX_POINTS_BATCH_PROCESSING(PCGExCommon::State_Done)
 
-	Context->MainPoints->StageOutputs();
+	PCGEX_OUTPUT_VALID_PATHS(MainPoints)
 
 	return Context->TryComplete();
 }
@@ -332,6 +342,8 @@ namespace PCGExBevelPath
 		}
 	}
 
+	double FProcessor::Len(const int32 Index) const { return PathLength->Get(Index); }
+
 	bool FProcessor::Process(const TSharedPtr<PCGExMT::FTaskManager>& InAsyncManager)
 	{
 		TRACE_CPUPROFILER_EVENT_SCOPE(PCGExBevelPath::Process);
@@ -366,7 +378,7 @@ namespace PCGExBevelPath
 
 		Path->ComputeAllEdgeExtra();
 
-		bDaisyChainProcessPoints = true;
+		bForceSingleThreadedProcessPoints = true;
 
 		Bevels.Init(nullptr, PointDataFacade->GetNum());
 
@@ -469,14 +481,11 @@ namespace PCGExBevelPath
 	{
 		const UPCGBasePointData* InPointData = PointDataFacade->GetIn();
 		UPCGBasePointData* OutPointData = PointDataFacade->GetOut();
-		UPCGMetadata* Metadata = OutPointData->Metadata;
 
 		// Only pin properties we will not be inheriting
 		TConstPCGValueRange<FTransform> InTransform = InPointData->GetConstTransformValueRange();
-		TConstPCGValueRange<int64> InMetadataEntry = InPointData->GetConstMetadataEntryValueRange();
 
 		TPCGValueRange<FTransform> OutTransform = OutPointData->GetTransformValueRange(false);
-		TPCGValueRange<int64> OutMetadataEntry = OutPointData->GetMetadataEntryValueRange(false);
 		TPCGValueRange<int32> OutSeeds = OutPointData->GetSeedValueRange(false);
 
 		TArray<int32>& IdxMapping = PointDataFacade->Source->GetIdxMapping();
@@ -490,8 +499,6 @@ namespace PCGExBevelPath
 			{
 				IdxMapping[StartIndex] = Index;
 				OutTransform[StartIndex] = InTransform[Index];
-				OutMetadataEntry[StartIndex] = InMetadataEntry[Index];
-				Metadata->InitializeOnSet(OutMetadataEntry[StartIndex]);
 				continue;
 			}
 
@@ -502,8 +509,6 @@ namespace PCGExBevelPath
 			{
 				IdxMapping[i] = Index;
 				OutTransform[i] = InTransform[Index];
-				OutMetadataEntry[i] = InMetadataEntry[Index];
-				Metadata->InitializeOnSet(OutMetadataEntry[i]);
 			}
 
 			OutTransform[A].SetLocation(Bevel->Arrive);
@@ -527,7 +532,7 @@ namespace PCGExBevelPath
 	{
 		constexpr EPCGPointNativeProperties CarryOverProperties =
 			static_cast<EPCGPointNativeProperties>(static_cast<uint8>(EPCGPointNativeProperties::All) &
-				~static_cast<uint8>(EPCGPointNativeProperties::Transform | EPCGPointNativeProperties::Seed | EPCGPointNativeProperties::MetadataEntry));
+				~static_cast<uint8>(EPCGPointNativeProperties::Transform | EPCGPointNativeProperties::MetadataEntry));
 
 		PointDataFacade->Source->ConsumeIdxMapping(CarryOverProperties);
 	}
@@ -593,7 +598,41 @@ namespace PCGExBevelPath
 		UPCGBasePointData* MutablePoints = PointDataFacade->GetOut();
 		PCGEx::SetNumPointsAllocated(MutablePoints, NumOutPoints, PointDataFacade->GetAllocations());
 
-		StartParallelLoopForRange(PointDataFacade->GetNum());
+		// Initialize metadata entries at once, too expensive on thread
+
+		const UPCGBasePointData* InPointData = PointDataFacade->GetIn();
+		UPCGBasePointData* OutPointData = PointDataFacade->GetOut();
+		UPCGMetadata* Metadata = OutPointData->Metadata;
+
+		// Only pin properties we will not be inheriting
+		TConstPCGValueRange<int64> InMetadataEntry = InPointData->GetConstMetadataEntryValueRange();
+		TPCGValueRange<int64> OutMetadataEntry = OutPointData->GetMetadataEntryValueRange();
+
+		const int32 NumPoints = PointDataFacade->GetNum();
+
+		for (int Index = 0; Index < NumPoints; Index++)
+		{
+			const int32 StartIndex = StartIndices[Index];
+			const TSharedPtr<FBevel>& Bevel = Bevels[Index];
+
+			if (!Bevel)
+			{
+				OutMetadataEntry[StartIndex] = InMetadataEntry[Index];
+				Metadata->InitializeOnSet(OutMetadataEntry[StartIndex]);
+				continue;
+			}
+
+			const int32 A = Bevel->StartOutputIndex;
+			const int32 B = Bevel->EndOutputIndex;
+
+			for (int i = A; i <= B; i++)
+			{
+				OutMetadataEntry[i] = InMetadataEntry[Index];
+				Metadata->InitializeOnSet(OutMetadataEntry[i]);
+			}
+		}
+
+		StartParallelLoopForRange(NumPoints);
 	}
 
 	void FProcessor::Write()

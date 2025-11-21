@@ -4,14 +4,18 @@
 #include "PCGExContext.h"
 
 #include "PCGComponent.h"
-#include "PCGExMacros.h"
+#include "PCGExHelpers.h"
+#include "Details/PCGExMacros.h"
 #include "PCGExMT.h"
-#include "PCGExPointsProcessor.h"
 #include "PCGManagedResource.h"
 #include "Engine/AssetManager.h"
 #include "Helpers/PCGHelpers.h"
 #include "Async/Async.h"
 #include "Engine/EngineTypes.h"
+
+#if WITH_EDITOR
+#include "Helpers/PCGDynamicTrackingHelpers.h"
+#endif
 
 #define LOCTEXT_NAMESPACE "PCGExContext"
 
@@ -137,9 +141,7 @@ TSharedPtr<PCGExMT::FTaskManager> FPCGExContext::GetAsyncManager()
 	{
 		FWriteScopeLock WriteLock(AsyncLock);
 		AsyncManager = MakeShared<PCGExMT::FTaskManager>(this);
-
-		if (const UPCGExPointsProcessorSettings* Settings = GetInputSettings<UPCGExPointsProcessorSettings>()) { PCGExMT::SetWorkPriority(Settings->WorkPriority, AsyncManager->WorkPriority); }
-		else { AsyncManager->WorkPriority = LowLevelTasks::ETaskPriority::Default; }
+		PCGExMT::SetWorkPriority(WorkPriority, AsyncManager->WorkPriority);
 	}
 
 	return AsyncManager;
@@ -175,21 +177,47 @@ void FPCGExContext::IncreaseStagedOutputReserve(const int32 InIncreaseNum)
 	OutputData.TaggedData.Reserve(OutputData.TaggedData.Num() + InIncreaseNum);
 }
 
-void FPCGExContext::ExecuteOnNotifyActors(const TArray<FName>& FunctionNames) const
+void FPCGExContext::ExecuteOnNotifyActors(const TArray<FName>& FunctionNames)
 {
 	FReadScopeLock ReadScopeLock(NotifyActorsLock);
 
 	// Execute PostProcess Functions
 	if (!NotifyActors.IsEmpty())
 	{
-		TArray<AActor*> NotifyActorsArray = NotifyActors.Array();
-		for (AActor* TargetActor : NotifyActorsArray)
+		if (IsInGameThread())
 		{
-			if (!IsValid(TargetActor)) { continue; }
-			for (UFunction* Function : PCGExHelpers::FindUserFunctions(TargetActor->GetClass(), FunctionNames, {UPCGExFunctionPrototypes::GetPrototypeWithNoParams()}, this))
+			TArray<AActor*> NotifyActorsArray = NotifyActors.Array();
+			for (AActor* TargetActor : NotifyActorsArray)
 			{
-				TargetActor->ProcessEvent(Function, nullptr);
+				if (!IsValid(TargetActor)) { continue; }
+				for (UFunction* Function : PCGExHelpers::FindUserFunctions(TargetActor->GetClass(), FunctionNames, {UPCGExFunctionPrototypes::GetPrototypeWithNoParams()}, this))
+				{
+					TargetActor->ProcessEvent(Function, nullptr);
+				}
 			}
+		}
+		else
+		{
+			// Force execution on main thread
+			FSharedContext<FPCGExContext> SharedContext(GetOrCreateHandle());
+			if (!SharedContext.Get()) { return; }
+
+			FGraphEventRef Task = FFunctionGraphTask::CreateAndDispatchWhenReady(
+				[SharedContext, FunctionNames]()
+				{
+					const FPCGExContext* Ctx = SharedContext.Get();
+					for (TArray<AActor*> NotifyActorsArray = Ctx->NotifyActors.Array();
+					     AActor* TargetActor : NotifyActorsArray)
+					{
+						if (!IsValid(TargetActor)) { continue; }
+						for (UFunction* Function : PCGExHelpers::FindUserFunctions(TargetActor->GetClass(), FunctionNames, {UPCGExFunctionPrototypes::GetPrototypeWithNoParams()}, Ctx))
+						{
+							TargetActor->ProcessEvent(Function, nullptr);
+						}
+					}
+				}, TStatId(), nullptr, ENamedThreads::GameThread);
+
+			FTaskGraphInterface::Get().WaitUntilTaskCompletes(Task);
 		}
 	}
 }
@@ -442,25 +470,17 @@ void FPCGExContext::AddProtectedAttributeName(const FName InName)
 	}
 }
 
-void FPCGExContext::EDITOR_TrackPath(const FSoftObjectPath& Path, const bool bIsCulled) const
+void FPCGExContext::EDITOR_TrackPath(const FSoftObjectPath& Path, const bool bIsCulled)
 {
 #if WITH_EDITOR
-	if (UPCGComponent* PCGComponent = GetMutableComponent())
-	{
-		TPair<FPCGSelectionKey, bool> NewPair(FPCGSelectionKey::CreateFromPath(Path), bIsCulled);
-		PCGComponent->RegisterDynamicTracking(GetOriginalSettings<UPCGSettings>(), MakeArrayView(&NewPair, 1));
-	}
+	FPCGDynamicTrackingHelper::AddSingleDynamicTrackingKey(this, FPCGSelectionKey::CreateFromPath(Path), false);
 #endif
 }
 
-void FPCGExContext::EDITOR_TrackClass(const TSubclassOf<UObject>& InSelectionClass, bool bIsCulled) const
+void FPCGExContext::EDITOR_TrackClass(const TSubclassOf<UObject>& InSelectionClass, bool bIsCulled)
 {
 #if WITH_EDITOR
-	if (UPCGComponent* PCGComponent = GetMutableComponent())
-	{
-		TPair<FPCGSelectionKey, bool> NewPair(FPCGSelectionKey(InSelectionClass), bIsCulled);
-		PCGComponent->RegisterDynamicTracking(GetOriginalSettings<UPCGSettings>(), MakeArrayView(&NewPair, 1));
-	}
+	FPCGDynamicTrackingHelper::AddSingleDynamicTrackingKey(this, FPCGSelectionKey(InSelectionClass), false);
 #endif
 }
 
@@ -485,18 +505,17 @@ bool FPCGExContext::IsAsyncWorkComplete()
 
 bool FPCGExContext::CancelExecution(const FString& InReason)
 {
-	PCGEX_TERMINATE_ASYNC
-
 	if (bExecutionCancelled) { return true; }
 
+	if (!InReason.IsEmpty() && !bQuietCancellationError) { PCGE_LOG_C(Error, GraphAndLog, this, FTEXT(InReason)); }
+
 	bExecutionCancelled = true;
+	PCGEX_TERMINATE_ASYNC
 
 	OutputData.Reset();
-	OutputData.bCancelExecution = true;
+	if (bPropagateAbortedExecution) { OutputData.bCancelExecution = true; }
 
-	WorkPermit.Reset();
 	ResumeExecution();
-	if (!InReason.IsEmpty() && !bQuietCancellationError) { PCGE_LOG_C(Error, GraphAndLog, this, FTEXT(InReason)); }
 	return true;
 }
 

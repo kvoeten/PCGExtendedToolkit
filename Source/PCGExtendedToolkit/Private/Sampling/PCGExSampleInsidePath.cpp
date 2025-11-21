@@ -3,9 +3,21 @@
 
 #include "Sampling/PCGExSampleInsidePath.h"
 
+#include "Data/PCGExDataHelpers.h"
+#include "Data/PCGExDataTag.h"
+#include "Data/PCGExPointIO.h"
+#include "Data/Blending/PCGExBlendModes.h"
+#include "Data/Blending/PCGExBlendOpsManager.h"
+#include "Data/Blending/PCGExDataBlending.h"
+#include "Data/Blending/PCGExUnionOpsManager.h"
 #include "Data/Matching/PCGExMatchRuleFactoryProvider.h"
+#include "Details/PCGExDetailsDistances.h"
+#include "Details/PCGExDetailsSettings.h"
 #include "Misc/PCGExDiscardByPointCount.h"
+#include "Paths/PCGExPaths.h"
 
+PCGEX_SETTING_VALUE_IMPL(UPCGExSampleInsidePathSettings, RangeMin, double, RangeMinInput, RangeMinAttribute, RangeMin)
+PCGEX_SETTING_VALUE_IMPL(UPCGExSampleInsidePathSettings, RangeMax, double, RangeMaxInput, RangeMaxAttribute, RangeMax)
 
 #define LOCTEXT_NAMESPACE "PCGExSampleInsidePathElement"
 #define PCGEX_NAMESPACE SampleInsidePath
@@ -25,7 +37,7 @@ TArray<FPCGPinProperties> UPCGExSampleInsidePathSettings::InputPinProperties() c
 {
 	TArray<FPCGPinProperties> PinProperties = Super::InputPinProperties();
 
-	PCGEX_PIN_POINTS(PCGEx::SourceTargetsLabel, "The points to sample.", Required, {})
+	PCGEX_PIN_POINTS(PCGEx::SourceTargetsLabel, "The points to sample.", Required)
 	PCGExMatching::DeclareMatchingRulesInputs(DataMatching, PinProperties);
 	PCGExDataBlending::DeclareBlendOpsInputs(PinProperties, EPCGPinStatus::Normal);
 	PCGExSorting::DeclareSortingRulesInputs(PinProperties, SampleMethod == EPCGExSampleMethod::BestCandidate ? EPCGPinStatus::Required : EPCGPinStatus::Advanced);
@@ -36,7 +48,7 @@ TArray<FPCGPinProperties> UPCGExSampleInsidePathSettings::InputPinProperties() c
 TArray<FPCGPinProperties> UPCGExSampleInsidePathSettings::OutputPinProperties() const
 {
 	TArray<FPCGPinProperties> PinProperties = Super::OutputPinProperties();
-	if (OutputMode == EPCGExSampleInsidePathOutput::Split) { PCGEX_PIN_POINTS(PCGExDiscardByPointCount::OutputDiscardedLabel, "Discard inputs are paths that failed to sample any points, despite valid targets.", Normal, {}) }
+	if (OutputMode == EPCGExSampleInsidePathOutput::Split) { PCGEX_PIN_POINTS(PCGExDiscardByPointCount::OutputDiscardedLabel, "Discard inputs are paths that failed to sample any points, despite valid targets.", Normal) }
 	PCGExMatching::DeclareMatchingRulesOutputs(DataMatching, PinProperties);
 	return PinProperties;
 }
@@ -47,15 +59,11 @@ bool UPCGExSampleInsidePathSettings::IsPinUsedByNodeExecution(const UPCGPin* InP
 	return Super::IsPinUsedByNodeExecution(InPin);
 }
 
-void FPCGExSampleInsidePathContext::RegisterAssetDependencies()
-{
-	PCGEX_SETTINGS_LOCAL(SampleInsidePath)
-
-	FPCGExPointsProcessorContext::RegisterAssetDependencies();
-	AddAssetDependency(Settings->WeightOverDistance.ToSoftObjectPath());
-}
-
 PCGEX_INITIALIZE_ELEMENT(SampleInsidePath)
+
+PCGExData::EIOInit UPCGExSampleInsidePathSettings::GetMainDataInitializationPolicy() const { return PCGExData::EIOInit::Duplicate; }
+
+PCGEX_ELEMENT_BATCH_POINT_IMPL(SampleInsidePath)
 
 bool FPCGExSampleInsidePathElement::Boot(FPCGExContext* InContext) const
 {
@@ -132,25 +140,19 @@ bool FPCGExSampleInsidePathElement::Boot(FPCGExContext* InContext) const
 			});
 	}
 
-	return true;
-}
-
-void FPCGExSampleInsidePathElement::PostLoadAssetsDependencies(FPCGExContext* InContext) const
-{
-	PCGEX_CONTEXT_AND_SETTINGS(SampleInsidePath)
-
-	FPCGExPointsProcessorElement::PostLoadAssetsDependencies(InContext);
-
 	Context->RuntimeWeightCurve = Settings->LocalWeightOverDistance;
 
-	if (!Settings->bUseLocalCurve)
+	if (!Settings->bUseLocalCurve && Settings->WeightOverDistance.IsValid())
 	{
 		Context->RuntimeWeightCurve.EditorCurveData.AddKey(0, 0);
 		Context->RuntimeWeightCurve.EditorCurveData.AddKey(1, 1);
+		PCGExHelpers::LoadBlocking_AnyThread(Settings->WeightOverDistance);
 		Context->RuntimeWeightCurve.ExternalCurve = Settings->WeightOverDistance.Get();
 	}
 
 	Context->WeightCurve = Context->RuntimeWeightCurve.GetRichCurveConst();
+
+	return true;
 }
 
 bool FPCGExSampleInsidePathElement::ExecuteInternal(FPCGContext* InContext) const
@@ -175,9 +177,9 @@ bool FPCGExSampleInsidePathElement::ExecuteInternal(FPCGContext* InContext) cons
 
 			Context->TargetsHandler->SetMatchingDetails(Context, &Settings->DataMatching);
 
-			if (!Context->StartBatchProcessingPoints<PCGExPointsMT::TBatch<PCGExSampleInsidePath::FProcessor>>(
+			if (!Context->StartBatchProcessingPoints(
 				[&](const TSharedPtr<PCGExData::FPointIO>& Entry) { return true; },
-				[&](const TSharedPtr<PCGExPointsMT::TBatch<PCGExSampleInsidePath::FProcessor>>& NewBatch)
+				[&](const TSharedPtr<PCGExPointsMT::IBatch>& NewBatch)
 				{
 				}))
 			{
@@ -195,12 +197,6 @@ bool FPCGExSampleInsidePathElement::ExecuteInternal(FPCGContext* InContext) cons
 
 	return Context->TryComplete();
 }
-
-bool FPCGExSampleInsidePathElement::CanExecuteOnlyOnMainThread(FPCGContext* Context) const
-{
-	return Context ? Context->CurrentPhase == EPCGExecutionPhase::PrepareData : false;
-}
-
 
 namespace PCGExSampleInsidePath
 {
@@ -227,7 +223,8 @@ namespace PCGExSampleInsidePath
 
 		PCGEX_INIT_IO(PointDataFacade->Source, PCGExData::EIOInit::Duplicate)
 
-		Path = MakeShared<PCGExPaths::FPolyPath>(PointDataFacade, Settings->ProjectionDetails,1,  Settings->HeightInclusion);
+		Path = MakeShared<PCGExPaths::FPolyPath>(PointDataFacade, Settings->ProjectionDetails, 1, Settings->HeightInclusion);
+		Path->OffsetProjection(Settings->InclusionOffset);
 
 		// Allocate edge native properties
 

@@ -11,14 +11,10 @@
 #include "PCGExGlobalSettings.h"
 #include "PCGExPointsProcessor.h"
 #include "PCGExSampling.h"
-#include "PCGExScopedContainers.h"
 #include "PCGExSorting.h"
-#include "Data/Blending/PCGExBlendOpFactoryProvider.h"
+#include "Data/PCGExPointFilter.h"
 #include "Data/Blending/PCGExDataBlending.h"
-#include "Data/Blending/PCGExUnionOpsManager.h"
 #include "Data/Matching/PCGExMatching.h"
-#include "Geometry/PCGExGeoPointBox.h"
-
 
 #include "PCGExSampleNearestBounds.generated.h"
 
@@ -33,8 +29,18 @@ MACRO(Angle, double, 0)\
 MACRO(NumSamples, int32, 0)\
 MACRO(SampledIndex, int32, -1)
 
+class UPCGExBlendOpFactory;
+
+namespace PCGExMT
+{
+	template <typename T>
+	class TScopedNumericValue;
+}
+
 namespace PCGExDataBlending
 {
+	class IUnionBlender;
+	class FUnionOpsManager;
 	class FUnionBlender;
 }
 
@@ -60,7 +66,7 @@ public:
 	//~Begin UPCGSettings
 #if WITH_EDITOR
 	PCGEX_NODE_INFOS(SampleNearestBounds, "Sample : Nearest Bounds", "Sample nearest target bounds.");
-	virtual FLinearColor GetNodeTitleColor() const override { return GetDefault<UPCGExGlobalSettings>()->NodeColorSampler; }
+	virtual FLinearColor GetNodeTitleColor() const override { return GetDefault<UPCGExGlobalSettings>()->ColorSampling; }
 #endif
 
 protected:
@@ -69,6 +75,8 @@ protected:
 	virtual bool IsPinUsedByNodeExecution(const UPCGPin* InPin) const override;
 	virtual FPCGElementPtr CreateElement() const override;
 	//~End UPCGSettings
+
+	virtual PCGExData::EIOInit GetMainDataInitializationPolicy() const override;
 
 	//~Begin UPCGExPointsProcessorSettings
 public:
@@ -86,8 +94,9 @@ public:
 	EPCGExBoundsSampleMethod SampleMethod = EPCGExBoundsSampleMethod::WithinRange;
 
 	/** Sort direction */
-	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = "Settings|Sampling", meta = (PCG_Overridable, EditCondition="SampleMethod == EPCGExBoundsSampleMethod::BestCandidate", EditConditionHides))
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = "Settings|Sampling", meta = (PCG_Overridable, DisplayName=" └─ Sort direction", EditCondition="SampleMethod == EPCGExBoundsSampleMethod::BestCandidate", EditConditionHides))
 	EPCGExSortDirection SortDirection = EPCGExSortDirection::Ascending;
+
 
 	/** Source bounds.*/
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = "Settings|Sampling", meta=(PCG_NotOverridable))
@@ -169,7 +178,7 @@ public:
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = "Settings|Outputs", meta=(PCG_Overridable, DisplayName=" └─ Up Vector", EditCondition="LookAtUpSelection == EPCGExSampleSource::Constant", EditConditionHides))
 	FVector LookAtUpConstant = FVector::UpVector;
 
-	PCGEX_SETTING_VALUE_GET(LookAtUp, FVector, LookAtUpSelection == EPCGExSampleSource::Constant ? EPCGExInputValueType::Constant : EPCGExInputValueType::Attribute, LookAtUpSource, LookAtUpConstant)
+	PCGEX_SETTING_VALUE_DECL(LookAtUp, FVector)
 
 	/** Write the sampled distance. */
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = "Settings|Outputs", meta=(PCG_Overridable, InlineEditConditionToggle))
@@ -303,6 +312,9 @@ struct FPCGExSampleNearestBoundsContext final : FPCGExPointsProcessorContext
 	PCGEX_FOREACH_FIELD_NEARESTBOUNDS(PCGEX_OUTPUT_DECL_TOGGLE)
 
 	virtual void RegisterAssetDependencies() override;
+
+protected:
+	PCGEX_ELEMENT_BATCH_POINT_DECL
 };
 
 class FPCGExSampleNearestBoundsElement final : public FPCGExPointsProcessorElement

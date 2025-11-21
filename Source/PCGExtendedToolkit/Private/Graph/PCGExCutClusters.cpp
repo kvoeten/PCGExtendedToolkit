@@ -3,6 +3,11 @@
 
 #include "Graph/PCGExCutClusters.h"
 
+#include "PCGExMathBounds.h"
+
+#include "Data/PCGExData.h"
+#include "Data/PCGExPointIO.h"
+#include "Details/PCGExDetailsDistances.h"
 #include "Graph/PCGExGraph.h"
 #include "Graph/Filters/PCGExClusterFilter.h"
 
@@ -13,9 +18,9 @@ TArray<FPCGPinProperties> UPCGExCutEdgesSettings::InputPinProperties() const
 {
 	TArray<FPCGPinProperties> PinProperties = Super::InputPinProperties();
 
-	PCGEX_PIN_POINTS(PCGExPaths::SourcePathsLabel, "Cutting paths.", Required, {})
-	if (Mode != EPCGExCutEdgesMode::Edges) { PCGEX_PIN_FACTORIES(PCGExCutEdges::SourceNodeFilters, "Node preservation filters.", Normal, {}) }
-	if (Mode != EPCGExCutEdgesMode::Nodes) { PCGEX_PIN_FACTORIES(PCGExCutEdges::SourceEdgeFilters, "Edge preservation filters.", Normal, {}) }
+	PCGEX_PIN_POINTS(PCGExPaths::SourcePathsLabel, "Cutting paths.", Required)
+	if (Mode != EPCGExCutEdgesMode::Edges) { PCGEX_PIN_FILTERS(PCGExCutEdges::SourceNodeFilters, "Node preservation filters.", Normal) }
+	if (Mode != EPCGExCutEdgesMode::Nodes) { PCGEX_PIN_FILTERS(PCGExCutEdges::SourceEdgeFilters, "Edge preservation filters.", Normal) }
 
 	return PinProperties;
 }
@@ -24,6 +29,7 @@ PCGExData::EIOInit UPCGExCutEdgesSettings::GetMainOutputInitMode() const { retur
 PCGExData::EIOInit UPCGExCutEdgesSettings::GetEdgeOutputInitMode() const { return PCGExData::EIOInit::NoInit; }
 
 PCGEX_INITIALIZE_ELEMENT(CutEdges)
+PCGEX_ELEMENT_BATCH_EDGE_IMPL_ADV(CutEdges)
 
 bool FPCGExCutEdgesElement::Boot(FPCGExContext* InContext) const
 {
@@ -42,12 +48,16 @@ bool FPCGExCutEdgesElement::Boot(FPCGExContext* InContext) const
 
 	if (Context->bWantsEdgesProcessing)
 	{
-		GetInputFactories(Context, PCGExCutEdges::SourceEdgeFilters, Context->EdgeFilterFactories, PCGExFactories::ClusterEdgeFilters, false);
+		GetInputFactories(
+			Context, PCGExCutEdges::SourceEdgeFilters, Context->EdgeFilterFactories,
+			PCGExFactories::ClusterEdgeFilters, false);
 	}
 
 	if (Context->bWantsVtxProcessing)
 	{
-		GetInputFactories(Context, PCGExCutEdges::SourceNodeFilters, Context->VtxFilterFactories, PCGExFactories::ClusterNodeFilters, false);
+		GetInputFactories(
+			Context, PCGExCutEdges::SourceNodeFilters, Context->VtxFilterFactories,
+			PCGExFactories::ClusterNodeFilters, false);
 	}
 
 	PCGEX_MAKE_SHARED(PathCollection, PCGExData::FPointIOCollection, Context, PCGExPaths::SourcePathsLabel)
@@ -118,9 +128,9 @@ bool FPCGExCutEdgesElement::ExecuteInternal(
 
 	PCGEX_ON_ASYNC_STATE_READY(PCGExPaths::State_BuildingPaths)
 	{
-		if (!Context->StartProcessingClusters<PCGExCutEdges::FBatch>(
+		if (!Context->StartProcessingClusters(
 			[](const TSharedPtr<PCGExData::FPointIOTaggedEntries>& Entries) { return true; },
-			[&](const TSharedPtr<PCGExCutEdges::FBatch>& NewBatch)
+			[&](const TSharedPtr<PCGExClusterMT::IBatch>& NewBatch)
 			{
 				if (Context->bWantsVtxProcessing) { NewBatch->VtxFilterFactories = &Context->VtxFilterFactories; }
 				if (Context->bWantsEdgesProcessing) { NewBatch->EdgeFilterFactories = &Context->EdgeFilterFactories; }

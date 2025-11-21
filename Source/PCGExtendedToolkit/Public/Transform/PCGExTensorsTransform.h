@@ -8,8 +8,7 @@
 #include "PCGExGlobalSettings.h"
 
 #include "PCGExPointsProcessor.h"
-#include "PCGExTransform.h"
-
+#include "Data/PCGExPointFilter.h"
 
 #include "Paths/PCGExPaths.h"
 #include "Sampling/PCGExSampling.h"
@@ -44,13 +43,15 @@ public:
 	//~Begin UPCGSettings
 #if WITH_EDITOR
 	PCGEX_NODE_INFOS(TensorsTransform, "Tensors Transform", "Transform input points using tensors.");
-	virtual FLinearColor GetNodeTitleColor() const override { return GetDefault<UPCGExGlobalSettings>()->NodeColorTransform; }
+	virtual FLinearColor GetNodeTitleColor() const override { return GetDefault<UPCGExGlobalSettings>()->ColorTransform; }
 #endif
 
 protected:
 	virtual TArray<FPCGPinProperties> InputPinProperties() const override;
 	virtual FPCGElementPtr CreateElement() const override;
 	//~End UPCGSettings
+
+	virtual PCGExData::EIOInit GetMainDataInitializationPolicy() const override;
 
 	//~Begin UPCGExPointsProcessorSettings
 public:
@@ -134,9 +135,12 @@ struct FPCGExTensorsTransformContext final : FPCGExPointsProcessorContext
 	friend class FPCGExTensorsTransformElement;
 
 	TArray<TObjectPtr<const UPCGExTensorFactoryData>> TensorFactories;
-	TArray<TObjectPtr<const UPCGExFilterFactoryData>> StopFilterFactories;
+	TArray<TObjectPtr<const UPCGExPointFilterFactoryData>> StopFilterFactories;
 
 	PCGEX_FOREACH_FIELD_TRTENSOR(PCGEX_OUTPUT_DECL_TOGGLE)
+
+protected:
+	PCGEX_ELEMENT_BATCH_POINT_DECL
 };
 
 class FPCGExTensorsTransformElement final : public FPCGExPointsProcessorElement

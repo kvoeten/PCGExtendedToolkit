@@ -8,9 +8,8 @@
 #include "PCGExGraph.h"
 #include "PCGExIntersections.h"
 #include "PCGExPointsProcessor.h"
-#include "PCGExDetailsIntersection.h"
+#include "Details/PCGExDetailsIntersection.h"
 #include "Data/PCGExData.h"
-#include "Data/Blending/PCGExUnionBlender.h"
 #include "Data/Blending/PCGExMetadataBlender.h"
 
 namespace PCGExGraph
@@ -75,7 +74,8 @@ namespace PCGExGraph
 	protected:
 		bool bRunning = false;
 
-		int32 NewEdgesNum = 0;
+		int32 PENum = 0;
+		int32 EENum = 0;
 
 		void OnNodesProcessingComplete();
 		void InternalStartExecution();
@@ -87,19 +87,21 @@ namespace PCGExGraph
 		TSharedPtr<FGraphBuilder> GraphBuilder;
 
 		FGraphMetadataDetails GraphMetadataDetails;
+
 		TSharedPtr<FPointEdgeIntersections> PointEdgeIntersections;
+
+		TSharedPtr<PCGExMT::TScopedPtr<FEdgeEdgeIntersections>> ScopedEdgeEdgeIntersections;
 		TSharedPtr<FEdgeEdgeIntersections> EdgeEdgeIntersections;
+
 		TSharedPtr<PCGExDataBlending::FMetadataBlender> MetadataBlender;
 
 		void FindPointEdgeIntersections();
-		void FindPointEdgeIntersectionsFound();
-		void OnPointEdgeSortingComplete();
-		void OnPointEdgeIntersectionsComplete() const;
+		void OnPointEdgeIntersectionsFound();
+		void OnPointEdgeIntersectionsComplete();
 
 		void FindEdgeEdgeIntersections();
 		void OnEdgeEdgeIntersectionsFound();
-		void OnEdgeEdgeSortingComplete();
-		void OnEdgeEdgeIntersectionsComplete() const;
+		void OnEdgeEdgeIntersectionsComplete();
 		void CompileFinalGraph();
 	};
 }

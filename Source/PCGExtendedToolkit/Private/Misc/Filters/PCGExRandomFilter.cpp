@@ -5,10 +5,15 @@
 
 #include "PCGExRandom.h"
 #include "Data/PCGExDataPreloader.h"
+#include "Data/PCGExPointIO.h"
+#include "Details/PCGExDetailsSettings.h"
 
 
 #define LOCTEXT_NAMESPACE "PCGExCompareFilterDefinition"
 #define PCGEX_NAMESPACE CompareFilterDefinition
+
+PCGEX_SETTING_VALUE_IMPL(FPCGExRandomFilterConfig, Threshold, double, ThresholdInput, ThresholdAttribute, Threshold)
+PCGEX_SETTING_VALUE_IMPL(FPCGExRandomFilterConfig, Weight, double, bPerPointWeight ? EPCGExInputValueType::Attribute : EPCGExInputValueType::Constant, Weight, 1)
 
 bool UPCGExRandomFilterFactory::Init(FPCGExContext* InContext)
 {
@@ -63,8 +68,7 @@ bool PCGExPointFilter::FRandomFilter::Init(FPCGExContext* InContext, const TShar
 
 	Threshold = TypedFilterFactory->Config.Threshold;
 
-
-	WeightBuffer = TypedFilterFactory->Config.GetValueSettingWeight();
+	WeightBuffer = TypedFilterFactory->Config.GetValueSettingWeight(PCGEX_QUIET_HANDLING);
 	if (!WeightBuffer->IsConstant())
 	{
 		if (TypedFilterFactory->Config.bRemapWeightInternally)
@@ -84,7 +88,7 @@ bool PCGExPointFilter::FRandomFilter::Init(FPCGExContext* InContext, const TShar
 		}
 	}
 
-	ThresholdBuffer = TypedFilterFactory->Config.GetValueSettingThreshold();
+	ThresholdBuffer = TypedFilterFactory->Config.GetValueSettingThreshold(PCGEX_QUIET_HANDLING);
 	if (!ThresholdBuffer->IsConstant())
 	{
 		if (TypedFilterFactory->Config.bRemapThresholdInternally)
